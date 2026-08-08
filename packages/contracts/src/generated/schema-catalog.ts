@@ -1,0 +1,2075 @@
+// Generated from canonical JSON Schemas by tooling/generate-typescript.ts. Do not edit.
+
+export const schemaCatalog = [
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/artifacts/artifact/1.0.0",
+    "title": "Artifact",
+    "description": "Immutable input or derived artifact metadata without a storage locator.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "kind",
+      "mediaType",
+      "byteLength",
+      "digest",
+      "displayName",
+      "publicationState",
+      "createdAt"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId"
+      },
+      "kind": {
+        "enum": [
+          "INPUT",
+          "SANITIZED_OUTPUT",
+          "REPORT",
+          "PREVIEW",
+          "QUARANTINED"
+        ]
+      },
+      "mediaType": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 127,
+        "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$"
+      },
+      "byteLength": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1073741824
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255
+      },
+      "publicationState": {
+        "enum": [
+          "STAGED",
+          "IMMUTABLE",
+          "QUARANTINED",
+          "PUBLISHABLE",
+          "EXPIRED",
+          "DELETING",
+          "DELETED"
+        ]
+      },
+      "createdAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "expiresAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "kind": "INPUT",
+        "mediaType": "text/plain",
+        "byteLength": 42,
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "displayName": "synthetic.txt",
+        "publicationState": "IMMUTABLE",
+        "createdAt": "2026-08-08T18:00:00Z"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/audit/audit-summary/1.0.0",
+    "title": "Audit summary",
+    "description": "Privacy-minimized processing provenance and bounded aggregate counts.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "jobId",
+      "operation",
+      "outcome",
+      "policy",
+      "componentVersions",
+      "counts",
+      "createdAt",
+      "completedAt"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "jobId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "operation": {
+        "enum": [
+          "SCAN",
+          "REDACT",
+          "VERIFY",
+          "INSPECT"
+        ]
+      },
+      "outcome": {
+        "enum": [
+          "VERIFIED",
+          "SUCCEEDED",
+          "FAILED",
+          "CANCELLED"
+        ]
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "componentVersions": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "counts": {
+        "type": "object",
+        "maxProperties": 64,
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "createdAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "completedAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "operation": "SCAN",
+        "outcome": "SUCCEEDED",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "componentVersions": {
+          "contracts": "0.1.0",
+          "detectorBundle": "0.1.0"
+        },
+        "counts": {
+          "detections": 2
+        },
+        "createdAt": "2026-08-08T18:00:00Z",
+        "completedAt": "2026-08-08T18:01:00Z"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/cli-report/1.0.0",
+    "title": "CLI operation report",
+    "description": "Privacy-minimized machine output for local scan, redact, verify, and inspect commands.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "enum": [
+          "SCAN",
+          "REDACT",
+          "VERIFY",
+          "INSPECT"
+        ]
+      },
+      "outcome": {
+        "enum": [
+          "SUCCEEDED",
+          "NEEDS_REVIEW",
+          "VERIFIED",
+          "PASS",
+          "FAIL"
+        ]
+      },
+      "input": {
+        "$ref": "#/$defs/artifactSummary"
+      },
+      "output": {
+        "$ref": "#/$defs/artifactSummary"
+      },
+      "artifact": {
+        "$ref": "#/$defs/artifactSummary"
+      },
+      "detectorBundleVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "counts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "detections",
+          "conflicts",
+          "byEntity"
+        ],
+        "properties": {
+          "detections": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byEntity": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      },
+      "detections": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "entityType",
+            "start",
+            "end",
+            "confidence",
+            "evidenceIds"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^rsp_[a-f0-9]{32}$"
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidenceIds": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      },
+      "conflicts": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "evidenceIds",
+            "start",
+            "end"
+          ],
+          "properties": {
+            "code": {
+              "const": "INCOMPATIBLE_OVERLAP"
+            },
+            "evidenceIds": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "uniqueItems": true
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      },
+      "plan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "strategy",
+          "actionCount",
+          "byEntity"
+        ],
+        "properties": {
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "strategy": {
+            "const": "TYPED_LABEL"
+          },
+          "actionCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byEntity": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      },
+      "verification": {
+        "$ref": "#/$defs/verification"
+      },
+      "capability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "adapter",
+          "version",
+          "operations"
+        ],
+        "properties": {
+          "adapter": {
+            "const": "text"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "SCAN",
+                "REDACT",
+                "VERIFY",
+                "INSPECT"
+              ]
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "$defs": {
+      "artifactSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "byteLength",
+          "digest"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "mediaType": {
+            "enum": [
+              "text/plain",
+              "text/markdown"
+            ]
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "unicodeCodePoints": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasUtf8Bom": {
+            "type": "boolean"
+          }
+        }
+      },
+      "verification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "profile",
+          "outcome",
+          "detectorBundleVersion",
+          "checks",
+          "findings"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0"
+          },
+          "profile": {
+            "const": "text-rescan-v1"
+          },
+          "outcome": {
+            "enum": [
+              "PASS",
+              "FAIL"
+            ]
+          },
+          "detectorBundleVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "UTF8_REOPEN",
+                "DETERMINISTIC_RESCAN",
+                "SPAN_RESOLUTION"
+              ]
+            },
+            "minItems": 3,
+            "uniqueItems": true
+          },
+          "findings": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "severity",
+                "blocking"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "RESIDUAL_DETECTION",
+                    "SPAN_CONFLICT"
+                  ]
+                },
+                "severity": {
+                  "const": "ERROR"
+                },
+                "blocking": {
+                  "const": true
+                },
+                "entityType": {
+                  "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "SCAN"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "input": true,
+            "detectorBundleVersion": true,
+            "counts": true,
+            "detections": true,
+            "conflicts": true
+          },
+          "required": [
+            "input",
+            "detectorBundleVersion",
+            "counts",
+            "detections",
+            "conflicts"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "REDACT"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "input": true,
+            "output": true,
+            "plan": true,
+            "verification": true
+          },
+          "required": [
+            "input",
+            "output",
+            "plan",
+            "verification"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "VERIFY"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "artifact": true,
+            "verification": true
+          },
+          "required": [
+            "artifact",
+            "verification"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "INSPECT"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "artifact": true,
+            "capability": true
+          },
+          "required": [
+            "artifact",
+            "capability"
+          ]
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "SCAN",
+        "outcome": "SUCCEEDED",
+        "input": {
+          "displayName": "synthetic.txt",
+          "mediaType": "text/plain",
+          "byteLength": 18,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "detectorBundleVersion": "0.1.0",
+        "counts": {
+          "detections": 0,
+          "conflicts": 0,
+          "byEntity": {}
+        },
+        "detections": [],
+        "conflicts": []
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/entity-type/1.0.0",
+    "title": "Entity type",
+    "description": "Initial versioned PII and secret entity taxonomy proposed by the reference catalog.",
+    "schemaVersion": "1.0.0",
+    "type": "string",
+    "enum": [
+      "PERSON",
+      "EMAIL",
+      "PHONE",
+      "ADDRESS",
+      "LOCATION",
+      "ORGANIZATION",
+      "DATE_OF_BIRTH",
+      "SSN",
+      "NATIONAL_ID",
+      "PASSPORT",
+      "DRIVER_LICENSE",
+      "CREDIT_CARD",
+      "BANK_ACCOUNT",
+      "ROUTING_NUMBER",
+      "MEDICAL_RECORD",
+      "HEALTH_PLAN_ID",
+      "ACCOUNT_ID",
+      "USERNAME",
+      "IP_ADDRESS",
+      "MAC_ADDRESS",
+      "API_KEY",
+      "ACCESS_TOKEN",
+      "PASSWORD",
+      "CUSTOM"
+    ],
+    "examples": [
+      "EMAIL"
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/errors/1.0.0",
+    "title": "Typed error envelope",
+    "description": "Privacy-safe stable error returned at process and protocol boundaries.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "error"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "correlationId"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "CONTRACT_UNSUPPORTED",
+              "SCHEMA_INVALID",
+              "IDEMPOTENCY_CONFLICT",
+              "INPUT_TOO_LARGE",
+              "FORMAT_UNSUPPORTED",
+              "FORMAT_ENCRYPTED",
+              "FORMAT_CORRUPT",
+              "POLICY_UNSATISFIABLE",
+              "REQUIRED_DETECTOR_UNAVAILABLE",
+              "MODEL_UNAVAILABLE",
+              "DETECTOR_TIMEOUT",
+              "DETECTION_LIMIT_EXCEEDED",
+              "MODEL_OUTPUT_INVALID",
+              "SOURCE_MAP_INVALID",
+              "REDACTION_PLAN_CONFLICT",
+              "REDACTION_COUNT_MISMATCH",
+              "VERIFICATION_RESIDUAL",
+              "VERIFICATION_INCOMPLETE",
+              "FIDELITY_OUT_OF_RANGE",
+              "STORAGE_UNAVAILABLE",
+              "JOB_CONFLICT",
+              "OUTPUT_COLLISION",
+              "RATE_LIMITED",
+              "SUPPLY_CHAIN_INVALID",
+              "AUTHORIZATION_DENIED",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "correlationId": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/CorrelationId"
+          },
+          "details": {
+            "type": "object",
+            "description": "Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.",
+            "maxProperties": 16,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "error": {
+          "code": "FORMAT_ENCRYPTED",
+          "message": "The input is encrypted and cannot be processed by this profile.",
+          "retryable": false,
+          "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/identifiers/1.0.0",
+    "title": "Identifier catalog",
+    "description": "Canonical opaque identifiers, semantic versions, and SHA-256 digests.",
+    "schemaVersion": "1.0.0",
+    "$defs": {
+      "ArtifactId": {
+        "type": "string",
+        "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "JobId": {
+        "type": "string",
+        "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "DetectionId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "EventId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "CorrelationId": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128
+      },
+      "Digest": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "Semver": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+      },
+      "DateTime": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "type": "object",
+    "additionalProperties": false,
+    "examples": [
+      {}
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detect-request/1.0.0",
+    "title": "Inference detect request",
+    "description": "Bounded contextual-inference request containing opaque chunks and no artifact metadata.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "requestId",
+      "chunks",
+      "entityTypes",
+      "minimumConfidence",
+      "options"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "requestId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "chunks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "text",
+            "absoluteStart"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            },
+            "absoluteStart": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "language": {
+              "type": "string",
+              "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+            }
+          }
+        }
+      },
+      "entityTypes": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+        }
+      },
+      "minimumConfidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "options": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maxDetectionsPerChunk"
+        ],
+        "properties": {
+          "maxDetectionsPerChunk": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "requestId": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "chunks": [
+          {
+            "id": "chunk-0001",
+            "text": "Synthetic Person",
+            "absoluteStart": 0,
+            "language": "en"
+          }
+        ],
+        "entityTypes": [
+          "PERSON"
+        ],
+        "minimumConfidence": 0.55,
+        "options": {
+          "maxDetectionsPerChunk": 200
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detect-response/1.0.0",
+    "title": "Inference detect response",
+    "description": "Contextual candidate spans relative to request chunks plus immutable model provenance.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "requestId",
+      "detections",
+      "model",
+      "warnings"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "requestId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "detections": {
+        "type": "array",
+        "maxItems": 64000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "chunkId",
+            "entityType",
+            "start",
+            "end",
+            "confidence",
+            "detector"
+          ],
+          "properties": {
+            "chunkId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "detector": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+                }
+              }
+            }
+          }
+        }
+      },
+      "model": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "runtime"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "runtime": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "warnings": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "requestId": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "detections": [
+          {
+            "chunkId": "chunk-0001",
+            "entityType": "PERSON",
+            "start": 0,
+            "end": 16,
+            "confidence": 0.97,
+            "detector": {
+              "id": "pii-small",
+              "version": "0.1.0"
+            }
+          }
+        ],
+        "model": {
+          "id": "pii-small",
+          "version": "0.1.0",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "runtime": "onnxruntime-cpu"
+        },
+        "warnings": []
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
+    "title": "Detection evidence",
+    "description": "One value-free detector assertion anchored to an extraction revision.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "entityType",
+      "span",
+      "confidence",
+      "source",
+      "detector"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+      },
+      "entityType": {
+        "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+      },
+      "span": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "offsetUnit",
+          "extractionRevision"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offsetUnit": {
+            "const": "UNICODE_CODE_POINT"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "source": {
+        "enum": [
+          "REGEX",
+          "CHECKSUM",
+          "STRUCTURED",
+          "DICTIONARY",
+          "MODEL",
+          "MANUAL"
+        ]
+      },
+      "detector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "nativeLocations": {
+        "type": "array",
+        "maxItems": 64,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reference"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "TEXT",
+                "JSON_POINTER",
+                "CSV_CELL",
+                "DOCX_PART",
+                "PDF_BOX"
+              ]
+            },
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "entityType": "EMAIL",
+        "span": {
+          "start": 8,
+          "end": 25,
+          "offsetUnit": "UNICODE_CODE_POINT",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": 0.99,
+        "source": "REGEX",
+        "detector": {
+          "id": "email-pattern",
+          "version": "0.1.0",
+          "ruleId": "email-v1"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/extraction/extracted-document/1.0.0",
+    "title": "Extracted document",
+    "description": "References to canonical text and source-map blobs for one immutable extraction revision.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "artifactId",
+      "adapter",
+      "canonicalTextRef",
+      "sourceMapRef",
+      "textLength",
+      "revisionDigest",
+      "warnings"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "artifactId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId"
+      },
+      "adapter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          }
+        }
+      },
+      "canonicalTextRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255
+      },
+      "sourceMapRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255
+      },
+      "textLength": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000000
+      },
+      "revisionDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "warnings": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "artifactId": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "adapter": {
+          "id": "text",
+          "version": "0.1.0"
+        },
+        "canonicalTextRef": "blob:text:1",
+        "sourceMapRef": "blob:map:1",
+        "textLength": 42,
+        "revisionDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "warnings": []
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/job-event/1.0.0",
+    "title": "Job event",
+    "description": "At-least-once safe job event carrying no document values or excerpts.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "jobId",
+      "cursor",
+      "revision",
+      "type",
+      "occurredAt"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/EventId"
+      },
+      "jobId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "cursor": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "type": {
+        "enum": [
+          "JOB_CREATED",
+          "STATE_CHANGED",
+          "REVIEW_REQUIRED",
+          "JOB_COMPLETED",
+          "JOB_FAILED",
+          "CANCELLATION_REQUESTED"
+        ]
+      },
+      "occurredAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "counts": {
+        "type": "object",
+        "maxProperties": 16,
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "603df129-c778-4b13-8b2a-0fe745593c8f",
+        "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "cursor": 1,
+        "revision": 1,
+        "type": "JOB_CREATED",
+        "occurredAt": "2026-08-08T18:00:00Z"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/job/1.0.0",
+    "title": "Job",
+    "description": "Durable job aggregate summary with optimistic revision and minimized metadata.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "operation",
+      "state",
+      "revision",
+      "policy",
+      "createdAt",
+      "updatedAt"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "operation": {
+        "enum": [
+          "SCAN",
+          "REDACT",
+          "VERIFY",
+          "INSPECT"
+        ]
+      },
+      "state": {
+        "enum": [
+          "QUEUED",
+          "VALIDATING",
+          "EXTRACTING",
+          "DETECTING",
+          "RESOLVING",
+          "NEEDS_REVIEW",
+          "REDACTING",
+          "VERIFYING",
+          "CANCELLING",
+          "VERIFIED",
+          "SUCCEEDED",
+          "FAILED",
+          "CANCELLED",
+          "EXPIRED"
+        ]
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "createdAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "updatedAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "expiresAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "detections": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "findings": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "operation": "SCAN",
+        "state": "QUEUED",
+        "revision": 1,
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "createdAt": "2026-08-08T18:00:00Z",
+        "updatedAt": "2026-08-08T18:00:00Z"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/models/model-manifest/1.0.0",
+    "title": "Model manifest",
+    "description": "Verified local model, tokenizer, protocol, provenance, and capability declaration.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "version",
+      "modelDigest",
+      "tokenizerDigest",
+      "runtime",
+      "protocolVersions",
+      "entityTypes",
+      "languages",
+      "license",
+      "provenance"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      },
+      "version": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+      },
+      "modelDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "tokenizerDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "runtime": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "protocolVersions": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+        }
+      },
+      "entityTypes": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+        }
+      },
+      "languages": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+        }
+      },
+      "license": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "spdxId",
+          "notice"
+        ],
+        "properties": {
+          "spdxId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "notice": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "provenance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "retrievedAt"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 500
+          },
+          "retrievedAt": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "synthetic-test-model",
+        "version": "0.1.0",
+        "modelDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tokenizerDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "runtime": "test-double",
+        "protocolVersions": [
+          "1.0.0"
+        ],
+        "entityTypes": [
+          "PERSON"
+        ],
+        "languages": [
+          "en"
+        ],
+        "license": {
+          "spdxId": "Apache-2.0",
+          "notice": "Synthetic test-only model manifest."
+        },
+        "provenance": {
+          "source": "https://local-pii.dev/synthetic-model",
+          "retrievedAt": "2026-08-08T18:00:00Z"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/policy/redaction-policy/1.0.0",
+    "title": "Redaction policy",
+    "description": "Declarative fail-closed transformation and verification policy with no executable content.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "version",
+      "riskTier",
+      "defaults",
+      "entities",
+      "verification",
+      "limits"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      },
+      "version": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+      },
+      "riskTier": {
+        "enum": [
+          "LOW",
+          "MODERATE",
+          "HIGH"
+        ]
+      },
+      "defaults": {
+        "$ref": "#/$defs/entityRule"
+      },
+      "entities": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 24,
+        "propertyNames": {
+          "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/entityRule"
+        }
+      },
+      "verification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "blockOnWarnings"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "blockOnWarnings": {
+            "type": "boolean"
+          }
+        }
+      },
+      "limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maximumInputBytes"
+        ],
+        "properties": {
+          "maximumInputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1073741824
+          }
+        }
+      }
+    },
+    "$defs": {
+      "entityRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "minimumConfidence",
+          "uncertainBehavior"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "REDACT",
+              "TYPED_LABEL",
+              "MASK",
+              "PSEUDONYM",
+              "HASHED_LABEL",
+              "KEEP",
+              "REQUIRE_REVIEW",
+              "BLOCK"
+            ]
+          },
+          "minimumConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "reviewBelow": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "uncertainBehavior": {
+            "enum": [
+              "REQUIRE_REVIEW",
+              "BLOCK",
+              "KEEP"
+            ]
+          },
+          "residualBehavior": {
+            "enum": [
+              "BLOCK",
+              "WARN"
+            ]
+          },
+          "requiredDetectors": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "requiredDetectorKinds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "REGEX",
+                "CHECKSUM",
+                "STRUCTURED",
+                "DICTIONARY",
+                "MODEL"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "development-labels",
+        "version": "0.1.0",
+        "riskTier": "LOW",
+        "defaults": {
+          "action": "TYPED_LABEL",
+          "minimumConfidence": 0.8,
+          "uncertainBehavior": "REQUIRE_REVIEW"
+        },
+        "entities": {
+          "EMAIL": {
+            "action": "TYPED_LABEL",
+            "minimumConfidence": 0.95,
+            "uncertainBehavior": "REQUIRE_REVIEW",
+            "requiredDetectors": [
+              "email-pattern"
+            ]
+          }
+        },
+        "verification": {
+          "profile": "text-rescan-v1",
+          "blockOnWarnings": true
+        },
+        "limits": {
+          "maximumInputBytes": 104857600
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0",
+    "title": "Redaction plan",
+    "description": "Immutable ordered replacement instructions bound to exact extraction and policy digests.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "extractionRevision",
+      "resolutionDigest",
+      "policyDigest",
+      "writer",
+      "actions",
+      "digest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "extractionRevision": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "resolutionDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "policyDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "writer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          }
+        }
+      },
+      "actions": {
+        "type": "array",
+        "maxItems": 100000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "entityType",
+            "start",
+            "end",
+            "action",
+            "replacement"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^act_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "action": {
+              "enum": [
+                "REDACT",
+                "TYPED_LABEL",
+                "MASK",
+                "PSEUDONYM",
+                "HASHED_LABEL"
+              ]
+            },
+            "replacement": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resolutionDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "policyDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "writer": {
+          "id": "text",
+          "version": "0.1.0"
+        },
+        "actions": [
+          {
+            "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+            "entityType": "EMAIL",
+            "start": 8,
+            "end": 25,
+            "action": "TYPED_LABEL",
+            "replacement": "[EMAIL_1]"
+          }
+        ],
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/verification/verification-report/1.0.0",
+    "title": "Verification report",
+    "description": "Independent verification outcome bound to the exact output digest.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "artifactId",
+      "artifactDigest",
+      "profile",
+      "outcome",
+      "checks",
+      "findings",
+      "completedAt",
+      "reportDigest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "artifactId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId"
+      },
+      "artifactDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "profile": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "outcome": {
+        "enum": [
+          "PASS",
+          "FAIL",
+          "INCOMPLETE"
+        ]
+      },
+      "checks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "uniqueItems": true
+      },
+      "findings": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "severity",
+            "blocking"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+            },
+            "severity": {
+              "enum": [
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+              ]
+            },
+            "blocking": {
+              "type": "boolean"
+            },
+            "locationRef": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "completedAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "reportDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "artifactId": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "profile": "text-rescan-v1",
+        "outcome": "PASS",
+        "checks": [
+          "REOPEN",
+          "RESCAN",
+          "ACTION_RECONCILIATION"
+        ],
+        "findings": [],
+        "completedAt": "2026-08-08T18:01:00Z",
+        "reportDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  }
+] as const;

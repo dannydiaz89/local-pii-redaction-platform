@@ -1,0 +1,74 @@
+openapi: 3.1.0
+info:
+  title: Local PII Redaction API
+  version: 0.1.0
+  description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: Local loopback profile
+    variables:
+      port:
+        default: "7314"
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      responses:
+        "204": { description: Process is alive }
+  /health/ready:
+    get:
+      operationId: getReadiness
+      responses:
+        "204": { description: Required local dependencies and contracts are compatible }
+        "503":
+          description: A required dependency is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+  /v1/capabilities:
+    get:
+      operationId: getCapabilities
+      responses:
+        "200":
+          description: Versioned local capability manifest
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [schemaVersion, contractVersions]
+                properties:
+                  schemaVersion: { const: 1.0.0 }
+                  contractVersions:
+                    type: array
+                    items: { type: string }
+  /v1/jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    get:
+      operationId: getJob
+      responses:
+        "200":
+          description: Current job state
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/job.schema.json"
+        "404":
+          description: Job is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+components:
+  securitySchemes:
+    LocalSession:
+      type: apiKey
+      in: header
+      name: Authorization
+security:
+  - LocalSession: []

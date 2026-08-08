@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["services/inference-python/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["services/inference-python/src/local_pii_inference/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

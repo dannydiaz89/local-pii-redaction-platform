@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "requestId": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+  "chunks": [{ "id": "chunk-emoji", "text": "👩🏽‍💻 éxample אבג", "absoluteStart": 7, "language": "en" }],
+  "entityTypes": ["PERSON", "EMAIL"],
+  "minimumConfidence": 0.55,
+  "options": { "maxDetectionsPerChunk": 200 }
+}

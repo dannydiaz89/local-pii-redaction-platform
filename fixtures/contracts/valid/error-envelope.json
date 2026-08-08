@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "FORMAT_ENCRYPTED",
+    "message": "The input is encrypted and cannot be processed by this profile.",
+    "retryable": false,
+    "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "details": { "format": "PDF", "stage": "VALIDATING" }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/jobs/job/1.0.0",
+  "title": "Job",
+  "description": "Durable job aggregate summary with optimistic revision and minimized metadata.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "operation", "state", "revision", "policy", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId" },
+    "operation": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] },
+    "state": { "enum": ["QUEUED", "VALIDATING", "EXTRACTING", "DETECTING", "RESOLVING", "NEEDS_REVIEW", "REDACTING", "VERIFYING", "CANCELLING", "VERIFIED", "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED"] },
+    "revision": { "type": "integer", "minimum": 1 },
+    "policy": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "digest"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" }, "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" } }
+    },
+    "createdAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "updatedAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "expiresAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "detections": { "type": "integer", "minimum": 0 }, "conflicts": { "type": "integer", "minimum": 0 }, "findings": { "type": "integer", "minimum": 0 } }
+    }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "job_01J4M91NJK8WAPJ7J95K73CB2M", "operation": "SCAN", "state": "QUEUED", "revision": 1,
+    "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+    "createdAt": "2026-08-08T18:00:00Z", "updatedAt": "2026-08-08T18:00:00Z"
+  }]
+}

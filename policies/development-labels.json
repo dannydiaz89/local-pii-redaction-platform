@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "development-labels",
+  "version": "0.1.0",
+  "riskTier": "LOW",
+  "defaults": {
+    "action": "TYPED_LABEL",
+    "minimumConfidence": 0.8,
+    "uncertainBehavior": "REQUIRE_REVIEW"
+  },
+  "entities": {
+    "EMAIL": {
+      "action": "TYPED_LABEL",
+      "minimumConfidence": 0.95,
+      "uncertainBehavior": "REQUIRE_REVIEW",
+      "requiredDetectors": ["email-pattern"]
+    }
+  },
+  "verification": { "profile": "text-rescan-v1", "blockOnWarnings": true },
+  "limits": { "maximumInputBytes": 104857600 }
+}

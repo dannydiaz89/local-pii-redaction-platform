@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "NATIVE_STACK_TRACE",
+    "message": "Unsafe implementation detail.",
+    "retryable": false,
+    "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V"
+  }
+}

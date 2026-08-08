@@ -1,0 +1,34 @@
+{
+  "name": "local-pii",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "author": "dannydiaz89 (https://github.com/dannydiaz89)",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm python:check && pnpm contracts:check",
+    "contracts:check": "node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-generated.ts",
+    "generate": "node --import tsx tooling/generate-typescript.ts && .venv/bin/python services/inference-python/scripts/generate_models.py",
+    "lint": "eslint . && node --import tsx tooling/check-boundaries.ts",
+    "pii-redact": "node apps/cli/dist/index.js",
+    "python:check": ".venv/bin/ruff check services/inference-python && .venv/bin/pytest",
+    "test": "vitest run",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^24.2.0",
+    "ajv": "^8.17.1",
+    "eslint": "^9.32.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.39.0",
+    "vitest": "^3.2.4"
+  }
+}

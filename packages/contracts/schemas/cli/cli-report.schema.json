@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/cli/cli-report/1.0.0",
+  "title": "CLI operation report",
+  "description": "Privacy-minimized machine output for local scan, redact, verify, and inspect commands.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "outcome"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operation": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] },
+    "outcome": { "enum": ["SUCCEEDED", "NEEDS_REVIEW", "VERIFIED", "PASS", "FAIL"] },
+    "input": { "$ref": "#/$defs/artifactSummary" },
+    "output": { "$ref": "#/$defs/artifactSummary" },
+    "artifact": { "$ref": "#/$defs/artifactSummary" },
+    "detectorBundleVersion": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "counts": {
+      "type": "object", "additionalProperties": false, "required": ["detections", "conflicts", "byEntity"],
+      "properties": {
+        "detections": { "type": "integer", "minimum": 0 }, "conflicts": { "type": "integer", "minimum": 0 },
+        "byEntity": { "type": "object", "propertyNames": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" }, "additionalProperties": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "detections": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "entityType", "start", "end", "confidence", "evidenceIds"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^rsp_[a-f0-9]{32}$" }, "entityType": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" },
+          "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 1 }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evidenceIds": { "type": "array", "minItems": 1, "items": { "type": "string", "format": "uuid" }, "uniqueItems": true }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "evidenceIds", "start", "end"],
+        "properties": {
+          "code": { "const": "INCOMPATIBLE_OVERLAP" }, "evidenceIds": { "type": "array", "minItems": 2, "items": { "type": "string", "format": "uuid" }, "uniqueItems": true },
+          "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "plan": {
+      "type": "object", "additionalProperties": false, "required": ["digest", "strategy", "actionCount", "byEntity"],
+      "properties": {
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }, "strategy": { "const": "TYPED_LABEL" },
+        "actionCount": { "type": "integer", "minimum": 0 },
+        "byEntity": { "type": "object", "propertyNames": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" }, "additionalProperties": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "verification": { "$ref": "#/$defs/verification" },
+    "capability": {
+      "type": "object", "additionalProperties": false, "required": ["adapter", "version", "operations"],
+      "properties": {
+        "adapter": { "const": "text" }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "operations": { "type": "array", "items": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] }, "uniqueItems": true }
+      }
+    }
+  },
+  "$defs": {
+    "artifactSummary": {
+      "type": "object", "additionalProperties": false, "required": ["byteLength", "digest"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 }, "displayName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "mediaType": { "enum": ["text/plain", "text/markdown"] }, "byteLength": { "type": "integer", "minimum": 0 },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "extractionRevision": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "unicodeCodePoints": { "type": "integer", "minimum": 0 }, "hasUtf8Bom": { "type": "boolean" }
+      }
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false, "required": ["schemaVersion", "profile", "outcome", "detectorBundleVersion", "checks", "findings"],
+      "properties": {
+        "schemaVersion": { "const": "1.0.0" }, "profile": { "const": "text-rescan-v1" }, "outcome": { "enum": ["PASS", "FAIL"] }, "detectorBundleVersion": { "type": "string", "minLength": 1 },
+        "checks": { "type": "array", "items": { "enum": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION"] }, "minItems": 3, "uniqueItems": true },
+        "findings": {
+          "type": "array", "maxItems": 10000,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["code", "severity", "blocking"],
+            "properties": {
+              "code": { "enum": ["RESIDUAL_DETECTION", "SPAN_CONFLICT"] }, "severity": { "const": "ERROR" }, "blocking": { "const": true },
+              "entityType": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" }, "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "operation": { "const": "SCAN" } } }, "then": { "properties": { "input": true, "detectorBundleVersion": true, "counts": true, "detections": true, "conflicts": true }, "required": ["input", "detectorBundleVersion", "counts", "detections", "conflicts"] } },
+    { "if": { "properties": { "operation": { "const": "REDACT" } } }, "then": { "properties": { "input": true, "output": true, "plan": true, "verification": true }, "required": ["input", "output", "plan", "verification"] } },
+    { "if": { "properties": { "operation": { "const": "VERIFY" } } }, "then": { "properties": { "artifact": true, "verification": true }, "required": ["artifact", "verification"] } },
+    { "if": { "properties": { "operation": { "const": "INSPECT" } } }, "then": { "properties": { "artifact": true, "capability": true }, "required": ["artifact", "capability"] } }
+  ],
+  "examples": [{
+    "schemaVersion": "1.0.0", "operation": "SCAN", "outcome": "SUCCEEDED",
+    "input": { "displayName": "synthetic.txt", "mediaType": "text/plain", "byteLength": 18, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "detectorBundleVersion": "0.1.0", "counts": { "detections": 0, "conflicts": 0, "byEntity": {} }, "detections": [], "conflicts": []
+  }]
+}

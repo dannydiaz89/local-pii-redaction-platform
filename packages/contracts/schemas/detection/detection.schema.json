@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
+  "title": "Detection evidence",
+  "description": "One value-free detector assertion anchored to an extraction revision.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "entityType", "span", "confidence", "source", "detector"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId" },
+    "entityType": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" },
+    "span": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start", "end", "offsetUnit", "extractionRevision"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "offsetUnit": { "const": "UNICODE_CODE_POINT" },
+        "extractionRevision": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source": { "enum": ["REGEX", "CHECKSUM", "STRUCTURED", "DICTIONARY", "MODEL", "MANUAL"] },
+    "detector": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "ruleId": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "nativeLocations": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "reference"],
+        "properties": { "kind": { "enum": ["TEXT", "JSON_POINTER", "CSV_CELL", "DOCX_PART", "PDF_BOX"] }, "reference": { "type": "string", "minLength": 1, "maxLength": 500 } }
+      }
+    },
+    "attributes": { "type": "object", "maxProperties": 32, "additionalProperties": { "type": ["string", "number", "boolean"] } }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967", "entityType": "EMAIL",
+    "span": { "start": 8, "end": 25, "offsetUnit": "UNICODE_CODE_POINT", "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "confidence": 0.99, "source": "REGEX", "detector": { "id": "email-pattern", "version": "0.1.0", "ruleId": "email-v1" }
+  }]
+}

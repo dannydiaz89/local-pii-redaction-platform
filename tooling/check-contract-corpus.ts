@@ -1,0 +1,57 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { Ajv2020 } from 'ajv/dist/2020.js';
+
+import { loadJson, loadSchemas, repositoryRoot } from './schema-utils.js';
+
+interface CorpusCase {
+  readonly file: string;
+  readonly schemaId: string;
+  readonly valid: boolean;
+}
+
+interface CorpusManifest {
+  readonly cases: readonly CorpusCase[];
+}
+
+const schemas = loadSchemas();
+const ids = new Set<string>();
+const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
+ajv.addFormat('uuid', /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
+ajv.addFormat('date-time', (value: string) => !Number.isNaN(Date.parse(value)));
+ajv.addFormat('uri', (value: string) => {
+  try { return new URL(value).protocol.length > 1; } catch { return false; }
+});
+ajv.addKeyword({ keyword: 'schemaVersion', schemaType: 'string', valid: true });
+
+for (const item of schemas) {
+  const { $id, title, description, schemaVersion, examples } = item.schema;
+  if (typeof $id !== 'string' || ids.has($id)) throw new Error(`Missing or duplicate $id: ${item.relativePath}`);
+  if (typeof title !== 'string' || typeof description !== 'string' || schemaVersion !== '1.0.0') throw new Error(`Incomplete schema metadata: ${item.relativePath}`);
+  if (!Array.isArray(examples) || examples.length === 0) throw new Error(`Schema needs synthetic examples: ${item.relativePath}`);
+  ids.add($id);
+  ajv.addSchema(item.schema);
+}
+
+for (const item of schemas) {
+  const id = item.schema.$id as string;
+  const validate = ajv.getSchema(id);
+  if (validate === undefined) throw new Error(`Schema did not compile: ${id}`);
+  for (const example of item.schema.examples as readonly unknown[]) {
+    if (!validate(example)) throw new Error(`Invalid example in ${item.relativePath}: ${JSON.stringify(validate.errors)}`);
+  }
+}
+
+const corpusRoot = resolve(repositoryRoot, 'fixtures/contracts');
+const manifest = JSON.parse(readFileSync(resolve(corpusRoot, 'manifest.json'), 'utf8')) as CorpusManifest;
+for (const testCase of manifest.cases) {
+  const validate = ajv.getSchema(testCase.schemaId);
+  if (validate === undefined) throw new Error(`Unknown corpus schema: ${testCase.schemaId}`);
+  const actualValid = validate(loadJson(resolve(corpusRoot, testCase.file))) === true;
+  if (actualValid !== testCase.valid) {
+    throw new Error(`${testCase.file}: expected valid=${String(testCase.valid)}, got ${String(actualValid)}: ${JSON.stringify(validate.errors)}`);
+  }
+}
+
+console.log(`Validated ${String(schemas.length)} schemas and ${String(manifest.cases.length)} cross-language fixtures.`);

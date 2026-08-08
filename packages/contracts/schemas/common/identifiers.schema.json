@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/common/identifiers/1.0.0",
+  "title": "Identifier catalog",
+  "description": "Canonical opaque identifiers, semantic versions, and SHA-256 digests.",
+  "schemaVersion": "1.0.0",
+  "$defs": {
+    "ArtifactId": { "type": "string", "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "JobId": { "type": "string", "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "DetectionId": { "type": "string", "format": "uuid" },
+    "EventId": { "type": "string", "format": "uuid" },
+    "CorrelationId": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "Digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "Semver": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$" },
+    "DateTime": { "type": "string", "format": "date-time" }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "examples": [{}]
+}

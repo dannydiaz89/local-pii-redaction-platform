@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0",
+  "title": "Redaction plan",
+  "description": "Immutable ordered replacement instructions bound to exact extraction and policy digests.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "extractionRevision", "resolutionDigest", "policyDigest", "writer", "actions", "digest"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "type": "string", "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "extractionRevision": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "resolutionDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "policyDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "writer": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" } }
+    },
+    "actions": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "entityType", "start", "end", "action", "replacement"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^act_[0-9A-HJKMNP-TV-Z]{26}$" },
+          "entityType": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" },
+          "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 1 },
+          "action": { "enum": ["REDACT", "TYPED_LABEL", "MASK", "PSEUDONYM", "HASHED_LABEL"] },
+          "replacement": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "resolutionDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "policyDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "writer": { "id": "text", "version": "0.1.0" },
+    "actions": [{ "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V", "entityType": "EMAIL", "start": 8, "end": 25, "action": "TYPED_LABEL", "replacement": "[EMAIL_1]" }],
+    "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }]
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/jobs/job-event/1.0.0",
+  "title": "Job event",
+  "description": "At-least-once safe job event carrying no document values or excerpts.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "jobId", "cursor", "revision", "type", "occurredAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/EventId" },
+    "jobId": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId" },
+    "cursor": { "type": "integer", "minimum": 1 }, "revision": { "type": "integer", "minimum": 1 },
+    "type": { "enum": ["JOB_CREATED", "STATE_CHANGED", "REVIEW_REQUIRED", "JOB_COMPLETED", "JOB_FAILED", "CANCELLATION_REQUESTED"] },
+    "occurredAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "counts": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "integer", "minimum": 0 } }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "603df129-c778-4b13-8b2a-0fe745593c8f", "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+    "cursor": 1, "revision": 1, "type": "JOB_CREATED", "occurredAt": "2026-08-08T18:00:00Z"
+  }]
+}

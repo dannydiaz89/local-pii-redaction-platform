@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/domain" },
+    { "path": "packages/detectors" },
+    { "path": "packages/span-resolution" },
+    { "path": "packages/redaction" },
+    { "path": "packages/adapter-text" },
+    { "path": "packages/verification" },
+    { "path": "packages/core" },
+    { "path": "apps/cli" }
+  ]
+}

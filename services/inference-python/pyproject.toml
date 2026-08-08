@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-pii-inference"
+version = "0.1.0"
+description = "Narrow contract boundary for local PII contextual inference"
+license = "AGPL-3.0-only"
+authors = [{ name = "dannydiaz89" }]
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.11,<3", "jsonschema>=4.25,<5"]
+
+[project.optional-dependencies]
+dev = ["datamodel-code-generator>=0.32,<1", "pytest>=8.4,<9", "ruff>=0.12,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_pii_inference"]

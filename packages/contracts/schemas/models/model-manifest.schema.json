@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/models/model-manifest/1.0.0",
+  "title": "Model manifest",
+  "description": "Verified local model, tokenizer, protocol, provenance, and capability declaration.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "version", "modelDigest", "tokenizerDigest", "runtime", "protocolVersions", "entityTypes", "languages", "license", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
+    "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+    "modelDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "tokenizerDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "runtime": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "protocolVersions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" } },
+    "entityTypes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" } },
+    "languages": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$" } },
+    "license": { "type": "object", "additionalProperties": false, "required": ["spdxId", "notice"], "properties": { "spdxId": { "type": "string", "minLength": 1 }, "notice": { "type": "string", "minLength": 1, "maxLength": 500 } } },
+    "provenance": { "type": "object", "additionalProperties": false, "required": ["source", "retrievedAt"], "properties": { "source": { "type": "string", "format": "uri", "maxLength": 500 }, "retrievedAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" } } }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "synthetic-test-model", "version": "0.1.0",
+    "modelDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tokenizerDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "runtime": "test-double", "protocolVersions": ["1.0.0"], "entityTypes": ["PERSON"], "languages": ["en"],
+    "license": { "spdxId": "Apache-2.0", "notice": "Synthetic test-only model manifest." },
+    "provenance": { "source": "https://local-pii.dev/synthetic-model", "retrievedAt": "2026-08-08T18:00:00Z" }
+  }]
+}

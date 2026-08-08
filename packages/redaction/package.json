@@ -1,0 +1,11 @@
+{
+  "name": "@local-pii/redaction",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./dist/index.js" },
+  "scripts": { "build": "tsc -b", "typecheck": "tsc -b --pretty false" },
+  "dependencies": { "@local-pii/domain": "workspace:*", "@local-pii/span-resolution": "workspace:*" },
+  "devDependencies": { "@local-pii/detectors": "workspace:*" }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/audit/audit-summary/1.0.0",
+  "title": "Audit summary",
+  "description": "Privacy-minimized processing provenance and bounded aggregate counts.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "operation", "outcome", "policy", "componentVersions", "counts", "createdAt", "completedAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "jobId": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId" },
+    "operation": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] },
+    "outcome": { "enum": ["VERIFIED", "SUCCEEDED", "FAILED", "CANCELLED"] },
+    "policy": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "digest"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" }, "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" } }
+    },
+    "componentVersions": { "type": "object", "minProperties": 1, "maxProperties": 32, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 100 } },
+    "counts": { "type": "object", "maxProperties": 64, "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "createdAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "completedAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M", "operation": "SCAN", "outcome": "SUCCEEDED",
+    "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+    "componentVersions": { "contracts": "0.1.0", "detectorBundle": "0.1.0" }, "counts": { "detections": 2 },
+    "createdAt": "2026-08-08T18:00:00Z", "completedAt": "2026-08-08T18:01:00Z"
+  }]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/artifacts/artifact/1.0.0",
+  "title": "Artifact",
+  "description": "Immutable input or derived artifact metadata without a storage locator.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "mediaType", "byteLength", "digest", "displayName", "publicationState", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "id": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId" },
+    "kind": { "enum": ["INPUT", "SANITIZED_OUTPUT", "REPORT", "PREVIEW", "QUARANTINED"] },
+    "mediaType": { "type": "string", "minLength": 3, "maxLength": 127, "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$" },
+    "byteLength": { "type": "integer", "minimum": 0, "maximum": 1073741824 },
+    "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "publicationState": { "enum": ["STAGED", "IMMUTABLE", "QUARANTINED", "PUBLISHABLE", "EXPIRED", "DELETING", "DELETED"] },
+    "createdAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" },
+    "expiresAt": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime" }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0", "id": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V", "kind": "INPUT",
+    "mediaType": "text/plain", "byteLength": 42,
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "displayName": "synthetic.txt", "publicationState": "IMMUTABLE", "createdAt": "2026-08-08T18:00:00Z"
+  }]
+}

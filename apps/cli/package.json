@@ -1,0 +1,22 @@
+{
+  "name": "@local-pii/cli",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "bin": { "pii-redact": "dist/index.js" },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@local-pii/adapter-text": "workspace:*",
+    "@local-pii/contracts": "workspace:*",
+    "@local-pii/core": "workspace:*",
+    "@local-pii/detectors": "workspace:*",
+    "@local-pii/domain": "workspace:*",
+    "@local-pii/redaction": "workspace:*",
+    "@local-pii/span-resolution": "workspace:*",
+    "@local-pii/verification": "workspace:*"
+  }
+}
