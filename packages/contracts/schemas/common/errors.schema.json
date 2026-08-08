@@ -33,7 +33,25 @@
           "type": "object",
           "description": "Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.",
           "maxProperties": 16,
-          "additionalProperties": { "type": ["string", "number", "integer", "boolean", "null"] }
+          "propertyNames": {
+            "enum": [
+              "format", "stage", "attempt", "recovered", "reason", "detectorId",
+              "deadlineExceeded", "modelId", "conflictCount", "findingCount",
+              "contractVersionAvailable", "engineModeAvailable", "formatAvailable",
+              "operationAvailable", "qualificationSufficient", "missingDetectorCount",
+              "missingDetectorKindCount", "missingTransformationCount",
+              "verificationProfileAvailable", "inputLimitSufficient", "maximumInputBytes",
+              "actualInputBytes"
+            ]
+          },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "maxLength": 128 },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" }
+            ]
+          }
         }
       }
     }

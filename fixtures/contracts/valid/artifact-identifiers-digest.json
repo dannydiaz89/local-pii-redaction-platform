@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+  "kind": "INPUT",
+  "mediaType": "text/plain",
+  "byteLength": 42,
+  "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "displayName": "synthetic-unicode-👩🏽‍💻.txt",
+  "publicationState": "IMMUTABLE",
+  "createdAt": "2026-08-08T18:00:00Z"
+}

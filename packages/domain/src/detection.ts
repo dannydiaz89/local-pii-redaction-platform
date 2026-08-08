@@ -1,4 +1,4 @@
-import type { Sha256Digest } from './identifiers.js';
+import type { DetectionId, Sha256Digest } from './identifiers.js';
 import type { UnicodeSpan } from './span.js';
 
 export const entityTypes = [
@@ -10,7 +10,8 @@ export const entityTypes = [
 ] as const;
 
 export type EntityType = (typeof entityTypes)[number];
-export type DetectorSource = 'REGEX' | 'CHECKSUM' | 'STRUCTURED' | 'DICTIONARY' | 'MODEL' | 'MANUAL';
+export const detectorSources = ['REGEX', 'CHECKSUM', 'STRUCTURED', 'DICTIONARY', 'MODEL', 'MANUAL'] as const;
+export type DetectorSource = (typeof detectorSources)[number];
 
 export interface DetectorReference {
   readonly id: string;
@@ -19,7 +20,7 @@ export interface DetectorReference {
 }
 
 export interface DetectionEvidence {
-  readonly id: string;
+  readonly id: DetectionId;
   readonly entityType: EntityType;
   readonly span: UnicodeSpan;
   readonly confidence: number;

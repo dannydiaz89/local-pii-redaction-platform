@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0.0",
+  "provenance": {
+    "source": "synthetic",
+    "generator": "hand-authored-unicode-v1"
+  },
+  "cases": [
+    {
+      "id": "astral-symbol",
+      "text": "A😀B",
+      "codePointLength": 3,
+      "slices": [{ "start": 1, "end": 2, "expected": "😀" }]
+    },
+    {
+      "id": "combining-mark",
+      "text": "é",
+      "codePointLength": 2,
+      "slices": [{ "start": 0, "end": 2, "expected": "é" }]
+    },
+    {
+      "id": "rtl-logical-order",
+      "text": "A😀é אבגZ",
+      "codePointLength": 9,
+      "slices": [
+        { "start": 2, "end": 4, "expected": "é" },
+        { "start": 5, "end": 8, "expected": "אבג" }
+      ]
+    },
+    {
+      "id": "zero-width-characters",
+      "text": "A‍B​C",
+      "codePointLength": 5,
+      "slices": [
+        { "start": 1, "end": 2, "expected": "‍" },
+        { "start": 3, "end": 4, "expected": "​" }
+      ]
+    },
+    {
+      "id": "precomposed-not-normalized",
+      "text": "é",
+      "codePointLength": 1,
+      "slices": [{ "start": 0, "end": 1, "expected": "é" }]
+    }
+  ]
+}

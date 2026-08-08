@@ -15,8 +15,6 @@ from pydantic import (
     RootModel,
     StrictBool,
     StrictFloat,
-    StrictInt,
-    StrictStr,
     constr,
 )
 
@@ -77,9 +75,9 @@ class Digest(RootModel[constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)]):
 
 
 class Semver(
-    RootModel[constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$', strict=True)]
+    RootModel[constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)]
 ):
-    root: constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$', strict=True)
+    root: constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)
 
 
 class DateTime(RootModel[AwareDatetime]):
@@ -95,7 +93,11 @@ class Error(BaseModel):
     retryable: StrictBool
     correlationId: CorrelationId
     details: (
-        dict[str, StrictStr | StrictFloat | StrictInt | StrictBool | None] | None
+        dict[
+            Literal['format', 'stage', 'attempt', 'recovered', 'reason', 'detectorId', 'deadlineExceeded', 'modelId', 'conflictCount', 'findingCount', 'contractVersionAvailable', 'engineModeAvailable', 'formatAvailable', 'operationAvailable', 'qualificationSufficient', 'missingDetectorCount', 'missingDetectorKindCount', 'missingTransformationCount', 'verificationProfileAvailable', 'inputLimitSufficient', 'maximumInputBytes', 'actualInputBytes'],
+            constr(max_length=128, strict=True) | StrictFloat | StrictBool | None,
+        ]
+        | None
     ) = Field(None, description='Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.', max_length=16)
 
 

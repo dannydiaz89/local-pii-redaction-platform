@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { Ajv2020 } from 'ajv/dist/2020.js';
+import { isCanonicalUuid, isRfc3339DateTime } from '../packages/contracts/src/formats.js';
 
 import { loadJson, loadSchemas, repositoryRoot } from './schema-utils.js';
 
@@ -18,8 +19,8 @@ interface CorpusManifest {
 const schemas = loadSchemas();
 const ids = new Set<string>();
 const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-ajv.addFormat('uuid', /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
-ajv.addFormat('date-time', (value: string) => !Number.isNaN(Date.parse(value)));
+ajv.addFormat('uuid', isCanonicalUuid);
+ajv.addFormat('date-time', isRfc3339DateTime);
 ajv.addFormat('uri', (value: string) => {
   try { return new URL(value).protocol.length > 1; } catch { return false; }
 });

@@ -37,7 +37,6 @@ export function assertCapabilityManifest(manifest: CapabilityManifest, correlati
     || hasDuplicate(manifest.verificationProfiles.map(({ id }) => id))
   ) invalidManifest(correlationId);
 
-  const formatIds = new Set(manifest.formats.map(({ id }) => id));
   const profileById = new Map(manifest.verificationProfiles.map((profile) => [profile.id, profile]));
   for (const format of manifest.formats) {
     if (format.limits.maximumInputBytes > manifest.limits.maximumInputBytes) invalidManifest(correlationId);
@@ -48,7 +47,10 @@ export function assertCapabilityManifest(manifest: CapabilityManifest, correlati
     }
   }
   for (const profile of manifest.verificationProfiles) {
-    if (profile.formats.some((formatId) => !formatIds.has(formatId))) invalidManifest(correlationId);
+    for (const formatId of profile.formats) {
+      const format = manifest.formats.find(({ id }) => id === formatId);
+      if (format === undefined || !format.verificationProfiles.includes(profile.id)) invalidManifest(correlationId);
+    }
   }
   if (
     manifest.engineMode === 'RULES_ONLY'

@@ -1,6 +1,7 @@
 import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 
 import { schemaCatalog } from './generated/schema-catalog.js';
+import { isCanonicalUuid, isRfc3339DateTime } from './formats.js';
 
 export interface ContractValidationResult {
   readonly valid: boolean;
@@ -8,8 +9,8 @@ export interface ContractValidationResult {
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-ajv.addFormat('uuid', /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
-ajv.addFormat('date-time', (value: string) => !Number.isNaN(Date.parse(value)));
+ajv.addFormat('uuid', isCanonicalUuid);
+ajv.addFormat('date-time', isRfc3339DateTime);
 ajv.addFormat('uri', (value: string) => {
   try { return new URL(value).protocol.length > 1; } catch { return false; }
 });

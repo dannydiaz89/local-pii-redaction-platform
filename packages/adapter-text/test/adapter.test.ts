@@ -21,6 +21,16 @@ async function directory(): Promise<string> {
 }
 
 describe('text adapter', () => {
+  it('matches fixed SHA-256 vectors for artifact bytes and canonical extraction revisions', async () => {
+    const root = await directory();
+    const input = join(root, 'digest-vector.txt');
+    await writeFile(input, 'abc');
+
+    const artifact = await readTextArtifact(input);
+    expect(artifact.digest).toBe('sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    expect(artifact.extractionRevision).toBe('sha256:71e62a5f6846cb7f4e417c5faec0ef86998e9be72c19b2dd93097bf3241f03d4');
+  });
+
   it('preserves a UTF-8 BOM and never changes the input', async () => {
     const root = await directory();
     const input = join(root, 'input.txt');

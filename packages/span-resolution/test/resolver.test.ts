@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { detectDeterministic } from '@local-pii/detectors';
-import { parseSha256Digest, unicodeCodePointLength, type DetectionEvidence } from '@local-pii/domain';
+import {
+  parseDetectionId,
+  parseSha256Digest,
+  unicodeCodePointLength,
+  type DetectionEvidence
+} from '@local-pii/domain';
 
 import { resolveEvidence } from '../src/index.js';
 
@@ -33,8 +38,18 @@ describe('span resolution', () => {
       detector: { id: 'synthetic', version: '0.1.0' }
     };
     const evidence: DetectionEvidence[] = [
-      { ...base, id: '11111111-1111-4111-8111-111111111111', entityType: 'EMAIL', span: { ...base.span, start: 0, end: 8 } },
-      { ...base, id: '22222222-2222-4222-8222-222222222222', entityType: 'PHONE', span: { ...base.span, start: 5, end: 12 } }
+      {
+        ...base,
+        id: parseDetectionId('11111111-1111-4111-8111-111111111111'),
+        entityType: 'EMAIL',
+        span: { ...base.span, start: 0, end: 8 }
+      },
+      {
+        ...base,
+        id: parseDetectionId('22222222-2222-4222-8222-222222222222'),
+        entityType: 'PHONE',
+        span: { ...base.span, start: 5, end: 12 }
+      }
     ];
     const result = resolveEvidence(evidence, revision, 20);
     expect(result.conflicts).toHaveLength(1);

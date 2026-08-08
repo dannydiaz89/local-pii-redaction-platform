@@ -70,4 +70,40 @@ describe('capability manifest and preflight', () => {
       assertCapabilityManifest(manifest, 'cor_synthetic_manifest_002');
     }).toThrow(SafeError);
   });
+
+  it('rejects verifier-to-format references that are not declared by the format', () => {
+    const manifest = capabilityManifest();
+    manifest.formats[0].verificationProfiles[0] = 'alternate-profile';
+    manifest.verificationProfiles.push({
+      ...manifest.verificationProfiles[0],
+      id: 'alternate-profile'
+    });
+    expect(() => {
+      assertCapabilityManifest(manifest, 'cor_synthetic_manifest_003');
+    }).toThrow(SafeError);
+  });
+
+  it('rejects duplicate capability identifiers', () => {
+    const manifest = capabilityManifest();
+    manifest.detectors.push({ ...manifest.detectors[0] });
+    expect(() => {
+      assertCapabilityManifest(manifest, 'cor_synthetic_manifest_004');
+    }).toThrow(SafeError);
+  });
+
+  it('rejects a per-format byte limit above the deployment limit', () => {
+    const manifest = capabilityManifest();
+    manifest.formats[0].limits.maximumInputBytes = manifest.limits.maximumInputBytes + 1;
+    expect(() => {
+      assertCapabilityManifest(manifest, 'cor_synthetic_manifest_005');
+    }).toThrow(SafeError);
+  });
+
+  it('rejects an available model detector in rules-only mode', () => {
+    const manifest = capabilityManifest();
+    manifest.detectors[0].kinds = ['MODEL'];
+    expect(() => {
+      assertCapabilityManifest(manifest, 'cor_synthetic_manifest_006');
+    }).toThrow(SafeError);
+  });
 });

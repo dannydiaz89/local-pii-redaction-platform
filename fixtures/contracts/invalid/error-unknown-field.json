@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "The operation failed.",
+    "retryable": false,
+    "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "stack": "Error: sensitive implementation detail"
+  }
+}

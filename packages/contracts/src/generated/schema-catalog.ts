@@ -1263,13 +1263,47 @@ export const schemaCatalog = [
             "type": "object",
             "description": "Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.",
             "maxProperties": 16,
+            "propertyNames": {
+              "enum": [
+                "format",
+                "stage",
+                "attempt",
+                "recovered",
+                "reason",
+                "detectorId",
+                "deadlineExceeded",
+                "modelId",
+                "conflictCount",
+                "findingCount",
+                "contractVersionAvailable",
+                "engineModeAvailable",
+                "formatAvailable",
+                "operationAvailable",
+                "qualificationSufficient",
+                "missingDetectorCount",
+                "missingDetectorKindCount",
+                "missingTransformationCount",
+                "verificationProfileAvailable",
+                "inputLimitSufficient",
+                "maximumInputBytes",
+                "actualInputBytes"
+              ]
+            },
             "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "integer",
-                "boolean",
-                "null"
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           }
@@ -1305,11 +1339,13 @@ export const schemaCatalog = [
       },
       "DetectionId": {
         "type": "string",
-        "format": "uuid"
+        "format": "uuid",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
       },
       "EventId": {
         "type": "string",
-        "format": "uuid"
+        "format": "uuid",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
       },
       "CorrelationId": {
         "type": "string",
@@ -1322,11 +1358,12 @@ export const schemaCatalog = [
       },
       "Semver": {
         "type": "string",
-        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
       },
       "DateTime": {
         "type": "string",
-        "format": "date-time"
+        "format": "date-time",
+        "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
       }
     },
     "type": "object",

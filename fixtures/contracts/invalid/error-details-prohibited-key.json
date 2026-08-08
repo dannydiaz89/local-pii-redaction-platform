@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "FORMAT_CORRUPT",
+    "message": "The input could not be parsed.",
+    "retryable": false,
+    "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "details": {
+      "path": "/private/synthetic.txt"
+    }
+  }
+}

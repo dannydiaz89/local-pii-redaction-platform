@@ -55,8 +55,22 @@ describe('CLI TXT vertical slice', () => {
     expect(stream.stderr).toHaveLength(0);
 
     const invalid = capture();
-    expect(await executeCli(['capabilities', 'unexpected-input'], invalid.io)).toBe(2);
+    expect(await executeCli(['capabilities', 'unexpected-input', '--json'], invalid.io)).toBe(2);
     expect(invalid.stdout).toHaveLength(0);
+    expect(JSON.parse(invalid.stderr.join(''))).toMatchObject({
+      schemaVersion: '1.0.0',
+      error: { code: 'SCHEMA_INVALID', retryable: false, correlationId: 'cor_cli_usage' }
+    });
+  });
+
+  it('uses the canonical error envelope for malformed JSON-mode arguments', async () => {
+    const stream = capture();
+    expect(await executeCli(['redact', 'sample.txt', '--output', '--json'], stream.io)).toBe(2);
+    expect(stream.stdout).toHaveLength(0);
+    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({
+      schemaVersion: '1.0.0',
+      error: { code: 'SCHEMA_INVALID', message: 'The command arguments are invalid.' }
+    });
   });
 
   it('matches the tracked sample-data golden output', async () => {

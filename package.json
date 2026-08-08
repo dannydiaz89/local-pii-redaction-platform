@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check",
-    "contracts:check": "node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-generated.ts",
+    "contracts:check": "node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-domain-contract-drift.ts && node --import tsx tooling/check-generated.ts",
     "generate": "node --import tsx tooling/generate-typescript.ts && .venv/bin/python services/inference-python/scripts/generate_models.py",
     "lint": "eslint . && node --import tsx tooling/check-boundaries.ts",
     "pii-redact": "node apps/cli/dist/index.js",

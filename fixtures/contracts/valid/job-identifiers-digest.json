@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+  "operation": "SCAN",
+  "state": "QUEUED",
+  "revision": 1,
+  "policy": {
+    "id": "development-labels",
+    "version": "1.2.3-rc.1",
+    "digest": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "createdAt": "2026-08-08T18:00:00Z",
+  "updatedAt": "2026-08-08T18:00:00Z"
+}

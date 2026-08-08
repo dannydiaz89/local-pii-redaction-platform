@@ -3,7 +3,9 @@ import { isIP } from 'node:net';
 
 import {
   SafeError,
+  parseDetectionId,
   type DetectionEvidence,
+  type DetectionId,
   type DetectorSource,
   type EntityType,
   type Sha256Digest
@@ -67,12 +69,12 @@ function utf16ToCodePointMap(text: string): Int32Array {
   return mapping;
 }
 
-function stableUuid(parts: readonly (string | number)[]): string {
+function stableUuid(parts: readonly (string | number)[]): DetectionId {
   const bytes = createHash('sha256').update(parts.join('\u001f'), 'utf8').digest().subarray(0, 16);
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return parseDetectionId(`${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`);
 }
 
 function addMatches(

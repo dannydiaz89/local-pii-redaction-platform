@@ -52,3 +52,13 @@ def test_generated_pydantic_model_is_strict() -> None:
     value["chunks"][0]["absoluteStart"] = "0"
     with pytest.raises(ValueError):
         InferenceDetectRequest.model_validate(value)
+
+
+def test_shared_unicode_code_point_vectors() -> None:
+    path = repository_root() / "fixtures" / "unicode" / "offset-vectors.json"
+    corpus = json.loads(path.read_text(encoding="utf-8"))
+    for case in corpus["cases"]:
+        text = case["text"]
+        assert len(text) == case["codePointLength"], case["id"]
+        for span in case["slices"]:
+            assert text[span["start"] : span["end"]] == span["expected"], case["id"]

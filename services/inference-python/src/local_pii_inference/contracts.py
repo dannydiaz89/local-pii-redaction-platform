@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from calendar import monthrange
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,32 @@ _REGISTRY = Registry().with_resources(
     (schema_id, Resource.from_contents(schema))
     for schema_id, schema in _SCHEMA_BY_ID.items()
 )
+_FORMAT_CHECKER = FormatChecker()
+_CANONICAL_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_RFC3339_DATE_TIME = re.compile(
+    r"^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[Tt]"
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?"
+    r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
+)
+
+
+@_FORMAT_CHECKER.checks("uuid")
+def _is_canonical_uuid(value: object) -> bool:
+    return isinstance(value, str) and _CANONICAL_UUID.fullmatch(value) is not None
+
+
+@_FORMAT_CHECKER.checks("date-time")
+def _is_rfc3339_date_time(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    match = _RFC3339_DATE_TIME.fullmatch(value)
+    if match is None:
+        return False
+    year, month, day = (int(part) for part in match.groups())
+    return day <= monthrange(year, month)[1]
 
 
 def validate_contract(schema_id: str, value: object) -> None:
@@ -34,4 +62,4 @@ def validate_contract(schema_id: str, value: object) -> None:
         schema = _SCHEMA_BY_ID[schema_id]
     except KeyError as error:
         raise ValueError(f"Unknown contract schema: {schema_id}") from error
-    Draft202012Validator(schema, registry=_REGISTRY, format_checker=FormatChecker()).validate(value)
+    Draft202012Validator(schema, registry=_REGISTRY, format_checker=_FORMAT_CHECKER).validate(value)

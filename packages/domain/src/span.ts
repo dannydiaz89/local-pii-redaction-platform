@@ -1,4 +1,4 @@
-import type { Sha256Digest } from './identifiers.js';
+import { parseSha256Digest, type Sha256Digest } from './identifiers.js';
 
 export interface UnicodeSpan {
   readonly start: number;
@@ -15,6 +15,9 @@ export function unicodeCodePointLength(text: string): number {
 
 export function assertValidSpan(span: UnicodeSpan, textLength: number): void {
   if (!Number.isSafeInteger(textLength) || textLength < 0) throw new TypeError('Invalid canonical text length');
+  const offsetUnit: unknown = span.offsetUnit;
+  if (offsetUnit !== 'UNICODE_CODE_POINT') throw new TypeError('Invalid span offset unit');
+  parseSha256Digest(span.extractionRevision);
   if (!Number.isSafeInteger(span.start) || !Number.isSafeInteger(span.end)) throw new TypeError('Span offsets must be safe integers');
   if (span.start < 0 || span.start >= span.end || span.end > textLength) {
     throw new RangeError('Span must satisfy 0 <= start < end <= canonical text length');

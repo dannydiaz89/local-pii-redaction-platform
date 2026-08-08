@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "DETECTOR_TIMEOUT",
+    "message": "A detector exceeded its configured time limit.",
+    "retryable": true,
+    "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "details": {
+      "detectorId": "email-pattern",
+      "attempt": 2,
+      "deadlineExceeded": true,
+      "modelId": null
+    }
+  }
+}

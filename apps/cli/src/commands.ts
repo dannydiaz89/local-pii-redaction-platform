@@ -43,6 +43,7 @@ const usage = `Usage:
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
+const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
@@ -57,7 +58,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (value === '--license') license = true;
     else if (value === '--output' || value === '-o') {
       output = argv[index + 1];
-      if (output === undefined) throw new Error('--output requires a path');
+      if (output === undefined || output.startsWith('-')) throw new Error('--output requires a path');
       index += 1;
     } else if (value !== undefined) positional.push(value);
   }
@@ -180,59 +181,70 @@ async function runInspect(input: string, json: boolean, io: CliIo): Promise<numb
   return 0;
 }
 
-function writeSafeError(error: SafeError, json: boolean, io: CliIo): number {
+function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: number): number {
   const envelope = {
     schemaVersion: '1.0.0',
     error: { code: error.code, message: error.message, retryable: error.retryable, correlationId: error.correlationId, ...(error.details === undefined ? {} : { details: error.details }) }
   };
+  assertContract(errorEnvelopeSchemaId, envelope);
   io.stderr(json ? `${JSON.stringify(envelope, null, 2)}\n` : `${error.code}: ${error.message}\n`);
-  return error.code === 'OUTPUT_COLLISION' ? 6 : error.code.startsWith('VERIFICATION_') ? 4 : 3;
+  return exitCode ?? (error.code === 'OUTPUT_COLLISION' ? 6 : error.code.startsWith('VERIFICATION_') ? 4 : 3);
+}
+
+function writeUsageError(json: boolean, io: CliIo): number {
+  const error = new SafeError({
+    code: 'SCHEMA_INVALID',
+    message: 'The command arguments are invalid.',
+    retryable: false,
+    correlationId: 'cor_cli_usage'
+  });
+  if (json) return writeSafeError(error, true, io, 2);
+  io.stderr(`${error.code}: ${error.message}\n${usage}`);
+  return 2;
 }
 
 export async function executeCli(argv: readonly string[], io: CliIo): Promise<number> {
+  const requestedJson = argv.includes('--json');
   let parsed: ParsedArguments;
   try {
     parsed = parseArguments(argv);
-  } catch (error: unknown) {
-    io.stderr(`${error instanceof Error ? error.message : 'Invalid arguments'}\n${usage}`);
-    return 2;
-  }
-
-  if (parsed.license) {
-    const licensePath = resolve(import.meta.dirname, '../../../LICENSE');
-    io.stdout(await readFile(licensePath, 'utf8'));
-    return 0;
-  }
-  if (parsed.command === '--version' || parsed.command === 'version') {
-    io.stdout('pii-redact 0.1.0-dev\n');
-    return 0;
-  }
-  if (parsed.help || parsed.command === undefined) {
-    io.stdout(usage);
-    return parsed.help ? 0 : 2;
-  }
-  if (parsed.command === 'capabilities') {
-    if (parsed.input !== undefined || parsed.output !== undefined) {
-      io.stderr(usage);
-      return 2;
-    }
-    return runCapabilities(parsed.json, io);
-  }
-  if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
-    io.stderr(usage);
-    return 2;
+  } catch {
+    return writeUsageError(requestedJson, io);
   }
 
   try {
+    if (parsed.license) {
+      const licensePath = resolve(import.meta.dirname, '../../../LICENSE');
+      io.stdout(await readFile(licensePath, 'utf8'));
+      return 0;
+    }
+    if (parsed.command === '--version' || parsed.command === 'version') {
+      io.stdout('pii-redact 0.1.0-dev\n');
+      return 0;
+    }
+    if (parsed.help) {
+      io.stdout(usage);
+      return 0;
+    }
+    if (parsed.command === undefined) return writeUsageError(parsed.json, io);
+    if (parsed.command === 'capabilities') {
+      if (parsed.input !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
+      return runCapabilities(parsed.json, io);
+    }
+    if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
+      return writeUsageError(parsed.json, io);
+    }
     if (parsed.command === 'scan') return await runScan(parsed.input, parsed.json, io);
     if (parsed.command === 'redact') return await runRedact(parsed.input, parsed.output, parsed.json, io);
     if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io);
     return await runInspect(parsed.input, parsed.json, io);
   } catch (error: unknown) {
     if (error instanceof SafeError) return writeSafeError(error, parsed.json, io);
-    io.stderr(parsed.json
-      ? `${JSON.stringify({ schemaVersion: '1.0.0', error: { code: 'INTERNAL_ERROR', message: 'The operation failed unexpectedly.', retryable: false, correlationId: 'cor_cli_internal' } }, null, 2)}\n`
-      : 'INTERNAL_ERROR: The operation failed unexpectedly.\n');
-    return 3;
+    return writeSafeError(new SafeError({
+      code: 'INTERNAL_ERROR',
+      message: 'The operation failed unexpectedly.',
+      retryable: false,
+      correlationId: 'cor_cli_internal'
+    }), parsed.json, io);
   }
 }

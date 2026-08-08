@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "603df129-c778-4b13-8b2a-0fe745593c8f",
+  "entityType": "PERSON",
+  "span": {
+    "start": 1,
+    "end": 5,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "extractionRevision": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  },
+  "confidence": 1,
+  "source": "MANUAL",
+  "detector": {
+    "id": "unicode-boundary-review",
+    "version": "1.0.0"
+  },
+  "attributes": {
+    "fixture": "emoji-and-combining-mark",
+    "codePointCount": 4
+  }
+}

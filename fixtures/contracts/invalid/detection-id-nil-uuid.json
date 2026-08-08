@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "entityType": "PERSON",
+  "span": {
+    "start": 1,
+    "end": 2,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "extractionRevision": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  },
+  "confidence": 1,
+  "source": "MANUAL",
+  "detector": { "id": "synthetic-review", "version": "1.0.0" }
+}

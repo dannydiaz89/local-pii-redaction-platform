@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "The operation failed.",
+    "retryable": false,
+    "correlationId": "short"
+  }
+}

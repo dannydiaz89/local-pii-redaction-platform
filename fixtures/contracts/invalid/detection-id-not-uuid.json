@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "detection-0001",
+  "entityType": "EMAIL",
+  "span": {
+    "start": 1,
+    "end": 5,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "extractionRevision": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  },
+  "confidence": 1,
+  "source": "REGEX",
+  "detector": { "id": "email-pattern", "version": "1.0.0" }
+}
