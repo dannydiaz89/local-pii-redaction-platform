@@ -12,6 +12,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@local-pii/contracts": "workspace:*",
     "@local-pii/domain": "workspace:*"
   }
 }

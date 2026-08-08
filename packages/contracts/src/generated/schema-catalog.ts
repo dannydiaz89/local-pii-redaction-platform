@@ -200,6 +200,504 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0",
+    "title": "Capability manifest",
+    "description": "Versioned deployment snapshot for format, detector, transformation, verification, and resource capabilities.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "version",
+      "engineMode",
+      "supportedContractVersions",
+      "formats",
+      "detectors",
+      "transformations",
+      "verificationProfiles",
+      "limits"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      },
+      "version": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+      },
+      "engineMode": {
+        "enum": [
+          "RULES_ONLY",
+          "LOCAL_HYBRID",
+          "REMOTE"
+        ]
+      },
+      "supportedContractVersions": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+        }
+      },
+      "formats": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "$ref": "#/$defs/formatCapability"
+        }
+      },
+      "detectors": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 128,
+        "items": {
+          "$ref": "#/$defs/detectorCapability"
+        }
+      },
+      "transformations": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "$ref": "#/$defs/transformationCapability"
+        }
+      },
+      "verificationProfiles": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "$ref": "#/$defs/verificationCapability"
+        }
+      },
+      "limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maximumInputBytes",
+          "maximumCanonicalCodePoints",
+          "maximumDetections"
+        ],
+        "properties": {
+          "maximumInputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1073741824
+          },
+          "maximumCanonicalCodePoints": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "maximumDetections": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          }
+        }
+      }
+    },
+    "$defs": {
+      "qualification": {
+        "enum": [
+          "EXPERIMENTAL",
+          "DEVELOPMENT",
+          "QUALIFIED"
+        ]
+      },
+      "availability": {
+        "enum": [
+          "AVAILABLE",
+          "DISABLED",
+          "UNAVAILABLE"
+        ]
+      },
+      "formatCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "adapter",
+          "version",
+          "mediaTypes",
+          "extensions",
+          "operations",
+          "assurance",
+          "qualification",
+          "features",
+          "verificationProfiles",
+          "limits"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,31}$"
+          },
+          "adapter": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "mediaTypes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+            }
+          },
+          "extensions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^\\.[a-z0-9][a-z0-9._-]{0,15}$"
+            }
+          },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "PROBE",
+                "INSPECT",
+                "EXTRACT",
+                "SCAN",
+                "REDACT",
+                "VERIFY"
+              ]
+            }
+          },
+          "assurance": {
+            "enum": [
+              "EXTRACT_ONLY",
+              "STRUCTURAL_REPLACE",
+              "NATIVE_REDACTION",
+              "RASTERIZED_REDACTION"
+            ]
+          },
+          "qualification": {
+            "$ref": "#/$defs/qualification"
+          },
+          "features": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{1,63}$"
+                },
+                "status": {
+                  "enum": [
+                    "SUPPORTED",
+                    "EXPERIMENTAL",
+                    "BLOCKED",
+                    "UNSUPPORTED"
+                  ]
+                }
+              }
+            }
+          },
+          "verificationProfiles": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{2,63}$"
+            }
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "maximumInputBytes"
+            ],
+            "properties": {
+              "maximumInputBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1073741824
+              }
+            }
+          }
+        }
+      },
+      "detectorCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "kinds",
+          "entityTypes",
+          "languages",
+          "availability",
+          "qualification"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,99}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "kinds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "REGEX",
+                "CHECKSUM",
+                "STRUCTURED",
+                "DICTIONARY",
+                "MODEL"
+              ]
+            }
+          },
+          "entityTypes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            }
+          },
+          "languages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+            }
+          },
+          "availability": {
+            "$ref": "#/$defs/availability"
+          },
+          "qualification": {
+            "$ref": "#/$defs/qualification"
+          }
+        }
+      },
+      "transformationCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "action",
+          "reversible",
+          "availability",
+          "qualification"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "action": {
+            "enum": [
+              "REDACT",
+              "TYPED_LABEL",
+              "MASK",
+              "PSEUDONYM",
+              "HASHED_LABEL"
+            ]
+          },
+          "reversible": {
+            "type": "boolean"
+          },
+          "availability": {
+            "$ref": "#/$defs/availability"
+          },
+          "qualification": {
+            "$ref": "#/$defs/qualification"
+          }
+        }
+      },
+      "verificationCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "formats",
+          "checks",
+          "availability",
+          "qualification"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "formats": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,31}$"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+            }
+          },
+          "availability": {
+            "$ref": "#/$defs/availability"
+          },
+          "qualification": {
+            "$ref": "#/$defs/qualification"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "id": "local-rules-text",
+        "version": "0.1.0",
+        "engineMode": "RULES_ONLY",
+        "supportedContractVersions": [
+          "1.0.0"
+        ],
+        "formats": [
+          {
+            "id": "text",
+            "adapter": "text-adapter",
+            "version": "0.1.0",
+            "mediaTypes": [
+              "text/plain",
+              "text/markdown"
+            ],
+            "extensions": [
+              ".txt",
+              ".md",
+              ".markdown"
+            ],
+            "operations": [
+              "PROBE",
+              "INSPECT",
+              "EXTRACT",
+              "SCAN",
+              "REDACT",
+              "VERIFY"
+            ],
+            "assurance": "NATIVE_REDACTION",
+            "qualification": "DEVELOPMENT",
+            "features": [
+              {
+                "id": "utf-8",
+                "status": "SUPPORTED"
+              },
+              {
+                "id": "symbolic-links",
+                "status": "BLOCKED"
+              }
+            ],
+            "verificationProfiles": [
+              "text-rescan-v1"
+            ],
+            "limits": {
+              "maximumInputBytes": 104857600
+            }
+          }
+        ],
+        "detectors": [
+          {
+            "id": "email-pattern",
+            "version": "0.1.0",
+            "kinds": [
+              "REGEX"
+            ],
+            "entityTypes": [
+              "EMAIL"
+            ],
+            "languages": [
+              "und"
+            ],
+            "availability": "AVAILABLE",
+            "qualification": "DEVELOPMENT"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "typed-label",
+            "version": "0.1.0",
+            "action": "TYPED_LABEL",
+            "reversible": false,
+            "availability": "AVAILABLE",
+            "qualification": "DEVELOPMENT"
+          }
+        ],
+        "verificationProfiles": [
+          {
+            "id": "text-rescan-v1",
+            "version": "0.1.0",
+            "formats": [
+              "text"
+            ],
+            "checks": [
+              "UTF8_REOPEN",
+              "DETERMINISTIC_RESCAN",
+              "SPAN_RESOLUTION"
+            ],
+            "availability": "AVAILABLE",
+            "qualification": "DEVELOPMENT"
+          }
+        ],
+        "limits": {
+          "maximumInputBytes": 104857600,
+          "maximumCanonicalCodePoints": 10000000,
+          "maximumDetections": 10000
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/cli/cli-report/1.0.0",
     "title": "CLI operation report",
     "description": "Privacy-minimized machine output for local scan, redact, verify, and inspect commands.",

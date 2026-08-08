@@ -5,9 +5,11 @@
     { "file": "valid/detect-request-unicode.json", "schemaId": "https://local-pii.dev/schemas/detection/detect-request/1.0.0", "valid": true },
     { "file": "valid/error-envelope.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
     { "file": "valid/cli-scan-report.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": true },
+    { "file": "valid/capability-rules-only-text.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": true },
     { "file": "invalid/detection-unknown-field.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": false },
     { "file": "invalid/detect-request-confidence.json", "schemaId": "https://local-pii.dev/schemas/detection/detect-request/1.0.0", "valid": false },
     { "file": "invalid/error-unknown-code.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": false },
-    { "file": "invalid/cli-report-matched-value.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": false }
+    { "file": "invalid/cli-report-matched-value.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": false },
+    { "file": "invalid/capability-unknown-operation.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": false }
   ]
 }

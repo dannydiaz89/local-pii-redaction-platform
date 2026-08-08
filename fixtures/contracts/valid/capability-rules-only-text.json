@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "local-rules-text",
+  "version": "0.1.0",
+  "engineMode": "RULES_ONLY",
+  "supportedContractVersions": ["1.0.0"],
+  "formats": [
+    {
+      "id": "text",
+      "adapter": "text-adapter",
+      "version": "0.1.0",
+      "mediaTypes": ["text/plain", "text/markdown"],
+      "extensions": [".txt", ".md", ".markdown"],
+      "operations": ["PROBE", "INSPECT", "EXTRACT", "SCAN", "REDACT", "VERIFY"],
+      "assurance": "NATIVE_REDACTION",
+      "qualification": "DEVELOPMENT",
+      "features": [
+        { "id": "utf-8", "status": "SUPPORTED" },
+        { "id": "symbolic-links", "status": "BLOCKED" }
+      ],
+      "verificationProfiles": ["text-rescan-v1"],
+      "limits": { "maximumInputBytes": 104857600 }
+    }
+  ],
+  "detectors": [
+    {
+      "id": "email-pattern",
+      "version": "0.1.0",
+      "kinds": ["REGEX"],
+      "entityTypes": ["EMAIL"],
+      "languages": ["und"],
+      "availability": "AVAILABLE",
+      "qualification": "DEVELOPMENT"
+    },
+    {
+      "id": "ssn-structure",
+      "version": "0.1.0",
+      "kinds": ["CHECKSUM"],
+      "entityTypes": ["SSN"],
+      "languages": ["en-US"],
+      "availability": "AVAILABLE",
+      "qualification": "DEVELOPMENT"
+    }
+  ],
+  "transformations": [
+    {
+      "id": "typed-label",
+      "version": "0.1.0",
+      "action": "TYPED_LABEL",
+      "reversible": false,
+      "availability": "AVAILABLE",
+      "qualification": "DEVELOPMENT"
+    }
+  ],
+  "verificationProfiles": [
+    {
+      "id": "text-rescan-v1",
+      "version": "0.1.0",
+      "formats": ["text"],
+      "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION"],
+      "availability": "AVAILABLE",
+      "qualification": "DEVELOPMENT"
+    }
+  ],
+  "limits": {
+    "maximumInputBytes": 104857600,
+    "maximumCanonicalCodePoints": 10000000,
+    "maximumDetections": 10000
+  }
+}
