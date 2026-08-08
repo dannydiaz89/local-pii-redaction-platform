@@ -34,6 +34,31 @@ function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly st
 }
 
 describe('CLI TXT vertical slice', () => {
+  it('publishes a canonical rules-only capability manifest', async () => {
+    const stream = capture();
+    expect(await executeCli(['capabilities', '--json'], stream.io)).toBe(0);
+    const manifest = JSON.parse(stream.stdout.join('')) as {
+      readonly engineMode: string;
+      readonly formats: readonly { readonly id: string; readonly qualification: string }[];
+      readonly detectors: readonly { readonly id: string }[];
+    };
+    expect(manifest.engineMode).toBe('RULES_ONLY');
+    expect(manifest.formats).toContainEqual(expect.objectContaining({ id: 'text', qualification: 'DEVELOPMENT' }));
+    expect(manifest.detectors.map(({ id }) => id)).toEqual([
+      'email-pattern',
+      'phone-pattern',
+      'ssn-structure',
+      'payment-card-luhn',
+      'ip-parser',
+      'secret-assignment'
+    ]);
+    expect(stream.stderr).toHaveLength(0);
+
+    const invalid = capture();
+    expect(await executeCli(['capabilities', 'unexpected-input'], invalid.io)).toBe(2);
+    expect(invalid.stdout).toHaveLength(0);
+  });
+
   it('matches the tracked sample-data golden output', async () => {
     const root = await mkdtemp(join(tmpdir(), 'local-pii-golden-'));
     directories.push(root);

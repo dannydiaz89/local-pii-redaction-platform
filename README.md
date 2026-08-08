@@ -32,6 +32,7 @@ The project currently runs as a local CLI, not a background HTTP service.
 
 ```sh
 pnpm build
+pnpm pii-redact capabilities --json
 pnpm pii-redact inspect ./sample.txt
 pnpm pii-redact scan ./sample.txt --json
 pnpm pii-redact redact ./sample.txt --output ./sample.redacted.txt

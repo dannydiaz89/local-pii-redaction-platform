@@ -16,6 +16,8 @@ import { applyTypedLabelPlan, compileTypedLabelPlan } from '@local-pii/redaction
 import { resolveEvidence, type ResolutionSet } from '@local-pii/span-resolution';
 import { verifyCanonicalText } from '@local-pii/verification';
 
+import { createCurrentCapabilityManifest } from './capabilities.js';
+
 export interface CliIo {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
@@ -31,6 +33,7 @@ interface ParsedArguments {
 }
 
 const usage = `Usage:
+  pii-redact capabilities [--json]
   pii-redact scan <file.txt|file.md> [--json]
   pii-redact redact <file.txt|file.md> [--output <path>] [--json]
   pii-redact verify <file.txt|file.md> [--json]
@@ -70,6 +73,23 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
   const counts: Partial<Record<EntityType, number>> = {};
   for (const entityType of entityTypes) counts[entityType] = (counts[entityType] ?? 0) + 1;
   return counts;
+}
+
+function runCapabilities(json: boolean, io: CliIo): number {
+  const manifest = createCurrentCapabilityManifest();
+  if (json) {
+    io.stdout(`${JSON.stringify(manifest, null, 2)}\n`);
+  } else {
+    const availableDetectors = manifest.detectors.filter(({ availability }) => availability === 'AVAILABLE');
+    io.stdout([
+      `Engine mode: ${manifest.engineMode}`,
+      `Qualification: ${manifest.formats[0].qualification}`,
+      `Formats: ${manifest.formats.map(({ id }) => id).join(', ')}`,
+      `Detectors: ${String(availableDetectors.length)}`,
+      `Verification profiles: ${manifest.verificationProfiles.map(({ id }) => id).join(', ')}`
+    ].join('\n') + '\n');
+  }
+  return 0;
 }
 
 function scanArtifact(artifact: TextArtifact): ResolutionSet {
@@ -190,6 +210,13 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
   if (parsed.help || parsed.command === undefined) {
     io.stdout(usage);
     return parsed.help ? 0 : 2;
+  }
+  if (parsed.command === 'capabilities') {
+    if (parsed.input !== undefined || parsed.output !== undefined) {
+      io.stderr(usage);
+      return 2;
+    }
+    return runCapabilities(parsed.json, io);
   }
   if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
     io.stderr(usage);

@@ -6,7 +6,27 @@ import { basename, dirname, extname, resolve } from 'node:path';
 import { SafeError, parseSha256Digest, type Sha256Digest } from '@local-pii/domain';
 
 const utf8Bom = Uint8Array.from([0xef, 0xbb, 0xbf]);
+export const textAdapterVersion = '0.1.0';
 export const defaultMaximumInputBytes = 100 * 1024 * 1024;
+export const textAdapterCapabilityDescriptor = {
+  id: 'text',
+  adapter: 'text-adapter',
+  version: textAdapterVersion,
+  mediaTypes: ['text/plain', 'text/markdown'],
+  extensions: ['.txt', '.md', '.markdown'],
+  operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN', 'REDACT', 'VERIFY'],
+  assurance: 'NATIVE_REDACTION',
+  features: [
+    { id: 'utf-8', status: 'SUPPORTED' },
+    { id: 'utf-8-bom', status: 'SUPPORTED' },
+    { id: 'line-ending-preservation', status: 'SUPPORTED' },
+    { id: 'atomic-publication', status: 'SUPPORTED' },
+    { id: 'symbolic-links', status: 'BLOCKED' },
+    { id: 'nul-bytes', status: 'BLOCKED' }
+  ],
+  verificationProfiles: ['text-rescan-v1'],
+  limits: { maximumInputBytes: defaultMaximumInputBytes }
+} as const;
 
 export interface TextArtifact {
   readonly path: string;

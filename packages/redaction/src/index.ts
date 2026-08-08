@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto';
 import type { EntityType, Sha256Digest } from '@local-pii/domain';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 
+export const typedLabelTransformationCapabilityDescriptor = {
+  id: 'typed-label',
+  version: '0.1.0',
+  action: 'TYPED_LABEL',
+  reversible: false
+} as const;
+
 export interface TypedLabelAction {
   readonly id: string;
   readonly entityType: EntityType;

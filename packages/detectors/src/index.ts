@@ -11,6 +11,24 @@ import {
 
 export const deterministicDetectorBundleVersion = '0.1.0';
 
+const detectorIds = {
+  email: 'email-pattern',
+  phone: 'phone-pattern',
+  ssn: 'ssn-structure',
+  paymentCard: 'payment-card-luhn',
+  ip: 'ip-parser',
+  secret: 'secret-assignment'
+} as const;
+
+export const deterministicDetectorCapabilities = [
+  { id: detectorIds.email, version: deterministicDetectorBundleVersion, kinds: ['REGEX'], entityTypes: ['EMAIL'], languages: ['und'] },
+  { id: detectorIds.phone, version: deterministicDetectorBundleVersion, kinds: ['REGEX'], entityTypes: ['PHONE'], languages: ['und'] },
+  { id: detectorIds.ssn, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['SSN'], languages: ['en-US'] },
+  { id: detectorIds.paymentCard, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['CREDIT_CARD'], languages: ['und'] },
+  { id: detectorIds.ip, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['IP_ADDRESS'], languages: ['und'] },
+  { id: detectorIds.secret, version: deterministicDetectorBundleVersion, kinds: ['REGEX'], entityTypes: ['API_KEY', 'ACCESS_TOKEN', 'PASSWORD'], languages: ['und'] }
+] as const;
+
 export interface DetectorLimits {
   readonly maximumCodePoints: number;
   readonly maximumDetections: number;
@@ -103,30 +121,30 @@ function collectCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = [];
 
   addMatches(candidates, text, /(?<![\w.+-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+(?![\w-])/giu, () => ({
-    entityType: 'EMAIL', confidence: 0.99, source: 'REGEX', detectorId: 'email-pattern', ruleId: 'email-v1'
+    entityType: 'EMAIL', confidence: 0.99, source: 'REGEX', detectorId: detectorIds.email, ruleId: 'email-v1'
   }));
 
   addMatches(candidates, text, /(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)/gu, (match) => validSsn(match[0]) ? ({
-    entityType: 'SSN', confidence: 1, source: 'CHECKSUM', detectorId: 'ssn-structure', ruleId: 'us-ssn-v1'
+    entityType: 'SSN', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ssn, ruleId: 'us-ssn-v1'
   }) : undefined);
 
   addMatches(candidates, text, /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/gu, (match) => validLuhn(match[0]) ? ({
-    entityType: 'CREDIT_CARD', confidence: 1, source: 'CHECKSUM', detectorId: 'payment-card-luhn', ruleId: 'luhn-v1'
+    entityType: 'CREDIT_CARD', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.paymentCard, ruleId: 'luhn-v1'
   }) : undefined);
 
   addMatches(candidates, text, /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)/gu, (match) => {
     const valid = match[0].split('.').every((part) => Number(part) <= 255 && (part === '0' || !part.startsWith('0')));
-    return valid ? { entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: 'ip-parser', ruleId: 'ipv4-v1' } : undefined;
+    return valid ? { entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ip, ruleId: 'ipv4-v1' } : undefined;
   });
 
   addMatches(candidates, text, /(?<![0-9A-Fa-f:])[0-9A-Fa-f:]{2,39}(?![0-9A-Fa-f:])/gu, (match) => isIP(match[0]) === 6 ? ({
-    entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: 'ip-parser', ruleId: 'ipv6-v1'
+    entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ip, ruleId: 'ipv6-v1'
   }) : undefined);
 
   addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, (match) => {
     const digits = match[0].replaceAll(/\D/gu, '');
     return digits.length >= 7 && digits.length <= 15
-      ? { entityType: 'PHONE', confidence: 0.86, source: 'REGEX', detectorId: 'phone-pattern', ruleId: 'phone-general-v1' }
+      ? { entityType: 'PHONE', confidence: 0.86, source: 'REGEX', detectorId: detectorIds.phone, ruleId: 'phone-general-v1' }
       : undefined;
   });
 
@@ -136,7 +154,7 @@ function collectCandidates(text: string): Candidate[] {
     const entityType: EntityType = key?.startsWith('password') === true
       ? 'PASSWORD'
       : key?.includes('token') === true ? 'ACCESS_TOKEN' : 'API_KEY';
-    return { entityType, confidence: 0.98, source: 'REGEX', detectorId: 'secret-assignment', ruleId: 'secret-assignment-v1' };
+    return { entityType, confidence: 0.98, source: 'REGEX', detectorId: detectorIds.secret, ruleId: 'secret-assignment-v1' };
   }, (match) => {
     const value = match[2] ?? '';
     const relativeStart = match[0].lastIndexOf(value);
