@@ -1,9 +1,8 @@
 # Local PII Redaction Platform
 
-This repository is the implementation workspace for the local-first PII redaction platform
-specified in `docs/`. It includes the Milestone 0 contract foundation and an initial development
-TXT/Markdown CLI slice with deterministic scanning, typed-label replacement, and reopen/rescan
-verification.
+This repository contains a local-first PII redaction platform. It includes the contract foundation
+and an initial development TXT/Markdown CLI slice with deterministic scanning, typed-label
+replacement, and reopen/rescan verification.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
@@ -71,5 +70,3 @@ verification, `5` for unresolved scan conflicts, and `6` for output collisions.
 - `services/inference-python`: narrow Python contract boundary and generated Pydantic models
 - `fixtures/contracts`: synthetic valid and invalid cross-language examples
 - `tooling`: deterministic generation and dependency-boundary checks
-
-The full product roadmap and safety requirements are in `docs/023-roadmap-and-progress.md`.

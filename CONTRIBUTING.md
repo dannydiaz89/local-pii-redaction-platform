@@ -6,8 +6,7 @@ Before opening a change:
 
 1. Use only synthetic test data. Never commit real personal information, credentials, or private
    documents.
-2. Read `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, `SECURITY.md`, and the relevant design documents
-   under `docs/`.
+2. Read `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, and `SECURITY.md`.
 3. Keep contract, domain, provider, adapter, and interface boundaries intact.
 4. Add acceptance evidence for behavioral and safety changes.
 5. Run `pnpm check` and `pnpm build` locally.
