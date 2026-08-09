@@ -45,6 +45,21 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.3)(tsx@4.23.11)
 
+  apps/api:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@local-pii/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      fastify:
+        specifier: ^5.11.3
+        version: 5.11.3
+
   apps/cli:
     dependencies:
       '@local-pii/adapter-text':

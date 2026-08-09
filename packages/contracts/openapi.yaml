@@ -3,6 +3,7 @@ info:
   title: Local PII Redaction API
   version: 0.1.0
   description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
+x-implementation-status: capabilities-scaffold
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -13,11 +14,13 @@ paths:
   /health/live:
     get:
       operationId: getLiveness
+      security: []
       responses:
         "204": { description: Process is alive }
   /health/ready:
     get:
       operationId: getReadiness
+      security: []
       responses:
         "204": { description: Required local dependencies and contracts are compatible }
         "503":
@@ -37,6 +40,7 @@ paths:
               schema:
                 $ref: "./schemas/capabilities/capability-manifest.schema.json"
   /v1/jobs/{jobId}:
+    x-implementation-status: planned
     parameters:
       - name: jobId
         in: path
@@ -60,8 +64,8 @@ paths:
 components:
   securitySchemes:
     LocalSession:
-      type: apiKey
-      in: header
-      name: Authorization
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-local-session
 security:
   - LocalSession: []

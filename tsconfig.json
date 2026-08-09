@@ -11,6 +11,7 @@
     { "path": "packages/adapter-text" },
     { "path": "packages/verification" },
     { "path": "packages/core" },
+    { "path": "apps/api" },
     { "path": "apps/cli" }
   ]
 }

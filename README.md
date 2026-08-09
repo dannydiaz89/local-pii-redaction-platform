@@ -56,7 +56,9 @@ cross-platform evidence.
 
 ## Try the CLI
 
-The project currently runs as a local CLI, not a background HTTP service.
+User-facing document processing currently runs through the local CLI. The repository also contains
+a production-bounded HTTP composition scaffold, but it does not yet expose uploads or processing
+jobs.
 
 ```sh
 pnpm build
@@ -80,6 +82,16 @@ everything inside it except its `.gitignore` is ignored by Git. Delete or rename
 before rerunning a command because the CLI intentionally never overwrites output files.
 `redact` always requires an explicit `--output`; it never silently chooses a destination beside the
 input.
+
+## API foundation
+
+[`apps/api`](./apps/api) now provides the first frontend dependency: an unlistened Fastify
+composition root and a separate numeric-loopback starter. Each launch generates a 256-bit bearer
+token; protected routes enforce that token plus numeric-loopback Host and exact allow-listed browser
+Origins. Secret-free health/readiness probes and the authenticated canonical
+`GET /v1/capabilities` route are implemented with bounded handlers, privacy-safe errors, abort
+propagation, and clean shutdown. Uploads, jobs, artifact persistence, review, and downloads remain
+disabled until their durable contracts and authorization gates are implemented.
 
 `cleanup-stages` is a bounded recovery tool for an interrupted redaction. It is a dry run unless
 `--apply` is supplied, considers only private stages older than 24 hours that match the exact
@@ -166,7 +178,9 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
+- There is no upload/job-processing HTTP API, durable job store, qualified contextual model, or
+  review UI yet; the implemented HTTP surface is currently limited to the secured capability and
+  health scaffold described above.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.
 
