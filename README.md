@@ -93,6 +93,30 @@ Origins. Secret-free health/readiness probes and the authenticated canonical
 propagation, and clean shutdown. Uploads, jobs, artifact persistence, review, and downloads remain
 disabled until their durable contracts and authorization gates are implemented.
 
+## Web foundation
+
+[`apps/web`](./apps/web) now provides the first local review-application shell. It uses React with
+shared accessible primitives and semantic tokens from [`packages/ui`](./packages/ui), and all of
+its current user-facing copy comes from the typed, bundled catalog in
+[`packages/i18n`](./packages/i18n). English plus expansion and RTL stress locales ship from the
+first screen. The shell uses native landmarks and controls, visible focus, logical CSS properties,
+reduced-motion and forced-colors accommodations, and automated axe checks. Manual keyboard,
+screen-reader, zoom/reflow, and contrast review remain required before accessibility qualification.
+
+The capability preflight accepts only a numeric-loopback API origin and a per-launch bearer token
+in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
+secrets, local/session storage, cookies, or remote catalogs. Its bounded client denies redirects,
+credentials, referrers, and caching, then projects only aggregate values from the capability
+response. Until the trusted local launcher injects that object, the standalone preview correctly
+shows a disconnected state; uploads and processing controls are intentionally absent.
+
+```sh
+pnpm --filter @local-pii/web dev
+pnpm --filter @local-pii/web build
+pnpm exec vitest run packages/i18n/test/i18n.test.ts \
+  packages/ui/test/ui.test.tsx apps/web/test/api.test.ts apps/web/test/application.test.tsx
+```
+
 `cleanup-stages` is a bounded recovery tool for an interrupted redaction. It is a dry run unless
 `--apply` is supplied, considers only private stages older than 24 hours that match the exact
 selected output, and reports counts without filenames or paths. Run it only in a trusted directory:
@@ -205,8 +229,9 @@ output collisions.
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
 - There is no upload/job-processing HTTP API, durable job store, qualified contextual model, or
-  review UI yet; the implemented HTTP surface is currently limited to the secured capability and
-  health scaffold described above.
+  review workflow yet. The implemented web shell is limited to secured capability preflight and
+  design-system/localization foundations; the HTTP surface remains the capability and health
+  scaffold described above.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.
 

@@ -11,7 +11,10 @@
     { "path": "packages/adapter-text" },
     { "path": "packages/verification" },
     { "path": "packages/core" },
+    { "path": "packages/i18n" },
+    { "path": "packages/ui" },
     { "path": "apps/api" },
-    { "path": "apps/cli" }
+    { "path": "apps/cli" },
+    { "path": "apps/web" }
   ]
 }

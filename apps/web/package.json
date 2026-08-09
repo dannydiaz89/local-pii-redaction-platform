@@ -1,0 +1,22 @@
+{
+  "name": "@local-pii/web",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@local-pii/contracts": "workspace:*",
+    "@local-pii/i18n": "workspace:*",
+    "@local-pii/ui": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "vite": "^8.2.1"
+  }
+}

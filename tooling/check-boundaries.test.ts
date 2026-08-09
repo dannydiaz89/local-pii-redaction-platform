@@ -5,6 +5,7 @@ import {
   checkApplicationDirectoryNames,
   checkPackageManifest,
   checkSourceDependencyDirection,
+  checkWebManifest,
   moduleSpecifiersInSource
 } from './check-boundaries.js';
 
@@ -25,6 +26,13 @@ describe('boundary checker', () => {
       'hono',
       'fastify'
     ]);
+  });
+
+  it('parses dependencies from TSX source', () => {
+    expect(moduleSpecifiersInSource(
+      "import { Button } from '@local-pii/ui'; export const View = () => <Button />;",
+      'view.tsx'
+    )).toEqual(['@local-pii/ui']);
   });
 
   it('rejects server, durable infrastructure, and non-public workspace imports from the CLI', () => {
@@ -107,8 +115,35 @@ describe('boundary checker', () => {
 
   it('rejects unknown application roots until their boundary policy is explicit', () => {
     expect(checkApplicationDirectoryNames(['api', 'cli', 'worker', 'web'])).toEqual([
-      { path: 'apps/worker', message: 'is not in the workspace application allow-list' },
-      { path: 'apps/web', message: 'is not in the workspace application allow-list' }
+      { path: 'apps/worker', message: 'is not in the workspace application allow-list' }
+    ]);
+  });
+
+  it('allows the web app to use only contracts, design-system packages, and React', () => {
+    expect(checkWebManifest('apps/web/package.json', {
+      name: '@local-pii/web',
+      dependencies: {
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/i18n': 'workspace:*',
+        '@local-pii/ui': 'workspace:*',
+        react: '^19.2.8',
+        'react-dom': '^19.2.8'
+      }
+    })).toEqual([]);
+
+    const violations = checkSourceDependencyDirection(
+      'apps/web/src/example.tsx',
+      [
+        "import { createRoot } from 'react-dom/client';",
+        "import { process } from '@local-pii/core';",
+        "import Fastify from 'fastify';"
+      ].join('\n'),
+      ['contracts', 'i18n', 'ui'],
+      { webRuntime: true }
+    );
+    expect(violations.map(({ message }) => message)).toEqual([
+      'imports @local-pii/core, outside its allow-listed dependency direction',
+      'imports or loads forbidden durable/server infrastructure fastify'
     ]);
   });
 
@@ -130,5 +165,36 @@ describe('boundary checker', () => {
     expect(violations.map(({ message }) => message)).toContain(
       'must not declare unknown workspace dependencies: @local-pii/durable-store'
     );
+  });
+
+  it('keeps localization dependency-free and the UI runtime React-only', () => {
+    expect(checkPackageManifest('packages/i18n/package.json', 'i18n', {
+      name: '@local-pii/i18n',
+      exports: { '.': './dist/index.js' },
+      dependencies: { 'remote-catalog-client': '^1.0.0' }
+    }).map(({ message }) => message)).toContain('localization package must not declare external dependencies');
+
+    expect(checkPackageManifest('packages/ui/package.json', 'ui', {
+      name: '@local-pii/ui',
+      exports: { '.': './dist/index.js', './styles.css': './styles.css' },
+      peerDependencies: { react: '^19.2.0', telemetry: '^1.0.0' }
+    }).map(({ message }) => message)).toContain('UI external dependencies must be exactly the React peer');
+
+    expect(checkSourceDependencyDirection(
+      'packages/i18n/src/catalog.ts',
+      "import client from 'remote-catalog-client';",
+      [],
+      { packageRuntime: 'i18n' }
+    ).map(({ message }) => message)).toEqual([
+      'imports remote-catalog-client, but the localization runtime permits no external modules'
+    ]);
+    expect(checkSourceDependencyDirection(
+      'packages/ui/src/tracker.tsx',
+      "import telemetry from 'telemetry';",
+      [],
+      { packageRuntime: 'ui' }
+    ).map(({ message }) => message)).toEqual([
+      'imports telemetry, which is not allow-listed for the UI runtime'
+    ]);
   });
 });

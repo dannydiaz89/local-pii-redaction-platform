@@ -11,11 +11,13 @@ type WorkspacePackage =
   | 'contracts'
   | 'detectors'
   | 'domain'
+  | 'i18n'
   | 'policy'
   | 'provider-ollama'
   | 'redaction'
   | 'span-resolution'
   | 'verification'
+  | 'ui'
   | 'core';
 
 interface PackageManifest {
@@ -39,11 +41,13 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'contracts',
   'detectors',
   'domain',
+  'i18n',
   'policy',
   'provider-ollama',
   'redaction',
   'span-resolution',
   'verification',
+  'ui',
   'core'
 ];
 
@@ -57,11 +61,13 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   contracts: [],
   detectors: ['domain'],
   domain: [],
+  i18n: [],
   policy: ['contracts', 'domain'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
   verification: ['contracts', 'detectors', 'domain', 'span-resolution'],
+  ui: [],
   core: ['contracts', 'domain', 'policy', 'redaction', 'span-resolution']
 };
 
@@ -70,11 +76,13 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   contracts: [],
   detectors: [],
   domain: [],
+  i18n: [],
   policy: [],
   'provider-ollama': [],
   redaction: ['detectors'],
   'span-resolution': ['detectors'],
   verification: [],
+  ui: [],
   core: []
 };
 
@@ -92,7 +100,9 @@ const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
 const allowedCliRuntimeModules = new Set(['node:fs/promises', 'node:path']);
 const allowedApiWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'core', 'domain'];
 const allowedApiRuntimeModules = new Set(['fastify', 'node:crypto']);
-const workspaceApplications = ['api', 'cli'] as const;
+const allowedWebWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'i18n', 'ui'];
+const allowedWebRuntimeModules = new Set(['react', 'react-dom/client']);
+const workspaceApplications = ['api', 'cli', 'web'] as const;
 
 /** Modules that would add an HTTP server, durable store, artifact repository, or queue. */
 const forbiddenInfrastructureModulePrefixes = [
@@ -149,7 +159,7 @@ function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return path.endsWith('.ts') ? [path] : [];
+    return path.endsWith('.ts') || path.endsWith('.tsx') ? [path] : [];
   });
 }
 
@@ -162,7 +172,8 @@ function moduleNameFromExpression(expression: ts.Expression): string | undefined
  * string literals that are not import/load expressions are intentionally ignored.
  */
 export function moduleSpecifiersInSource(source: string, fileName = 'source.ts'): readonly string[] {
-  const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const scriptKind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKind);
   const specifiers = new Set<string>();
   const add = (expression: ts.Expression): void => {
     const specifier = moduleNameFromExpression(expression);
@@ -231,7 +242,13 @@ export function checkSourceDependencyDirection(
   path: string,
   source: string,
   allowedWorkspaceDependencies: readonly WorkspacePackage[],
-  options: { readonly apiRuntime?: boolean; readonly cliRuntime?: boolean; readonly domain?: boolean } = {}
+  options: {
+    readonly apiRuntime?: boolean;
+    readonly cliRuntime?: boolean;
+    readonly domain?: boolean;
+    readonly packageRuntime?: WorkspacePackage;
+    readonly webRuntime?: boolean;
+  } = {}
 ): readonly BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
   for (const specifier of moduleSpecifiersInSource(source, path)) {
@@ -241,6 +258,12 @@ export function checkSourceDependencyDirection(
       continue;
     }
     if (workspacePackage !== undefined) {
+      if (
+        options.webRuntime === true
+        && workspacePackage === 'ui'
+        && specifier === '@local-pii/ui/styles.css'
+        && allowedWorkspaceDependencies.includes('ui')
+      ) continue;
       if (specifier !== `@local-pii/${workspacePackage}`) {
         violations.push(violation(path, `imports non-public workspace path ${specifier}`));
       } else if (!allowedWorkspaceDependencies.includes(workspacePackage)) {
@@ -249,12 +272,21 @@ export function checkSourceDependencyDirection(
       continue;
     }
     if (options.apiRuntime === true && allowedApiRuntimeModules.has(specifier)) continue;
+    if (options.webRuntime === true && allowedWebRuntimeModules.has(specifier)) continue;
     if (forbiddenInfrastructureModulePrefixes.some((prefix) => isModuleOrSubpath(specifier, prefix))) {
       violations.push(violation(path, `imports or loads forbidden durable/server infrastructure ${specifier}`));
       continue;
     }
     if (options.domain === true && forbiddenDomainModulePrefixes.some((prefix) => isModuleOrSubpath(specifier, prefix))) {
       violations.push(violation(path, `imports forbidden domain module ${specifier}`));
+      continue;
+    }
+    if (options.packageRuntime === 'i18n' && !specifier.startsWith('.')) {
+      violations.push(violation(path, `imports ${specifier}, but the localization runtime permits no external modules`));
+      continue;
+    }
+    if (options.packageRuntime === 'ui' && !specifier.startsWith('.') && specifier !== 'react') {
+      violations.push(violation(path, `imports ${specifier}, which is not allow-listed for the UI runtime`));
       continue;
     }
     if (options.cliRuntime === true && forbiddenCliServerModulePrefixes.some((prefix) => isModuleOrSubpath(specifier, prefix))) {
@@ -267,6 +299,9 @@ export function checkSourceDependencyDirection(
     }
     if (options.apiRuntime === true && !specifier.startsWith('.') && !allowedApiRuntimeModules.has(specifier)) {
       violations.push(violation(path, `imports ${specifier}, which is not allow-listed for the API runtime`));
+    }
+    if (options.webRuntime === true && !specifier.startsWith('.') && !allowedWebRuntimeModules.has(specifier)) {
+      violations.push(violation(path, `imports ${specifier}, which is not allow-listed for the web runtime`));
     }
   }
   return violations;
@@ -287,8 +322,11 @@ export function checkPackageManifest(
   if (manifest.name !== `@local-pii/${packageName}`) {
     violations.push(violation(path, 'has an unexpected package name'));
   }
+  const expectedExports = packageName === 'ui'
+    ? { '.': './dist/index.js', './styles.css': './styles.css' }
+    : { '.': './dist/index.js' };
   if (manifest.exports === null || typeof manifest.exports !== 'object' || Array.isArray(manifest.exports)
-    || JSON.stringify(manifest.exports) !== JSON.stringify({ '.': './dist/index.js' })) {
+    || JSON.stringify(manifest.exports) !== JSON.stringify(expectedExports)) {
     violations.push(violation(path, 'must expose only the public package root'));
   }
   const runtime = workspaceDependencies(manifest, 'dependencies');
@@ -306,6 +344,24 @@ export function checkPackageManifest(
   const unknownWorkspace = unknownWorkspaceDependencies(manifest);
   if (unknownWorkspace.length > 0) {
     violations.push(violation(path, `must not declare unknown workspace dependencies: ${unknownWorkspace.join(', ')}`));
+  }
+  if (packageName === 'i18n') {
+    const external = (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const)
+      .flatMap((field) => dependencyNames(manifest, field))
+      .filter((name) => !name.startsWith('@local-pii/'));
+    if (external.length > 0) {
+      violations.push(violation(path, 'localization package must not declare external dependencies'));
+    }
+  }
+  if (packageName === 'ui') {
+    const runtimeExternal = dependencyNames(manifest, 'dependencies').filter((name) => !name.startsWith('@local-pii/'));
+    const developmentExternal = dependencyNames(manifest, 'devDependencies').filter((name) => !name.startsWith('@local-pii/'));
+    const optionalExternal = dependencyNames(manifest, 'optionalDependencies').filter((name) => !name.startsWith('@local-pii/'));
+    const peerExternal = dependencyNames(manifest, 'peerDependencies').filter((name) => !name.startsWith('@local-pii/'));
+    if (runtimeExternal.length > 0 || developmentExternal.length > 0 || optionalExternal.length > 0
+      || !sameMembers(peerExternal, ['react'])) {
+      violations.push(violation(path, 'UI external dependencies must be exactly the React peer'));
+    }
   }
   return violations;
 }
@@ -367,6 +423,32 @@ export function checkApiManifest(path: string, manifest: PackageManifest): reado
   return violations;
 }
 
+export function checkWebManifest(path: string, manifest: PackageManifest): readonly BoundaryViolation[] {
+  const violations: BoundaryViolation[] = [];
+  if (manifest.name !== '@local-pii/web') violations.push(violation(path, 'has an unexpected package name'));
+  const runtime = workspaceDependencies(manifest, 'dependencies');
+  if (!sameMembers(runtime, allowedWebWorkspaceDependencies)) {
+    violations.push(violation(path, `Web workspace runtime dependencies must be exactly: ${allowedWebWorkspaceDependencies.join(', ')}`));
+  }
+  const declaredRuntime = manifest.dependencies;
+  const externalDependencies = declaredRuntime !== undefined && declaredRuntime !== null
+    && typeof declaredRuntime === 'object' && !Array.isArray(declaredRuntime)
+    ? Object.keys(declaredRuntime).filter((name) => !name.startsWith('@local-pii/'))
+    : [];
+  if (!sameMembers(externalDependencies, ['react', 'react-dom'])) {
+    violations.push(violation(path, 'Web external runtime dependencies must be exactly: react, react-dom'));
+  }
+  const otherWorkspaceDependencies = workspaceDependenciesFromOtherFields(manifest);
+  if (otherWorkspaceDependencies.length > 0) {
+    violations.push(violation(path, 'must not declare workspace packages as optional or peer dependencies'));
+  }
+  const unknownWorkspace = unknownWorkspaceDependencies(manifest);
+  if (unknownWorkspace.length > 0) {
+    violations.push(violation(path, `must not declare unknown workspace dependencies: ${unknownWorkspace.join(', ')}`));
+  }
+  return violations;
+}
+
 export function checkApplicationDirectoryNames(names: readonly string[]): readonly BoundaryViolation[] {
   return names
     .filter((name) => !(workspaceApplications as readonly string[]).includes(name))
@@ -397,7 +479,7 @@ export function boundaryViolations(root = repositoryRoot): readonly BoundaryViol
         relativePath(sourcePath),
         readFileSync(sourcePath, 'utf8'),
         allowedRuntimeWorkspaceDependencies[packageName],
-        { domain: packageName === 'domain' }
+        { domain: packageName === 'domain', packageRuntime: packageName }
       ));
     }
   }
@@ -431,6 +513,19 @@ export function boundaryViolations(root = repositoryRoot): readonly BoundaryViol
       readFileSync(sourcePath, 'utf8'),
       allowedApiWorkspaceDependencies,
       { apiRuntime: true }
+    ));
+  }
+
+  const webDirectory = resolve(applicationRoot, 'web');
+  const webManifestPath = resolve(webDirectory, 'package.json');
+  const webManifest = JSON.parse(readFileSync(webManifestPath, 'utf8')) as PackageManifest;
+  violations.push(...checkWebManifest(relativePath(webManifestPath), webManifest));
+  for (const sourcePath of sourceFiles(resolve(webDirectory, 'src'))) {
+    violations.push(...checkSourceDependencyDirection(
+      relativePath(sourcePath),
+      readFileSync(sourcePath, 'utf8'),
+      allowedWebWorkspaceDependencies,
+      { webRuntime: true }
     ));
   }
   return violations;

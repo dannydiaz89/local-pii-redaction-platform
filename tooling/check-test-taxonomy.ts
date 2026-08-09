@@ -19,7 +19,7 @@ async function findTests(directory: string): Promise<string[]> {
   const nested = await Promise.all(entries.map(async (entry) => {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) return findTests(path);
-    return path.endsWith('.test.ts') ? [relative(repositoryRoot, path)] : [];
+    return path.endsWith('.test.ts') || path.endsWith('.test.tsx') ? [relative(repositoryRoot, path)] : [];
   }));
   return nested.flat();
 }

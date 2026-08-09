@@ -2,7 +2,16 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["tooling/**/*.ts", "packages/*/test/**/*.ts", "apps/*/test/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "tooling/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "packages/*/test/**/*.tsx",
+    "apps/*/test/**/*.ts",
+    "apps/*/test/**/*.tsx",
+    "vitest.config.ts"
+  ]
 }
