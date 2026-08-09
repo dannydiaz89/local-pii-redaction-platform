@@ -98,8 +98,10 @@ disabled until their durable contracts and authorization gates are implemented.
 [`apps/web`](./apps/web) now provides the first local review-application shell. It uses React with
 shared accessible primitives and semantic tokens from [`packages/ui`](./packages/ui), and all of
 its current user-facing copy comes from the typed, bundled catalog in
-[`packages/i18n`](./packages/i18n). English plus expansion and RTL stress locales ship from the
-first screen. The shell uses native landmarks and controls, visible focus, logical CSS properties,
+[`packages/i18n`](./packages/i18n). The canonical English source lives independently in
+[`packages/i18n/src/catalogs/en.ts`](./packages/i18n/src/catalogs/en.ts); future human locale
+catalogs belong beside it. English plus expansion and RTL stress locales ship from the first
+screen. The shell uses native landmarks and controls, visible focus, logical CSS properties,
 reduced-motion and forced-colors accommodations, and automated axe checks. Manual keyboard,
 screen-reader, zoom/reflow, and contrast review remain required before accessibility qualification.
 

@@ -7,9 +7,11 @@ import {
   message,
   supportedLocales
 } from '../src/index.js';
+import { englishCatalog } from '../src/catalogs/en.js';
 
 describe('localization foundation', () => {
   it('exposes an English source catalog and two layout stress locales', () => {
+    expect(englishCatalog['preflight.ready']).toBe('Local engine is ready');
     expect(supportedLocales).toEqual(['en', 'en-XA', 'ar-XB']);
     expect(message('en', 'preflight.ready')).toBe('Local engine is ready');
     expect(message('en-XA', 'preflight.ready')).toMatch(/^［.+］$/u);
