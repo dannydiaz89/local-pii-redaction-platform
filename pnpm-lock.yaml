@@ -65,9 +65,6 @@ importers:
       '@local-pii/redaction':
         specifier: workspace:*
         version: link:../../packages/redaction
-      '@local-pii/span-resolution':
-        specifier: workspace:*
-        version: link:../../packages/span-resolution
       '@local-pii/verification':
         specifier: workspace:*
         version: link:../../packages/verification
@@ -92,6 +89,12 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../domain
+      '@local-pii/redaction':
+        specifier: workspace:*
+        version: link:../redaction
+      '@local-pii/span-resolution':
+        specifier: workspace:*
+        version: link:../span-resolution
 
   packages/detectors:
     dependencies:

@@ -29,6 +29,8 @@ export const textAdapterCapabilityDescriptor = {
 } as const;
 
 export interface TextArtifact {
+  /** Opaque application-level handle; the local implementation uses `path`. */
+  readonly reference: string;
   readonly path: string;
   readonly displayName: string;
   readonly mediaType: 'text/plain' | 'text/markdown';
@@ -45,8 +47,40 @@ export interface WrittenTextArtifact {
   readonly digest: Sha256Digest;
 }
 
+/** A storage-neutral handle to a successfully published artifact. */
+export interface TextArtifactPublication {
+  readonly reference: string;
+  readonly byteLength: number;
+  readonly digest: Sha256Digest;
+}
+
 export interface StagedTextArtifact extends WrittenTextArtifact {
+  /** Opaque application-level handle; the local implementation uses `path`. */
+  readonly reference: string;
   readonly targetPath: string;
+}
+
+/**
+ * The read side of a text-artifact exchange.  This is deliberately structural:
+ * the application layer can depend on this shape without depending on the
+ * local filesystem adapter.  A future API or durable artifact store can
+ * implement the same operations without changing the processing pipeline.
+ */
+export interface TextInputSession {
+  input(signal?: AbortSignal): Promise<TextArtifact>;
+}
+
+/**
+ * A short-lived artifact exchange used by the local CLI.  `stage` creates a
+ * private candidate only when redaction needs one; scan and verify use `input`
+ * alone and therefore create no files.  `publish` returns a neutral reference
+ * whose local implementation is the absolute output path.
+ */
+export interface TextArtifactSession extends TextInputSession {
+  stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
+  reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
+  publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication>;
+  discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
 }
 
 function digestBytes(bytes: Uint8Array): Sha256Digest {
@@ -99,6 +133,7 @@ export async function readTextArtifact(inputPath: string, maximumBytes = default
     throw new SafeError({ code: 'FORMAT_CORRUPT', message: 'The text input contains unsupported NUL bytes.', retryable: false, correlationId: 'cor_text_adapter' });
   }
   return {
+    reference: path,
     path,
     displayName: basename(path),
     mediaType: supportedMediaType(path),
@@ -165,7 +200,7 @@ export async function stageTextArtifact(
     throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The derived artifact failed digest verification.', retryable: true, correlationId: 'cor_text_adapter' });
   }
 
-  return { path: temporary, targetPath: target, byteLength: written.byteLength, digest };
+  return { reference: temporary, path: temporary, targetPath: target, byteLength: written.byteLength, digest };
 }
 
 export async function publishStagedTextArtifact(
@@ -203,7 +238,76 @@ export async function publishStagedTextArtifact(
 }
 
 export async function discardStagedTextArtifact(staged: StagedTextArtifact): Promise<void> {
-  await unlink(staged.path).catch(() => undefined);
+  try {
+    await unlink(staged.path);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw new SafeError({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be removed.',
+      retryable: true,
+      correlationId: 'cor_text_adapter'
+    });
+  }
+}
+
+/**
+ * Creates a filesystem-backed session for one local input and, optionally, a
+ * caller-selected output.  Input bytes are cached after the first read so that
+ * staging and publication are bound to the exact source the caller processed.
+ * The default redacted path is intentionally calculated only by `stage`.
+ */
+export function createLocalTextArtifactSession(inputPath: string, outputPath?: string): TextArtifactSession {
+  let sourcePromise: Promise<TextArtifact> | undefined;
+
+  const input = async (signal?: AbortSignal): Promise<TextArtifact> => {
+    signal?.throwIfAborted();
+    sourcePromise ??= readTextArtifact(inputPath);
+    const source = await sourcePromise;
+    signal?.throwIfAborted();
+    return source;
+  };
+
+  return {
+    input,
+    async stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact> {
+      signal?.throwIfAborted();
+      const source = await input(signal);
+      signal?.throwIfAborted();
+      const target = outputPath === undefined ? deriveRedactedOutputPath(source.path) : resolve(outputPath);
+      const staged = await stageTextArtifact(source, target, text);
+      try {
+        signal?.throwIfAborted();
+      } catch (error: unknown) {
+        await discardStagedTextArtifact(staged);
+        throw error;
+      }
+      return staged;
+    },
+    async reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact> {
+      signal?.throwIfAborted();
+      const reopened = await readTextArtifact(staged.path);
+      signal?.throwIfAborted();
+      if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
+        throw new SafeError({
+          code: 'STORAGE_UNAVAILABLE',
+          message: 'The staged artifact changed before it could be reopened.',
+          retryable: true,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      return reopened;
+    },
+    async publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication> {
+      signal?.throwIfAborted();
+      const published = await publishStagedTextArtifact(await input(signal), staged);
+      return { reference: published.path, byteLength: published.byteLength, digest: published.digest };
+    },
+    async discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void> {
+      signal?.throwIfAborted();
+      await discardStagedTextArtifact(staged);
+    }
+  };
 }
 
 export async function writeTextArtifact(

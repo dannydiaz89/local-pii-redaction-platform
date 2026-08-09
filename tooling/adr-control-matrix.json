@@ -40,7 +40,7 @@
     {
       "id": "ADR-005",
       "controls": [
-        { "id": "ADR-005-C01", "control": "Egress-denied end-to-end tests and private/default loopback bindings.", "resolution": { "type": "REVIEW", "owner": "Platform and security", "milestone": "M1", "gate": "The installed local workflow runs with egress denied and every listener is asserted loopback/private before qualification." } },
+        { "id": "ADR-005-C01", "control": "Egress-denied default-CLI end-to-end tests and private loopback bindings for opt-in local servers.", "resolution": { "type": "REVIEW", "owner": "Platform and security", "milestone": "M1", "gate": "The installed local workflow runs with egress denied and every listener is asserted loopback/private before qualification." } },
         { "id": "ADR-005-C02", "control": "No third-party browser assets/analytics or automatic crash reporting.", "resolution": { "type": "REVIEW", "owner": "Web and security", "milestone": "M3", "gate": "The production web bundle and runtime receive dependency, network, analytics, and crash-upload inspection." } },
         { "id": "ADR-005-C03", "control": "Model manifests, digests, license/provenance, and explicit activation.", "resolution": { "type": "REVIEW", "owner": "Inference and supply chain", "milestone": "M1", "gate": "Model acquisition and activation verify every asset digest, license, provenance field, and explicit operator selection." } },
         { "id": "ADR-005-C04", "control": "Capability output clearly states engine mode and any disabled required detector.", "resolution": { "type": "REVIEW", "owner": "Core and CLI", "milestone": "M1", "gate": "Capability and policy-preflight fixtures prove engine mode plus disabled/unavailable required-detector reporting." } }
@@ -51,8 +51,8 @@
       "controls": [
         { "id": "ADR-006-C01", "control": "Canonical path and file identity checks, symlink containment, generated safe names, and atomic no-clobber creation.", "resolution": { "type": "REVIEW", "owner": "Adapter and security", "milestone": "M1", "gate": "Adversarial path tests cover aliases, hard links, parent symlinks, case folding, file identity, races, and atomic no-clobber output." } },
         { "id": "ADR-006-C02", "control": "Input/output/artifact digests bound into extraction, plan, and verification reports.", "resolution": { "type": "REVIEW", "owner": "Core and adapter", "milestone": "M1", "gate": "Runtime extraction, plan, writer receipt, and verification reports bind the exact input/output digests and validate canonically." } },
-        { "id": "ADR-006-C03", "control": "Partial writes remain quarantined and inaccessible through normal download routes.", "resolution": { "type": "REVIEW", "owner": "Storage and API", "milestone": "M1", "gate": "Store and interface tests prove staged/failed artifacts cannot be returned through a normal output route." } },
-        { "id": "ADR-006-C04", "control": "Retention and disk-pressure admission prevent unbounded duplicate storage.", "resolution": { "type": "REVIEW", "owner": "Storage and operations", "milestone": "M1", "gate": "Quota reservation, retention cleanup, deduplication, and disk-pressure admission tests pass." } }
+        { "id": "ADR-006-C03", "control": "Partial writes remain non-publishable. The default CLI removes them; the durable profile may retain", "resolution": { "type": "REVIEW", "owner": "Storage and API", "milestone": "M1", "gate": "Store and interface tests prove staged/failed artifacts cannot be returned through a normal output route." } },
+        { "id": "ADR-006-C04", "control": "Workspace limits and disk-pressure admission bound temporary duplication; durable-profile retention", "resolution": { "type": "REVIEW", "owner": "Storage and operations", "milestone": "M1", "gate": "Quota reservation, retention cleanup, deduplication, and disk-pressure admission tests pass." } }
       ]
     },
     {
@@ -105,7 +105,7 @@
       "controls": [
         { "id": "ADR-012-C01", "control": "Dependency-boundary linting and public `exports` maps prevent cross-package internal imports.", "resolution": { "type": "REVIEW", "owner": "Core architecture", "milestone": "M0", "gate": "Boundary lint enforces the complete allowed package-dependency graph as well as public exports and internal-import bans." } },
         { "id": "ADR-012-C02", "control": "Interface equivalence end-to-end tests use the same synthetic job through CLI/SDK/API/web where practical.", "resolution": { "type": "REVIEW", "owner": "Interface owners and QA", "milestone": "M3", "gate": "Each shipped interface joins the shared synthetic lifecycle equivalence suite." } },
-        { "id": "ADR-012-C03", "control": "Core ports abstract providers/adapters/stores; applications are the only composition roots.", "resolution": { "type": "REVIEW", "owner": "Core architecture", "milestone": "M0", "gate": "Shared use cases move out of CLI composition and architecture tests enforce provider, adapter, and store dependency direction." } },
+        { "id": "ADR-012-C03", "control": "Core ports abstract providers, adapters, workspaces, outputs, and optional durable stores;", "resolution": { "type": "REVIEW", "owner": "Core architecture", "milestone": "M0", "gate": "Shared use cases move out of CLI composition and architecture tests enforce provider, adapter, and store dependency direction." } },
         { "id": "ADR-012-C04", "control": "Exit codes/UI states/HTTP errors map to the same canonical result and error taxonomy.", "resolution": { "type": "REVIEW", "owner": "Interface owners and contracts", "milestone": "M3", "gate": "CLI, SDK, API, and web mapping fixtures prove one canonical result/error taxonomy." } }
       ]
     },
@@ -143,6 +143,15 @@
         { "id": "ADR-016-C02", "control": "Asset garbage collection considers active/retained jobs and rollback/support windows.", "resolution": { "type": "REVIEW", "owner": "Storage and operations", "milestone": "M1", "gate": "Asset-GC tests retain every active/retained reference and configured rollback/support window." } },
         { "id": "ADR-016-C03", "control": "Migration creates new revisions, invalidates affected downstream stages, and records actor/reason/from/to.", "resolution": { "type": "REVIEW", "owner": "Jobs and operations", "milestone": "M1", "gate": "Migration tests prove revision creation, dependency invalidation, and complete actor/reason/from/to audit fields." } },
         { "id": "ADR-016-C04", "control": "Release/incident tooling queries provenance without reading content.", "resolution": { "type": "REVIEW", "owner": "Operations and privacy", "milestone": "M1", "gate": "Provenance-query tests and incident drills succeed with artifact/content access denied." } }
+      ]
+    },
+    {
+      "id": "ADR-017",
+      "controls": [
+        { "id": "ADR-017-C01", "control": "No default-CLI composition may require or silently initialize a job database, artifact repository, retained audit history, or deletion scheduler.", "resolution": { "type": "REVIEW", "owner": "Core architecture and privacy", "milestone": "M1", "gate": "Composition and filesystem write-set tests prove the default CLI initializes no durable processing store or retained history." } },
+        { "id": "ADR-017-C02", "control": "Temporary paths are project-owned, unique, permission-restricted, bounded, collision-safe, and cleaned on success, typed failure, and cooperative cancellation.", "resolution": { "type": "REVIEW", "owner": "Adapter and security", "milestone": "M1", "gate": "Fault, permission, collision, signal, and cleanup tests cover every transient workspace exit path before qualification." } },
+        { "id": "ADR-017-C03", "control": "Input identity and output collision checks prevent overwrite; only a verified explicitly requested output is atomically published.", "resolution": { "type": "REVIEW", "owner": "Core, adapter, and verification", "milestone": "M1", "gate": "End-to-end tests prove input immutability, no-clobber staging, exact-byte reopen, verification gating, and atomic publication." } },
+        { "id": "ADR-017-C04", "control": "Process-kill, SIGINT, disk-pressure, stale-temporary-path, and canary scans demonstrate fail-closed behavior without claiming secure erasure.", "resolution": { "type": "REVIEW", "owner": "Security and QA", "milestone": "M1", "gate": "The ephemeral-profile fault suite and documented host-risk review pass without asserting RAM-only handling or secure erasure." } }
       ]
     }
   ],

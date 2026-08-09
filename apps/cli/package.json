@@ -16,7 +16,6 @@
     "@local-pii/detectors": "workspace:*",
     "@local-pii/domain": "workspace:*",
     "@local-pii/redaction": "workspace:*",
-    "@local-pii/span-resolution": "workspace:*",
     "@local-pii/verification": "workspace:*"
   }
 }

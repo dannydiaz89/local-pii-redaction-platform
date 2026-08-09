@@ -1,12 +1,20 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { parseSha256Digest } from '@local-pii/domain';
+
 import { rm } from 'node:fs/promises';
 
-import { readTextArtifact, writeTextArtifact } from '../src/index.js';
+import {
+  createLocalTextArtifactSession,
+  discardStagedTextArtifact,
+  readTextArtifact,
+  writeTextArtifact,
+  type StagedTextArtifact
+} from '../src/index.js';
 
 const directories: string[] = [];
 
@@ -54,5 +62,126 @@ describe('text adapter', () => {
     await expect(writeTextArtifact(artifact, output, 'replacement')).rejects.toMatchObject({ code: 'OUTPUT_COLLISION' });
     await symlink(input, link);
     await expect(readTextArtifact(link)).rejects.toMatchObject({ code: 'FORMAT_UNSUPPORTED' });
+  });
+
+  it('uses no staging or output files for input-only scan and verify flows', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, 'scan-only@example.test');
+
+    const session = createLocalTextArtifactSession(input);
+    const artifact = await session.input();
+
+    expect(artifact.text).toBe('scan-only@example.test');
+    expect(await readdir(root)).toEqual(['input.txt']);
+  });
+
+  it('stages restrictive bytes, reopens the exact staged artifact, and publishes without clobbering', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+
+    const staged = await session.stage('[EMAIL_1]');
+    expect((await stat(staged.path)).mode & 0o777).toBe(0o600);
+    const reopened = await session.reopen(staged);
+    expect(reopened.digest).toBe(staged.digest);
+    expect(reopened.byteLength).toBe(staged.byteLength);
+    expect(await readFile(staged.path, 'utf8')).toBe('[EMAIL_1]');
+
+    await writeFile(output, 'must-not-be-replaced');
+    await expect(session.publish(staged)).rejects.toMatchObject({ code: 'OUTPUT_COLLISION' });
+    expect(await readFile(output, 'utf8')).toBe('must-not-be-replaced');
+    await session.discard(staged);
+  });
+
+  it('rejects publication when the source changes after staging', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage('[EMAIL_1]');
+    await writeFile(input, 'changed@example.test');
+
+    await expect(session.publish(staged)).rejects.toMatchObject({ code: 'JOB_CONFLICT' });
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await session.discard(staged);
+  });
+
+  it('publishes an absolute, storage-neutral reference for the CLI', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage('[EMAIL_1]');
+
+    const published = await session.publish(staged);
+
+    expect(published).toMatchObject({ reference: output, digest: staged.digest, byteLength: staged.byteLength });
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('honors cancellation before staging without leaving a staged or published artifact', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(session.stage('[EMAIL_1]', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(await readdir(root)).toEqual(['input.txt']);
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('discards a candidate when cancellation is observed immediately after staging', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    let checks = 0;
+    const signal = {
+      get aborted(): boolean { return checks >= 5; },
+      throwIfAborted(): void {
+        checks += 1;
+        if (checks >= 5) throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+    } as unknown as AbortSignal;
+
+    await expect(session.stage('[EMAIL_1]', signal)).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(await readdir(root)).toEqual(['input.txt']);
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('makes discard idempotent and signals unexpected cleanup failures safely', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input);
+    const staged = await session.stage('[EMAIL_1]');
+
+    await session.discard(staged);
+    await expect(session.discard(staged)).resolves.toBeUndefined();
+
+    const directoryAtStagedPath = join(root, 'not-a-file.staged.txt');
+    await mkdir(directoryAtStagedPath);
+    const invalidStage: StagedTextArtifact = {
+      reference: directoryAtStagedPath,
+      path: directoryAtStagedPath,
+      targetPath: join(root, 'out.txt'),
+      byteLength: 0,
+      digest: parseSha256Digest('sha256:0000000000000000000000000000000000000000000000000000000000000000')
+    };
+    await expect(discardStagedTextArtifact(invalidStage)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be removed.'
+    });
   });
 });

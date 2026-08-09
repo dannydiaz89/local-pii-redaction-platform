@@ -1,24 +1,11 @@
-import type { CorrelationId, DetectionEvidence, Sha256Digest } from '@local-pii/domain';
+import type {
+  DetectionEvidence,
+  EntityType,
+  Sha256Digest
+} from '@local-pii/domain';
+import type { TypedLabelPlan } from '@local-pii/redaction';
+import type { ResolutionSet } from '@local-pii/span-resolution';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
-
-export interface Extraction {
-  readonly revision: Sha256Digest;
-  readonly textLength: number;
-  readonly canonicalTextRef: string;
-  readonly sourceMapRef: string;
-}
-
-export interface DocumentAdapter {
-  readonly id: string;
-  readonly version: string;
-  extract(inputArtifactId: string): Promise<Extraction>;
-}
-
-export interface EvidenceProvider {
-  readonly id: string;
-  readonly version: string;
-  detect(extraction: Extraction): Promise<readonly DetectionEvidence[]>;
-}
 
 export interface CapabilityRequirement {
   readonly contractVersion: string;
@@ -46,27 +33,140 @@ export interface ApplicationContext {
 }
 
 export interface CapabilityProvider {
-  getCapabilities(): Promise<CapabilityManifest>;
+  getCapabilities(signal?: AbortSignal): Promise<CapabilityManifest>;
 }
 
-export interface RulesOnlyTextPipeline<Request, Result> {
-  execute(request: Request, correlationId: CorrelationId): Promise<Result>;
+/**
+ * The canonical text and byte digest exposed by a caller-owned artifact session.
+ * `reference` is deliberately opaque: it can be a CLI path today or an artifact
+ * identifier in a durable service without changing the application contract.
+ */
+export interface TextArtifact {
+  readonly reference: string;
+  readonly displayName: string;
+  readonly mediaType: string;
+  readonly byteLength: number;
+  readonly digest: Sha256Digest;
+  readonly extractionRevision: Sha256Digest;
+  readonly text: string;
+  readonly hasUtf8Bom: boolean;
 }
 
-export interface ExecuteRulesOnlyTextCommand<Request> {
-  readonly request: Request;
-  readonly requirement: CapabilityRequirement;
+export interface StagedTextArtifact {
+  readonly reference: string;
+  readonly byteLength: number;
+  readonly digest: Sha256Digest;
 }
 
-export interface JobApplicationDependencies<Request, Result> {
+export interface PublishedTextArtifact {
+  readonly reference: string;
+  readonly byteLength: number;
+  readonly digest: Sha256Digest;
+}
+
+/** Reads the caller-selected input only after application capability preflight. */
+export interface TextInputSession {
+  input(signal?: AbortSignal): Promise<TextArtifact>;
+}
+
+/**
+ * Owns transient staging and publication. The core never assumes a filesystem,
+ * database, object store, or retention policy.
+ */
+export interface TextArtifactSession {
+  stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
+  reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
+  publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<PublishedTextArtifact>;
+  discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
+}
+
+export type TextProcessingSession = TextInputSession & TextArtifactSession;
+
+export interface TextDetectionPort {
+  readonly detectorBundleVersion: string;
+  detect(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<readonly DetectionEvidence[]>;
+}
+
+export interface TextVerificationFinding {
+  readonly code: string;
+  readonly severity: 'ERROR' | 'WARNING';
+  readonly blocking: boolean;
+  readonly entityType?: EntityType;
+  readonly start?: number;
+  readonly end?: number;
+}
+
+/** Independent port: verification need not reuse the redaction detector. */
+export interface TextVerificationReport {
+  readonly schemaVersion: string;
+  readonly profile: string;
+  readonly outcome: 'PASS' | 'FAIL';
+  readonly detectorBundleVersion: string;
+  readonly checks: readonly string[];
+  readonly findings: readonly TextVerificationFinding[];
+}
+
+export interface TextVerificationPort {
+  verify(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<TextVerificationReport>;
+}
+
+export interface TextProcessingApplicationDependencies {
   readonly capabilityProvider: CapabilityProvider;
-  readonly rulesOnlyTextPipeline: RulesOnlyTextPipeline<Request, Result>;
+  readonly detector: TextDetectionPort;
+  readonly verifier: TextVerificationPort;
 }
 
-export interface JobApplication<Request, Result> {
-  getCapabilities(context: ApplicationContext): Promise<CapabilityManifest>;
-  executeRulesOnlyText(
-    command: ExecuteRulesOnlyTextCommand<Request>,
-    context: ApplicationContext
-  ): Promise<Result>;
+export interface TextCommand {
+  readonly session: TextInputSession;
+  readonly requirement: CapabilityRequirement;
+  readonly signal?: AbortSignal;
+}
+
+export interface RedactTextCommand {
+  readonly session: TextProcessingSession;
+  readonly requirement: CapabilityRequirement;
+  readonly signal?: AbortSignal;
+}
+
+export interface TextInspectionResult {
+  readonly artifact: TextArtifact;
+}
+
+export interface TextScanResult {
+  readonly artifact: TextArtifact;
+  readonly detectorBundleVersion: string;
+  readonly evidence: readonly DetectionEvidence[];
+  readonly resolution: ResolutionSet;
+  readonly outcome: 'SUCCEEDED' | 'NEEDS_REVIEW';
+}
+
+export interface TextVerifyResult {
+  readonly artifact: TextArtifact;
+  readonly verification: TextVerificationReport;
+}
+
+export interface TextRedactionResult {
+  readonly input: TextArtifact;
+  readonly detectorBundleVersion: string;
+  readonly evidence: readonly DetectionEvidence[];
+  readonly resolution: ResolutionSet;
+  readonly plan: TypedLabelPlan;
+  readonly verification: TextVerificationReport;
+  readonly published: PublishedTextArtifact;
+}
+
+export interface TextProcessingApplication {
+  getCapabilities(context: ApplicationContext, signal?: AbortSignal): Promise<CapabilityManifest>;
+  inspect(command: TextCommand, context: ApplicationContext): Promise<TextInspectionResult>;
+  scan(command: TextCommand, context: ApplicationContext): Promise<TextScanResult>;
+  verify(command: TextCommand, context: ApplicationContext): Promise<TextVerifyResult>;
+  redact(command: RedactTextCommand, context: ApplicationContext): Promise<TextRedactionResult>;
 }

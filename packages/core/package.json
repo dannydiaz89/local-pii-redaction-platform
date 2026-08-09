@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@local-pii/contracts": "workspace:*",
-    "@local-pii/domain": "workspace:*"
+    "@local-pii/domain": "workspace:*",
+    "@local-pii/redaction": "workspace:*",
+    "@local-pii/span-resolution": "workspace:*"
   }
 }

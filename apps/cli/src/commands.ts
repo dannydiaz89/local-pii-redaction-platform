@@ -2,21 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import {
-  deriveRedactedOutputPath,
-  discardStagedTextArtifact,
-  publishStagedTextArtifact,
-  readTextArtifact,
-  stageTextArtifact,
-  type TextArtifact
+  createLocalTextArtifactSession
 } from '@local-pii/adapter-text';
 import { assertContract } from '@local-pii/contracts';
-import { detectDeterministic, deterministicDetectorBundleVersion } from '@local-pii/detectors';
 import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
-import { applyTypedLabelPlan, compileTypedLabelPlan } from '@local-pii/redaction';
-import { resolveEvidence, type ResolutionSet } from '@local-pii/span-resolution';
-import { verifyCanonicalText } from '@local-pii/verification';
 
-import { createCurrentCapabilityManifest } from './capabilities.js';
+import { localTextApplication, textCapabilityRequirement } from './application.js';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -76,8 +67,8 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
   return counts;
 }
 
-function runCapabilities(json: boolean, io: CliIo): number {
-  const manifest = createCurrentCapabilityManifest();
+async function runCapabilities(json: boolean, io: CliIo): Promise<number> {
+  const manifest = await localTextApplication.getCapabilities({ correlationId: 'cor_cli_capabilities' });
   if (json) {
     io.stdout(`${JSON.stringify(manifest, null, 2)}\n`);
   } else {
@@ -93,21 +84,18 @@ function runCapabilities(json: boolean, io: CliIo): number {
   return 0;
 }
 
-function scanArtifact(artifact: TextArtifact): ResolutionSet {
-  const evidence = detectDeterministic(artifact.text, artifact.extractionRevision);
-  return resolveEvidence(evidence, artifact.extractionRevision, unicodeCodePointLength(artifact.text));
-}
-
 async function runScan(input: string, json: boolean, io: CliIo): Promise<number> {
-  const artifact = await readTextArtifact(input);
-  const evidence = detectDeterministic(artifact.text, artifact.extractionRevision);
-  const resolution = resolveEvidence(evidence, artifact.extractionRevision, unicodeCodePointLength(artifact.text));
+  const result = await localTextApplication.scan({
+    session: createLocalTextArtifactSession(input),
+    requirement: textCapabilityRequirement('SCAN')
+  }, { correlationId: 'cor_cli_scan' });
+  const { artifact, resolution } = result;
   const report = {
     schemaVersion: '1.0.0',
     operation: 'SCAN',
-    outcome: resolution.conflicts.length === 0 ? 'SUCCEEDED' : 'NEEDS_REVIEW',
+    outcome: result.outcome,
     input: { displayName: artifact.displayName, mediaType: artifact.mediaType, byteLength: artifact.byteLength, digest: artifact.digest },
-    detectorBundleVersion: deterministicDetectorBundleVersion,
+    detectorBundleVersion: result.detectorBundleVersion,
     counts: { detections: resolution.spans.length, conflicts: resolution.conflicts.length, byEntity: entityCounts(resolution.spans.map((span) => span.entityType)) },
     detections: resolution.spans.map((span) => ({ id: span.id, entityType: span.entityType, start: span.start, end: span.end, confidence: span.confidence, evidenceIds: span.evidenceIds })),
     conflicts: resolution.conflicts
@@ -117,40 +105,27 @@ async function runScan(input: string, json: boolean, io: CliIo): Promise<number>
 }
 
 async function runRedact(input: string, output: string | undefined, json: boolean, io: CliIo): Promise<number> {
-  const artifact = await readTextArtifact(input);
-  const resolution = scanArtifact(artifact);
-  if (resolution.conflicts.length > 0) {
-    throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'Overlapping detections require review before redaction.', retryable: false, correlationId: 'cor_cli_redact', details: { conflictCount: resolution.conflicts.length } });
-  }
-  const plan = compileTypedLabelPlan(resolution);
-  const redacted = applyTypedLabelPlan(artifact.text, plan);
-  const outputPath = output === undefined ? deriveRedactedOutputPath(artifact.path) : resolve(output);
-  const staged = await stageTextArtifact(artifact, outputPath, redacted);
-  try {
-    const reopened = await readTextArtifact(staged.path);
-    const verification = verifyCanonicalText(reopened.text, reopened.extractionRevision);
-    if (verification.outcome !== 'PASS') {
-      throw new SafeError({ code: 'VERIFICATION_RESIDUAL', message: 'Residual sensitive content blocked publication of the derived artifact.', retryable: false, correlationId: 'cor_cli_redact', details: { findingCount: verification.findings.length } });
-    }
-    const published = await publishStagedTextArtifact(artifact, staged);
-    const report = {
-      schemaVersion: '1.0.0', operation: 'REDACT', outcome: 'VERIFIED',
-      input: { digest: artifact.digest, byteLength: artifact.byteLength },
-      output: { path: published.path, digest: published.digest, byteLength: published.byteLength },
-      plan: { digest: plan.digest, strategy: plan.strategy, actionCount: plan.actions.length, byEntity: entityCounts(plan.actions.map((action) => action.entityType)) },
-      verification
-    };
-    writeResult(io, json, report, `Wrote verified output to ${published.path} with ${String(plan.actions.length)} replacement(s).`);
-    return 0;
-  } catch (error: unknown) {
-    await discardStagedTextArtifact(staged);
-    throw error;
-  }
+  const result = await localTextApplication.redact({
+    session: createLocalTextArtifactSession(input, output),
+    requirement: textCapabilityRequirement('REDACT')
+  }, { correlationId: 'cor_cli_redact' });
+  const report = {
+    schemaVersion: '1.0.0', operation: 'REDACT', outcome: 'VERIFIED',
+    input: { digest: result.input.digest, byteLength: result.input.byteLength },
+    output: { path: result.published.reference, digest: result.published.digest, byteLength: result.published.byteLength },
+    plan: { digest: result.plan.digest, strategy: result.plan.strategy, actionCount: result.plan.actions.length, byEntity: entityCounts(result.plan.actions.map((action) => action.entityType)) },
+    verification: result.verification
+  };
+  writeResult(io, json, report, `Wrote verified output to ${result.published.reference} with ${String(result.plan.actions.length)} replacement(s).`);
+  return 0;
 }
 
 async function runVerify(input: string, json: boolean, io: CliIo): Promise<number> {
-  const artifact = await readTextArtifact(input);
-  const verification = verifyCanonicalText(artifact.text, artifact.extractionRevision);
+  const result = await localTextApplication.verify({
+    session: createLocalTextArtifactSession(input),
+    requirement: textCapabilityRequirement('VERIFY')
+  }, { correlationId: 'cor_cli_verify' });
+  const { artifact, verification } = result;
   const report = {
     schemaVersion: '1.0.0', operation: 'VERIFY', outcome: verification.outcome,
     artifact: { displayName: artifact.displayName, digest: artifact.digest, byteLength: artifact.byteLength },
@@ -163,7 +138,10 @@ async function runVerify(input: string, json: boolean, io: CliIo): Promise<numbe
 }
 
 async function runInspect(input: string, json: boolean, io: CliIo): Promise<number> {
-  const artifact = await readTextArtifact(input);
+  const { artifact } = await localTextApplication.inspect({
+    session: createLocalTextArtifactSession(input),
+    requirement: textCapabilityRequirement('INSPECT')
+  }, { correlationId: 'cor_cli_inspect' });
   const report = {
     schemaVersion: '1.0.0', operation: 'INSPECT', outcome: 'SUCCEEDED',
     artifact: {
@@ -229,7 +207,7 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
     if (parsed.command === undefined) return writeUsageError(parsed.json, io);
     if (parsed.command === 'capabilities') {
       if (parsed.input !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
-      return runCapabilities(parsed.json, io);
+      return await runCapabilities(parsed.json, io);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
       return writeUsageError(parsed.json, io);

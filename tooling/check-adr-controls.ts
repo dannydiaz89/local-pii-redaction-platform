@@ -52,7 +52,7 @@ const rootPackage = JSON.parse(readFileSync(resolve(repositoryRoot, 'package.jso
 const scripts = rootPackage.scripts ?? {};
 
 if (matrix.schemaVersion !== '1.0.0') throw new Error('Unsupported ADR control matrix version');
-if (matrix.adrs.length !== 16) throw new Error(`Expected 16 accepted ADRs, found ${String(matrix.adrs.length)}`);
+if (matrix.adrs.length !== 17) throw new Error(`Expected 17 accepted ADRs, found ${String(matrix.adrs.length)}`);
 
 const ids = new Set<string>();
 let automated = 0;
