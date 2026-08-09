@@ -70,6 +70,7 @@ describe('text adapter', () => {
     await writeFile(input, 'scan-only@example.test');
 
     const session = createLocalTextArtifactSession(input);
+    expect(session.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
     const artifact = await session.input();
 
     expect(artifact.text).toBe('scan-only@example.test');

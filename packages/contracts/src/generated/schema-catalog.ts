@@ -863,21 +863,70 @@ export const schemaCatalog = [
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "id",
           "digest",
+          "inputDigest",
+          "extractionRevision",
+          "resolutionDigest",
+          "capabilityDigest",
           "policyDigest",
+          "detectorBundleVersion",
+          "writer",
           "strategy",
+          "strategyVersion",
           "actionCount",
           "byEntity"
         ],
         "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
           "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "inputDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "resolutionDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "capabilityDigest": {
             "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
           },
           "policyDigest": {
             "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
           },
+          "detectorBundleVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "writer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{2,63}$"
+              },
+              "version": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+              }
+            }
+          },
           "strategy": {
             "const": "TYPED_LABEL"
+          },
+          "strategyVersion": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
           },
           "actionCount": {
             "type": "integer",
@@ -1218,9 +1267,20 @@ export const schemaCatalog = [
           "example": true
         },
         "plan": {
+          "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
           "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "resolutionDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "detectorBundleVersion": "0.1.0",
+          "writer": {
+            "id": "text-adapter",
+            "version": "0.1.0"
+          },
           "strategy": "TYPED_LABEL",
+          "strategyVersion": "0.1.0",
           "actionCount": 0,
           "byEntity": {}
         },
@@ -2713,17 +2773,23 @@ export const schemaCatalog = [
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0",
     "title": "Redaction plan",
-    "description": "Immutable ordered replacement instructions bound to exact extraction and policy digests.",
+    "description": "Immutable ordered replacement instructions bound to exact input, resolution, capability, policy, detector, and writer provenance.",
     "schemaVersion": "1.0.0",
     "type": "object",
     "additionalProperties": false,
     "required": [
       "schemaVersion",
       "id",
+      "strategy",
+      "strategyVersion",
+      "inputDigest",
       "extractionRevision",
       "resolutionDigest",
-      "policyDigest",
+      "capabilityDigest",
+      "detectorBundleVersion",
+      "policy",
       "writer",
+      "expectedActionCount",
       "actions",
       "digest"
     ],
@@ -2735,14 +2801,57 @@ export const schemaCatalog = [
         "type": "string",
         "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "strategy": {
+        "const": "TYPED_LABEL"
+      },
+      "strategyVersion": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+      },
+      "inputDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
       "extractionRevision": {
         "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
       },
       "resolutionDigest": {
         "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
       },
-      "policyDigest": {
+      "capabilityDigest": {
         "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "detectorBundleVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          }
+        }
       },
       "writer": {
         "type": "object",
@@ -2754,12 +2863,17 @@ export const schemaCatalog = [
         "properties": {
           "id": {
             "type": "string",
-            "minLength": 1
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
           },
           "version": {
             "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
           }
         }
+      },
+      "expectedActionCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
       },
       "actions": {
         "type": "array",
@@ -2769,16 +2883,34 @@ export const schemaCatalog = [
           "additionalProperties": false,
           "required": [
             "id",
+            "action",
+            "sourceSpanId",
+            "evidenceIds",
             "entityType",
             "start",
             "end",
-            "action",
             "replacement"
           ],
           "properties": {
             "id": {
               "type": "string",
               "pattern": "^act_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "action": {
+              "const": "TYPED_LABEL"
+            },
+            "sourceSpanId": {
+              "type": "string",
+              "pattern": "^rsp_[a-f0-9]{32}$"
+            },
+            "evidenceIds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             },
             "entityType": {
               "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
@@ -2790,15 +2922,6 @@ export const schemaCatalog = [
             "end": {
               "type": "integer",
               "minimum": 1
-            },
-            "action": {
-              "enum": [
-                "REDACT",
-                "TYPED_LABEL",
-                "MASK",
-                "PSEUDONYM",
-                "HASHED_LABEL"
-              ]
             },
             "replacement": {
               "type": "string",
@@ -2815,20 +2938,35 @@ export const schemaCatalog = [
       {
         "schemaVersion": "1.0.0",
         "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "strategy": "TYPED_LABEL",
+        "strategyVersion": "0.1.0",
+        "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "resolutionDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-        "policyDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "capabilityDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "detectorBundleVersion": "0.1.0",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "riskTier": "LOW"
+        },
         "writer": {
-          "id": "text",
+          "id": "text-adapter",
           "version": "0.1.0"
         },
+        "expectedActionCount": 1,
         "actions": [
           {
             "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+            "action": "TYPED_LABEL",
+            "sourceSpanId": "rsp_aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+            "evidenceIds": [
+              "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            ],
             "entityType": "EMAIL",
             "start": 8,
             "end": 25,
-            "action": "TYPED_LABEL",
             "replacement": "[EMAIL_1]"
           }
         ],

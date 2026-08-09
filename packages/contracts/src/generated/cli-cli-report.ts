@@ -48,9 +48,20 @@ export type CLIOperationReport = {
     end: number;
   }[];
   plan?: {
+    id: string;
     digest: string;
+    inputDigest: string;
+    extractionRevision: string;
+    resolutionDigest: string;
+    capabilityDigest: string;
     policyDigest: string;
+    detectorBundleVersion: string;
+    writer: {
+      id: string;
+      version: string;
+    };
     strategy: 'TYPED_LABEL';
+    strategyVersion: string;
     actionCount: number;
     byEntity: {
       [k: string]: number;

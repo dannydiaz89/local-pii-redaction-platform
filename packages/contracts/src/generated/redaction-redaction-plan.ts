@@ -30,27 +30,43 @@ export type EntityType =
   | 'CUSTOM';
 
 /**
- * Immutable ordered replacement instructions bound to exact extraction and policy digests.
+ * Immutable ordered replacement instructions bound to exact input, resolution, capability, policy, detector, and writer provenance.
  */
 export interface RedactionPlan {
   schemaVersion: '1.0.0';
   id: string;
+  strategy: 'TYPED_LABEL';
+  strategyVersion: string;
+  inputDigest: string;
   extractionRevision: string;
   resolutionDigest: string;
-  policyDigest: string;
+  capabilityDigest: string;
+  detectorBundleVersion: string;
+  policy: {
+    id: string;
+    version: string;
+    digest: string;
+    riskTier: 'LOW' | 'MODERATE' | 'HIGH';
+  };
   writer: {
     id: string;
     version: string;
   };
+  expectedActionCount: number;
   /**
    * @maxItems 100000
    */
   actions: {
     id: string;
+    action: 'TYPED_LABEL';
+    sourceSpanId: string;
+    /**
+     * @minItems 1
+     */
+    evidenceIds: [string, ...string[]];
     entityType: EntityType;
     start: number;
     end: number;
-    action: 'REDACT' | 'TYPED_LABEL' | 'MASK' | 'PSEUDONYM' | 'HASHED_LABEL';
     replacement: string;
   }[];
   digest: string;

@@ -18,16 +18,16 @@ from pydantic import (
 )
 
 
-class Action1(Enum):
-    REDACT = 'REDACT'
-    TYPED_LABEL = 'TYPED_LABEL'
-    MASK = 'MASK'
-    PSEUDONYM = 'PSEUDONYM'
-    HASHED_LABEL = 'HASHED_LABEL'
+class RiskTier(Enum):
+    LOW = 'LOW'
+    MODERATE = 'MODERATE'
+    HIGH = 'HIGH'
 
 
-class Digest(RootModel[constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)]):
-    root: constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)
+class Semver(
+    RootModel[constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)]
+):
+    root: constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)
 
 
 class ArtifactId(
@@ -52,10 +52,8 @@ class CorrelationId(RootModel[constr(min_length=8, max_length=128, strict=True)]
     root: constr(min_length=8, max_length=128, strict=True)
 
 
-class Semver(
-    RootModel[constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)]
-):
-    root: constr(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$', strict=True)
+class Digest(RootModel[constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)]):
+    root: constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)
 
 
 class DateTime(RootModel[AwareDatetime]):
@@ -89,11 +87,21 @@ class EntityType(StrEnum):
     CUSTOM = 'CUSTOM'
 
 
+class Policy(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
+    version: Semver
+    digest: Digest
+    riskTier: RiskTier
+
+
 class Writer(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    id: constr(min_length=1, strict=True)
+    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
     version: Semver
 
 
@@ -102,10 +110,12 @@ class Action(BaseModel):
         extra='forbid',
     )
     id: constr(pattern=r'^act_[0-9A-HJKMNP-TV-Z]{26}$', strict=True)
+    action: Literal['TYPED_LABEL']
+    sourceSpanId: constr(pattern=r'^rsp_[a-f0-9]{32}$', strict=True)
+    evidenceIds: list[UUID] = Field(..., min_length=1)
     entityType: EntityType
     start: conint(ge=0, strict=True)
     end: conint(ge=1, strict=True)
-    action: Action1
     replacement: constr(max_length=500, strict=True)
 
 
@@ -115,9 +125,15 @@ class RedactionPlan(BaseModel):
     )
     schemaVersion: Literal['1.0.0']
     id: constr(pattern=r'^plan_[0-9A-HJKMNP-TV-Z]{26}$', strict=True)
+    strategy: Literal['TYPED_LABEL']
+    strategyVersion: Semver
+    inputDigest: Digest
     extractionRevision: Digest
     resolutionDigest: Digest
-    policyDigest: Digest
+    capabilityDigest: Digest
+    detectorBundleVersion: constr(min_length=1, max_length=100, strict=True)
+    policy: Policy
     writer: Writer
+    expectedActionCount: conint(ge=0, le=100000, strict=True)
     actions: list[Action] = Field(..., max_length=100000)
     digest: Digest

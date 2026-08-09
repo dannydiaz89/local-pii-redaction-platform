@@ -205,13 +205,29 @@ class Detection(BaseModel):
     evidenceIds: list[UUID] = Field(..., min_length=1)
 
 
+class Writer(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
+    version: Semver
+
+
 class Plan(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
+    id: constr(pattern=r'^plan_[0-9A-HJKMNP-TV-Z]{26}$', strict=True)
     digest: Digest
+    inputDigest: Digest
+    extractionRevision: Digest
+    resolutionDigest: Digest
+    capabilityDigest: Digest
     policyDigest: Digest
+    detectorBundleVersion: constr(min_length=1, max_length=100, strict=True)
+    writer: Writer
     strategy: Literal['TYPED_LABEL']
+    strategyVersion: Semver
     actionCount: conint(ge=0, strict=True)
     byEntity: dict[EntityType, conint(ge=1, strict=True)]
 

@@ -1,4 +1,12 @@
-import { assertValidSpan, type DetectionEvidence, type EntityType, type Sha256Digest } from '@local-pii/domain';
+import { createHash } from 'node:crypto';
+
+import {
+  assertValidSpan,
+  parseSha256Digest,
+  type DetectionEvidence,
+  type EntityType,
+  type Sha256Digest
+} from '@local-pii/domain';
 
 export interface ResolvedSpan {
   readonly id: string;
@@ -19,9 +27,55 @@ export interface SpanConflict {
 export interface ResolutionSet {
   readonly extractionRevision: Sha256Digest;
   readonly algorithmVersion: '0.1.0';
+  readonly digest: Sha256Digest;
   readonly spans: readonly ResolvedSpan[];
   readonly conflicts: readonly SpanConflict[];
   readonly suppressedEvidenceIds: readonly string[];
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) =>
+    `${JSON.stringify(key)}:${canonicalJson((value as Readonly<Record<string, unknown>>)[key])}`
+  ).join(',')}}`;
+}
+
+function resolutionDigest(
+  extractionRevision: Sha256Digest,
+  evidence: readonly DetectionEvidence[],
+  spans: readonly ResolvedSpan[],
+  conflicts: readonly SpanConflict[],
+  suppressedEvidenceIds: readonly string[]
+): Sha256Digest {
+  const evidenceSnapshot = [...evidence]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((item) => ({
+      id: item.id,
+      entityType: item.entityType,
+      span: {
+        start: item.span.start,
+        end: item.span.end,
+        offsetUnit: item.span.offsetUnit,
+        extractionRevision: item.span.extractionRevision
+      },
+      confidence: item.confidence,
+      source: item.source,
+      detector: {
+        id: item.detector.id,
+        version: item.detector.version,
+        ...(item.detector.ruleId === undefined ? {} : { ruleId: item.detector.ruleId })
+      }
+    }));
+  const canonical = canonicalJson({
+    algorithmVersion: '0.1.0',
+    extractionRevision,
+    evidence: evidenceSnapshot,
+    spans,
+    conflicts,
+    suppressedEvidenceIds
+  });
+  return parseSha256Digest(`sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`);
 }
 
 const precedence: Readonly<Partial<Record<EntityType, number>>> = {
@@ -55,7 +109,8 @@ function groupEvidence(evidence: readonly DetectionEvidence[]): ResolvedSpan[] {
     if (group === undefined) groups.set(key, [item]);
     else group.push(item);
   }
-  return [...groups.values()].map((group) => {
+  return [...groups.values()].map((unsortedGroup) => {
+    const group = [...unsortedGroup].sort((left, right) => left.id.localeCompare(right.id));
     const first = group[0];
     if (first === undefined) throw new Error('Empty evidence group');
     return {
@@ -126,11 +181,20 @@ export function resolveEvidence(
 
   accepted.sort((left, right) => left.start - right.start || right.end - left.end || left.entityType.localeCompare(right.entityType));
   conflicts.sort((left, right) => left.start - right.start || left.end - right.end);
-  return {
+  const suppressedEvidenceIds = [...suppressed].sort();
+  const digest = resolutionDigest(extractionRevision, evidence, accepted, conflicts, suppressedEvidenceIds);
+  return Object.freeze({
     extractionRevision,
     algorithmVersion: '0.1.0',
-    spans: accepted,
-    conflicts,
-    suppressedEvidenceIds: [...suppressed].sort()
-  };
+    digest,
+    spans: Object.freeze(accepted.map((span) => Object.freeze({
+      ...span,
+      evidenceIds: Object.freeze([...span.evidenceIds])
+    }))),
+    conflicts: Object.freeze(conflicts.map((conflict) => Object.freeze({
+      ...conflict,
+      evidenceIds: Object.freeze([...conflict.evidenceIds])
+    }))),
+    suppressedEvidenceIds: Object.freeze(suppressedEvidenceIds)
+  });
 }

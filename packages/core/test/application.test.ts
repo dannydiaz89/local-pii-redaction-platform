@@ -14,6 +14,7 @@ import {
 
 import {
   createTextProcessingApplication,
+  digestCapabilityManifest,
   type CapabilityManifest,
   type CapabilityRequirement,
   type StagedTextArtifact,
@@ -62,6 +63,7 @@ function emailEvidence(text: string, extractionRevision: Sha256Digest): readonly
 }
 
 class FakeSession implements TextProcessingSession {
+  readonly writer = { id: 'text-adapter', version: '0.1.0' } as const;
   readonly events: string[] = [];
   private stagedText: string | undefined;
   private readonly source: TextArtifact;
@@ -123,6 +125,13 @@ describe('TextProcessingApplication', () => {
     expect(result.plan.actions).toHaveLength(1);
     expect(result.policy).toMatchObject({ id: 'development-labels', digest: policy.digest });
     expect(result.plan.policy.digest).toBe(policy.digest);
+    expect(result.plan.inputDigest).toBe(result.input.digest);
+    expect(result.plan.resolutionDigest).toBe(result.resolution.digest);
+    expect(result.plan.capabilityDigest).toBe(
+      digestCapabilityManifest(manifest(), 'cor_core_capability_digest')
+    );
+    expect(result.plan.writer).toEqual(session.writer);
+    expect(result.plan.expectedActionCount).toBe(result.plan.actions.length);
     expect(result.plan.actions[0]).toMatchObject({
       sourceSpanId: 'rsp_11111111111141118111111111111111',
       evidenceIds: ['11111111-1111-4111-8111-111111111111']
@@ -158,6 +167,19 @@ describe('TextProcessingApplication', () => {
     }, context)).rejects.toMatchObject({ code: 'POLICY_UNSATISFIABLE' });
     expect(session.events).toEqual([]);
     expect(detectorCalls).toBe(0);
+  });
+
+  it('rejects a writer that differs from the preflighted adapter before reading input', async () => {
+    const session = new FakeSession('ephemeral');
+    Object.defineProperty(session, 'writer', {
+      value: { id: 'different-adapter', version: '0.1.0' }
+    });
+    const app = createTextProcessingApplication(dependencies());
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'POLICY_UNSATISFIABLE',
+      details: { reason: 'writer_capability_mismatch' }
+    });
+    expect(session.events).toEqual([]);
   });
 
   it('requires review before staging when accepted evidence is below the policy threshold', async () => {

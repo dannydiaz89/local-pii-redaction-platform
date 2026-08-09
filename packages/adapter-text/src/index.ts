@@ -7,6 +7,7 @@ import { SafeError, parseSha256Digest, type Sha256Digest } from '@local-pii/doma
 
 const utf8Bom = Uint8Array.from([0xef, 0xbb, 0xbf]);
 export const textAdapterVersion = '0.1.0';
+export const textWriterDescriptor = Object.freeze({ id: 'text-adapter', version: textAdapterVersion });
 export const defaultMaximumInputBytes = 100 * 1024 * 1024;
 export const textAdapterCapabilityDescriptor = {
   id: 'text',
@@ -77,6 +78,7 @@ export interface TextInputSession {
  * whose local implementation is the absolute output path.
  */
 export interface TextArtifactSession extends TextInputSession {
+  readonly writer: Readonly<{ readonly id: string; readonly version: string }>;
   stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication>;
@@ -273,6 +275,7 @@ export function createLocalTextArtifactSession(
   };
 
   return {
+    writer: textWriterDescriptor,
     input,
     async stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact> {
       signal?.throwIfAborted();

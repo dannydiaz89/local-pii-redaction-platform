@@ -8,6 +8,7 @@ import { SafeError } from '@local-pii/domain';
 import {
   assertCapabilities,
   assertCapabilityManifest,
+  digestCapabilityManifest,
   type CapabilityManifest,
   type CapabilityRequirement
 } from '../src/index.js';
@@ -37,6 +38,15 @@ describe('capability manifest and preflight', () => {
 
   it('accepts a fully satisfiable capability requirement', () => {
     expect(() => { assertCapabilities(developmentTextRequirement, capabilityManifest(), 'cor_synthetic_001'); }).not.toThrow();
+  });
+
+  it('digests the exact validated capability snapshot deterministically', () => {
+    const first = capabilityManifest();
+    const second = capabilityManifest();
+    const original = digestCapabilityManifest(first, 'cor_synthetic_digest_001');
+    expect(digestCapabilityManifest(second, 'cor_synthetic_digest_002')).toBe(original);
+    second.version = '0.2.0';
+    expect(digestCapabilityManifest(second, 'cor_synthetic_digest_003')).not.toBe(original);
   });
 
   it('fails closed when a required detector is unavailable', () => {

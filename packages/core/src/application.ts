@@ -4,11 +4,12 @@ import {
   unicodeCodePointLength,
   type CorrelationId
 } from '@local-pii/domain';
+import { assertContract } from '@local-pii/contracts';
 import { applyTypedLabelPlan, compileTypedLabelPlan } from '@local-pii/redaction';
 import { resolveEvidence } from '@local-pii/span-resolution';
 import { compileCapabilityRequirement, evaluateAcceptedSpan } from '@local-pii/policy';
 
-import { assertCapabilityManifest, assertCapabilities } from './preflight.js';
+import { assertCapabilityManifest, assertCapabilities, digestCapabilityManifest } from './preflight.js';
 import type {
   ApplicationContext,
   CapabilityManifest,
@@ -20,6 +21,7 @@ import type {
 } from './ports.js';
 
 const fallbackCorrelationId = 'cor_core_application';
+const redactionPlanSchemaId = 'https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0';
 
 function correlationId(context: ApplicationContext): CorrelationId {
   try {
@@ -142,6 +144,26 @@ function policyDecisionBlocked(
   });
 }
 
+function assertWriterMatchesCapability(
+  command: RedactTextCommand,
+  manifest: CapabilityManifest,
+  correlationId: CorrelationId
+): void {
+  const format = manifest.formats.find(({ id }) => id === command.requirement.formatId);
+  if (
+    format?.adapter !== command.session.writer.id
+    || format.version !== command.session.writer.version
+  ) {
+    throw new SafeError({
+      code: 'POLICY_UNSATISFIABLE',
+      message: 'The selected writer does not match the preflighted format capability.',
+      retryable: false,
+      correlationId,
+      details: { reason: 'writer_capability_mismatch' }
+    });
+  }
+}
+
 function stagedBytesChanged(correlationId: CorrelationId): SafeError {
   return new SafeError({
     code: 'STORAGE_UNAVAILABLE',
@@ -232,6 +254,8 @@ export function createTextProcessingApplication(
           minimumQualification: command.requirement.minimumQualification
         });
         assertCapabilities(policyRequirement, manifest, requestCorrelationId);
+        assertWriterMatchesCapability(command, manifest, requestCorrelationId);
+        const capabilityDigest = digestCapabilityManifest(manifest, requestCorrelationId);
 
         const scanned = await scanArtifact(dependencies, command);
         if (scanned.resolution.conflicts.length > 0) {
@@ -265,7 +289,14 @@ export function createTextProcessingApplication(
           digest: command.policy.digest,
           riskTier: command.policy.riskTier
         } as const;
-        const plan = compileTypedLabelPlan(approvedResolution, policy);
+        const plan = compileTypedLabelPlan(approvedResolution, {
+          inputDigest: scanned.artifact.digest,
+          capabilityDigest,
+          detectorBundleVersion: scanned.detectorBundleVersion,
+          policy,
+          writer: command.session.writer
+        });
+        assertContract(redactionPlanSchemaId, plan);
         const redactedText = applyTypedLabelPlan(scanned.artifact.text, plan);
         let staged: Awaited<ReturnType<RedactTextCommand['session']['stage']>> | undefined;
         try {

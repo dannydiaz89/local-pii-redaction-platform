@@ -318,12 +318,31 @@ describe('CLI TXT vertical slice', () => {
     expect(await readFile(input, 'utf8')).toBe(original);
     const report = JSON.parse(stream.stdout.join('')) as {
       readonly outcome: string;
+      readonly input: { readonly digest: string };
       readonly policy: { readonly id: string; readonly version: string; readonly digest: string };
-      readonly plan: { readonly policyDigest: string };
+      readonly plan: {
+        readonly id: string;
+        readonly inputDigest: string;
+        readonly extractionRevision: string;
+        readonly resolutionDigest: string;
+        readonly capabilityDigest: string;
+        readonly policyDigest: string;
+        readonly detectorBundleVersion: string;
+        readonly writer: { readonly id: string; readonly version: string };
+        readonly strategyVersion: string;
+      };
     };
     expect(report.outcome).toBe('VERIFIED');
     expect(report.policy).toMatchObject({ id: 'development-labels', version: '0.1.0' });
     expect(report.plan.policyDigest).toBe(report.policy.digest);
+    expect(report.plan.inputDigest).toBe(report.input.digest);
+    expect(report.plan.extractionRevision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(report.plan.id).toMatch(/^plan_[0-9A-HJKMNP-TV-Z]{26}$/u);
+    expect(report.plan.resolutionDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(report.plan.capabilityDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(report.plan.detectorBundleVersion).toBe('0.1.0');
+    expect(report.plan.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
+    expect(report.plan.strategyVersion).toBe('0.1.0');
     expect(stream.stdout.join('')).not.toContain(input);
     expect(stream.stdout.join('')).not.toContain(output);
   });

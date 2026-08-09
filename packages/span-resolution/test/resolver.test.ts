@@ -28,6 +28,26 @@ describe('span resolution', () => {
     const forward = resolveEvidence(evidence, revision, unicodeCodePointLength(text));
     const reverse = resolveEvidence([...evidence].reverse(), revision, unicodeCodePointLength(text));
     expect(reverse).toEqual(forward);
+    expect(forward.digest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+  });
+
+  it('binds complete evidence provenance into the resolution digest', () => {
+    const text = 'alpha@example.test';
+    const evidence = detectDeterministic(text, revision);
+    const original = resolveEvidence(evidence, revision, unicodeCodePointLength(text));
+    const changedConfidence = resolveEvidence(evidence.map((item) => ({
+      ...item,
+      confidence: item.confidence - 0.01
+    })), revision, unicodeCodePointLength(text));
+    const changedDetector = resolveEvidence(evidence.map((item) => ({
+      ...item,
+      detector: { ...item.detector, version: '0.2.0' }
+    })), revision, unicodeCodePointLength(text));
+
+    expect(changedConfidence.digest).not.toBe(original.digest);
+    expect(changedDetector.digest).not.toBe(original.digest);
+    expect(Object.isFrozen(original)).toBe(true);
+    expect(Object.isFrozen(original.spans)).toBe(true);
   });
 
   it('retains every supporting evidence identifier for the same resolved span', () => {

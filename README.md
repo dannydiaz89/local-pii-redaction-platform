@@ -49,7 +49,9 @@ and reports `development-labels` for compatibility. `redact` never overwrites it
 existing output. It writes to a private staging file,
 reopens the staged UTF-8 artifact, rescans it, and publishes the requested path only when the
 `text-rescan-v1` profile passes. Machine reports contain entity types and offsets, not matched
-values.
+values. Redaction reports also expose privacy-safe provenance digests binding the exact input,
+resolved detector evidence, capability snapshot, policy, detector bundle, and writer used by the
+plan.
 
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
 the current rules-only text capability without opening a document or contacting Ollama. The

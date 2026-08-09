@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+  "strategy": "TYPED_LABEL",
+  "strategyVersion": "0.1.0",
+  "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "resolutionDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "capabilityDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "detectorBundleVersion": "0.1.0",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "riskTier": "LOW"
+  },
+  "writer": { "id": "text-adapter", "version": "0.1.0" },
+  "expectedActionCount": 1,
+  "actions": [{
+    "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "action": "TYPED_LABEL",
+    "sourceSpanId": "rsp_11111111111141118111111111111111",
+    "evidenceIds": ["11111111-1111-4111-8111-111111111111"],
+    "entityType": "EMAIL",
+    "start": 8,
+    "end": 25,
+    "replacement": "[EMAIL_1]"
+  }],
+  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

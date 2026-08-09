@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+  "strategy": "TYPED_LABEL",
+  "strategyVersion": "0.1.0",
+  "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "resolutionDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "detectorBundleVersion": "0.1.0",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "riskTier": "LOW"
+  },
+  "writer": { "id": "text-adapter", "version": "0.1.0" },
+  "expectedActionCount": 0,
+  "actions": [],
+  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

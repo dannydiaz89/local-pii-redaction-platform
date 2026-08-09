@@ -18,8 +18,16 @@
     "example": true
   },
   "plan": {
+    "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
     "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "resolutionDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "detectorBundleVersion": "0.1.0",
+    "writer": { "id": "text-adapter", "version": "0.1.0" },
     "strategy": "TYPED_LABEL",
+    "strategyVersion": "0.1.0",
     "actionCount": 0,
     "byEntity": {}
   },

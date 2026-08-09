@@ -336,9 +336,17 @@ async function runRedact(
     input: { digest: result.input.digest, byteLength: result.input.byteLength },
     output: { digest: result.published.digest, byteLength: result.published.byteLength },
     plan: {
+      id: result.plan.id,
       digest: result.plan.digest,
+      inputDigest: result.plan.inputDigest,
+      extractionRevision: result.plan.extractionRevision,
+      resolutionDigest: result.plan.resolutionDigest,
+      capabilityDigest: result.plan.capabilityDigest,
       policyDigest: result.policy.digest,
+      detectorBundleVersion: result.plan.detectorBundleVersion,
+      writer: result.plan.writer,
       strategy: result.plan.strategy,
+      strategyVersion: result.plan.strategyVersion,
       actionCount: result.plan.actions.length,
       byEntity: entityCounts(result.plan.actions.map((action) => action.entityType))
     },

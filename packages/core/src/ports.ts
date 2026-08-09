@@ -65,6 +65,11 @@ export interface PublishedTextArtifact {
   readonly digest: Sha256Digest;
 }
 
+export interface ArtifactWriterReference {
+  readonly id: string;
+  readonly version: string;
+}
+
 /** Reads the caller-selected input only after application capability preflight. */
 export interface TextInputSession {
   input(signal?: AbortSignal): Promise<TextArtifact>;
@@ -75,6 +80,7 @@ export interface TextInputSession {
  * database, object store, or retention policy.
  */
 export interface TextArtifactSession {
+  readonly writer: ArtifactWriterReference;
   stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<PublishedTextArtifact>;
