@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0.0",
+  "categories": {
+    "unit": { "status": "ACTIVE", "purpose": "Pure component behavior and invariants" },
+    "property": { "status": "PLANNED", "purpose": "Generated invariant and edge-case exploration", "milestone": "M1" },
+    "contract": { "status": "ACTIVE", "purpose": "Schema, public-boundary, and cross-language compatibility" },
+    "integration": { "status": "ACTIVE", "purpose": "Behavior across package and provider boundaries" },
+    "end-to-end": { "status": "ACTIVE", "purpose": "User-visible lifecycle through a real interface" },
+    "format-conformance": { "status": "ACTIVE", "purpose": "Adapter extraction, writing, reopening, fidelity, and leakage" },
+    "evaluation": { "status": "PLANNED", "purpose": "Frozen-corpus detector and model quality metrics", "milestone": "M1" },
+    "fuzz": { "status": "PLANNED", "purpose": "Malformed and adversarial untrusted-boundary campaigns", "milestone": "M1" },
+    "security-privacy": { "status": "ACTIVE", "purpose": "Abuse cases, residual leakage, and sensitive-sink canaries" },
+    "performance": { "status": "PLANNED", "purpose": "Fixed-profile latency, throughput, and resource bounds", "milestone": "M1" },
+    "accessibility": { "status": "PLANNED", "purpose": "Automated and manual critical-journey accessibility", "milestone": "M3" },
+    "recovery": { "status": "PLANNED", "purpose": "Fault, restart, backup, restore, and lifecycle recovery", "milestone": "M1" },
+    "packaging": { "status": "PLANNED", "purpose": "Install, upgrade, offline, platform, and artifact smoke tests", "milestone": "M5" }
+  },
+  "tests": {
+    "apps/cli/test/cli.test.ts": ["end-to-end", "security-privacy"],
+    "packages/adapter-text/test/adapter.test.ts": ["unit", "format-conformance", "security-privacy"],
+    "packages/core/test/preflight.test.ts": ["unit", "contract"],
+    "packages/detectors/test/detectors.test.ts": ["unit"],
+    "packages/domain/test/errors.test.ts": ["unit", "contract", "security-privacy"],
+    "packages/domain/test/identifiers.test.ts": ["unit", "contract"],
+    "packages/domain/test/job-state.test.ts": ["unit"],
+    "packages/domain/test/span.test.ts": ["unit", "contract"],
+    "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
+    "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
+    "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"]
+  },
+  "executableGates": {
+    "contract": ["pnpm contracts:check"],
+    "format-conformance": ["pnpm fixtures:check"],
+    "security-privacy": ["pnpm privacy:check"]
+  }
+}

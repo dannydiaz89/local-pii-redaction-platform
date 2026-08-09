@@ -5,6 +5,16 @@ contain real personal data, credentials, or private documents.
 
 - `input/sample.txt` exercises every detector in the initial rules-only bundle.
 - `expected/sample.redacted.txt` is the expected typed-label output.
+- `manifest.json` records generator provenance, digests, Unicode ground-truth spans, native text
+  locations, ambiguity, and the expected policy outcome without copying planted values.
+
+The corpus is generated deterministically. Regenerate or verify it with:
+
+```sh
+pnpm fixtures:generate
+pnpm fixtures:check
+pnpm privacy:check
+```
 
 Try it with:
 

@@ -11,4 +11,5 @@ node_modules/
 /coverage/
 /.contract-generation/
 /.ruff_cache/
+/.quality-output.log
 /sample.redacted.txt

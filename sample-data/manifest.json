@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "1.0.0",
+  "corpusId": "rules-only-text-v1",
+  "generator": {
+    "id": "local-pii-synthetic-text",
+    "version": "1.0.0",
+    "seed": "local-pii-rules-only-2026-08-08",
+    "recipe": "tooling/synthetic-corpus.ts#createSyntheticCorpus"
+  },
+  "provenance": {
+    "classification": "SYNTHETIC",
+    "license": "AGPL-3.0-only",
+    "approvedForRepository": true
+  },
+  "exclusionRules": [
+    "No production or private documents",
+    "No real personal data",
+    "No live credentials or routable infrastructure addresses"
+  ],
+  "documents": [
+    {
+      "id": "sample-rules-only-text",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "ascii",
+        "assignment-context",
+        "ipv4-reserved-range",
+        "ipv6-documentation-prefix"
+      ],
+      "inputPath": "input/sample.txt",
+      "expectedPath": "expected/sample.redacted.txt",
+      "inputDigest": "sha256:9c85115341fe9b1299217193c26495874501dcc497e3e0fa2350c33288c35439",
+      "expectedDigest": "sha256:7d8134df7634ffc2f3971572d92b3f016413ba2bae95aba86713f68e5f93e400",
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "email-1",
+            "entityType": "EMAIL",
+            "start": 47,
+            "end": 65,
+            "nativeLocation": {
+              "line": 3,
+              "columnStart": 10,
+              "columnEnd": 28
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[EMAIL_1]"
+          },
+          {
+            "id": "phone-1",
+            "entityType": "PHONE",
+            "start": 73,
+            "end": 90,
+            "nativeLocation": {
+              "line": 4,
+              "columnStart": 8,
+              "columnEnd": 25
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[PHONE_1]"
+          },
+          {
+            "id": "ssn-1",
+            "entityType": "SSN",
+            "start": 96,
+            "end": 107,
+            "nativeLocation": {
+              "line": 5,
+              "columnStart": 6,
+              "columnEnd": 17
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[SSN_1]"
+          },
+          {
+            "id": "card-1",
+            "entityType": "CREDIT_CARD",
+            "start": 122,
+            "end": 141,
+            "nativeLocation": {
+              "line": 6,
+              "columnStart": 15,
+              "columnEnd": 34
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[CREDIT_CARD_1]"
+          },
+          {
+            "id": "ipv4-1",
+            "entityType": "IP_ADDRESS",
+            "start": 156,
+            "end": 166,
+            "nativeLocation": {
+              "line": 7,
+              "columnStart": 15,
+              "columnEnd": 25
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[IP_ADDRESS_1]"
+          },
+          {
+            "id": "ipv6-1",
+            "entityType": "IP_ADDRESS",
+            "start": 181,
+            "end": 192,
+            "nativeLocation": {
+              "line": 8,
+              "columnStart": 15,
+              "columnEnd": 26
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[IP_ADDRESS_2]"
+          },
+          {
+            "id": "api-key-1",
+            "entityType": "API_KEY",
+            "start": 217,
+            "end": 238,
+            "nativeLocation": {
+              "line": 9,
+              "columnStart": 25,
+              "columnEnd": 46
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[API_KEY_1]"
+          }
+        ]
+      },
+      "expectedPolicyOutcome": {
+        "policyId": "development-labels",
+        "action": "TYPED_LABEL",
+        "verification": "PASS"
+      }
+    }
+  ]
+}

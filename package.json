@@ -11,12 +11,17 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check && pnpm fixtures:check && pnpm taxonomy:check && pnpm privacy:check",
     "contracts:check": "node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-domain-contract-drift.ts && node --import tsx tooling/check-generated.ts",
     "generate": "node --import tsx tooling/generate-typescript.ts && .venv/bin/python services/inference-python/scripts/generate_models.py",
+    "fixtures:check": "node --import tsx tooling/generate-synthetic-fixtures.ts",
+    "fixtures:generate": "node --import tsx tooling/generate-synthetic-fixtures.ts --write",
     "lint": "eslint . && node --import tsx tooling/check-boundaries.ts",
     "pii-redact": "node apps/cli/dist/index.js",
     "python:check": ".venv/bin/ruff check services/inference-python && .venv/bin/pytest",
+    "privacy:check": "node --import tsx tooling/check-privacy-canaries.ts",
+    "privacy:scan": "node --import tsx tooling/check-privacy-canaries.ts",
+    "taxonomy:check": "node --import tsx tooling/check-test-taxonomy.ts",
     "test": "vitest run",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit"
   },
