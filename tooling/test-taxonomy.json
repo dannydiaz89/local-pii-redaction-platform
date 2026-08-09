@@ -41,6 +41,7 @@
     "contract": ["pnpm contracts:check"],
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
-    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check"]
+    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check", "pnpm ephemeral:filesystem-failure:check"],
+    "recovery": ["pnpm ephemeral:filesystem-failure:check"]
   }
 }

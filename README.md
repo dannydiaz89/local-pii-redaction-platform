@@ -23,6 +23,8 @@ pnpm generate
 pnpm check
 pnpm build
 pnpm ephemeral:check
+pnpm ephemeral:syscall:check
+pnpm ephemeral:filesystem-failure:check
 ```
 
 The default runtime makes no network request and the repository accepts only synthetic fixtures.
@@ -36,7 +38,12 @@ Ubuntu CI additionally traces the built rules-only CLI with `strace`: default co
 zero network syscalls, read-only and
 failure commands must make no filesystem mutations, and successful redaction may only create its
 private stage, hard-link the verified output, and unlink the stage. That evidence is Linux-specific;
-it does not qualify macOS, Windows, kernel storage behavior, or a network namespace.
+it does not qualify macOS, Windows, or a network namespace. A separate Linux-only, non-root
+subprocess gate uses real directory permissions and a kernel file-size resource limit to exercise
+target check, stage creation/write/readback/reopen, publication, and cleanup failures. It proves
+canonical privacy-safe errors, documented exit 3, unchanged synthetic inputs and existing outputs,
+no partial publication, and cleanup whenever permissions permit it. The file-limit case observes
+actual `RLIMIT_FSIZE`/`EFBIG`; it is not an `ENOSPC`, disk-full, quota, or device-failure claim.
 
 ## Try the CLI
 
@@ -142,6 +149,9 @@ output collisions.
   confirmed afterward, the command returns a non-retryable storage error and the verified output may
   already exist at the output path you selected. Inspect that path before retrying, then use the
   dry-run recovery command. The adapter does not claim directory-entry durability across power loss.
+- Real Linux permission-denied and `RLIMIT_FSIZE`/`EFBIG` subprocess evidence complements the
+  deterministic adapter fault seam. Real `ENOSPC`, `EDQUOT`, inode exhaustion, device/I/O failure,
+  hostile filesystem races, and equivalent macOS/Windows behavior remain unproven.
 - There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.

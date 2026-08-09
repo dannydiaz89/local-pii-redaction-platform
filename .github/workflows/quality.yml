@@ -41,6 +41,11 @@ jobs:
         run: |
           set -o pipefail
           pnpm ephemeral:syscall:check 2>&1 | tee -a .quality-output.log
+      - name: Exercise bounded real filesystem failures
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm ephemeral:filesystem-failure:check 2>&1 | tee -a .quality-output.log
       - name: Scan quality output for planted privacy canaries
         if: always()
         run: pnpm privacy:scan -- .quality-output.log
