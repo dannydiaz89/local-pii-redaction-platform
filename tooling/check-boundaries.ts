@@ -4,6 +4,7 @@ import { relative, resolve } from 'node:path';
 import { repositoryRoot } from './schema-utils.js';
 
 const forbiddenDomainImports = ['node:fs', 'node:net', 'node:http', 'node:https', 'node:child_process', 'fastify', 'express'];
+const packageRoot = resolve(repositoryRoot, 'packages');
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -22,6 +23,30 @@ for (const path of sourceFiles(resolve(repositoryRoot, 'packages/domain/src'))) 
     }
   }
   if (source.includes('@local-pii/')) violations.push(`${relative(repositoryRoot, path)} imports another workspace package`);
+}
+
+for (const entry of readdirSync(packageRoot, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const directory = resolve(packageRoot, entry.name);
+  const manifestPath = resolve(directory, 'package.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { readonly name?: unknown; readonly exports?: unknown };
+  if (typeof manifest.name !== 'string' || manifest.name !== `@local-pii/${entry.name}`) {
+    violations.push(`${relative(repositoryRoot, manifestPath)} has an unexpected package name`);
+  }
+  if (manifest.exports === null || typeof manifest.exports !== 'object' || Array.isArray(manifest.exports)
+    || JSON.stringify(manifest.exports) !== JSON.stringify({ '.': './dist/index.js' })) {
+    violations.push(`${relative(repositoryRoot, manifestPath)} must expose only the public package root`);
+  }
+}
+
+for (const root of [resolve(repositoryRoot, 'packages'), resolve(repositoryRoot, 'apps')]) {
+  for (const path of sourceFiles(root)) {
+    const source = readFileSync(path, 'utf8');
+    const internalWorkspaceImports = source.matchAll(/from\s+['"](@local-pii\/[a-z0-9-]+\/[^'"]+)['"]/gu);
+    for (const match of internalWorkspaceImports) {
+      violations.push(`${relative(repositoryRoot, path)} imports non-public workspace path ${match[1] ?? ''}`);
+    }
+  }
 }
 
 if (violations.length > 0) throw new Error(`Dependency boundary violations:\n${violations.join('\n')}`);

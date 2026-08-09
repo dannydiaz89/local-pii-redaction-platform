@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "1.0.0",
+  "adrs": [
+    {
+      "id": "ADR-001",
+      "controls": [
+        { "id": "ADR-001-C01", "control": "Unique immutable schema IDs and semantic versions; closed objects unless an explicit extension map exists.", "resolution": { "type": "AUTOMATED", "evidence": ["tooling/check-schema-governance.ts"], "command": "pnpm contracts:check" } },
+        { "id": "ADR-001-C02", "control": "Clean generation drift check and cross-language golden fixtures in CI.", "resolution": { "type": "AUTOMATED", "evidence": ["tooling/check-generated.ts", "tooling/check-contract-corpus.ts", "services/inference-python/scripts/check_contracts.py", ".github/workflows/quality.yml"], "command": "pnpm contracts:check" } },
+        { "id": "ADR-001-C03", "control": "Compatibility classification, migration, rollout order, and security review for changes.", "resolution": { "type": "REVIEW", "owner": "Architecture and security", "milestone": "M0", "gate": "Every contract change records compatibility class, migration, rollout order, and security impact before merge." } },
+        { "id": "ADR-001-C04", "control": "Schema examples use synthetic data and pass secret/PII scanning.", "resolution": { "type": "AUTOMATED", "evidence": ["tooling/check-schema-governance.ts", "tooling/synthetic-corpus.ts"], "command": "pnpm contracts:check" } }
+      ]
+    },
+    {
+      "id": "ADR-002",
+      "controls": [
+        { "id": "ADR-002-C01", "control": "Inference has no artifact mounts, public port, runtime egress, or raw text logging.", "resolution": { "type": "REVIEW", "owner": "Inference and security", "milestone": "M1", "gate": "The inference runtime passes mount, listener, egress-denial, and telemetry-canary inspection before activation." } },
+        { "id": "ADR-002-C02", "control": "Cross-language provider conformance covers schemas, Unicode offsets, errors, limits, and model provenance.", "resolution": { "type": "REVIEW", "owner": "Inference and QA", "milestone": "M1", "gate": "A live provider must pass the shared request, response, Unicode, typed-error, resource-limit, and provenance suite." } },
+        { "id": "ADR-002-C03", "control": "Rules-only mode is explicit and cannot satisfy a policy requiring contextual evidence.", "resolution": { "type": "AUTOMATED", "evidence": ["packages/core/src/preflight.ts", "packages/core/test/preflight.test.ts", "apps/cli/src/capabilities.ts"], "command": "pnpm test" } },
+        { "id": "ADR-002-C04", "control": "Model/runtime changes pass frozen accuracy and CPU resource gates.", "resolution": { "type": "REVIEW", "owner": "ML and QA", "milestone": "M1", "gate": "Every model/runtime digest change is blocked without frozen per-entity accuracy and reference-CPU resource comparisons." } }
+      ]
+    },
+    {
+      "id": "ADR-003",
+      "controls": [
+        { "id": "ADR-003-C01", "control": "Every detection names extraction revision, code-point offsets, source, detector/model version, type, and score.", "resolution": { "type": "AUTOMATED", "evidence": ["packages/contracts/schemas/detection/detection.schema.json", "packages/detectors/test/detectors.test.ts"], "command": "pnpm check" } },
+        { "id": "ADR-003-C02", "control": "Resolution is stable independent of detector completion order and retains all supporting/conflicting evidence.", "resolution": { "type": "AUTOMATED", "evidence": ["packages/span-resolution/src/index.ts", "packages/span-resolution/test/resolver.test.ts"], "command": "pnpm test" } },
+        { "id": "ADR-003-C03", "control": "Detector absence is a capability error, not an empty detection set.", "resolution": { "type": "AUTOMATED", "evidence": ["packages/core/src/preflight.ts", "packages/core/test/preflight.test.ts"], "command": "pnpm test" } },
+        { "id": "ADR-003-C04", "control": "Per-entity evaluation and seeded verification measure the combined system.", "resolution": { "type": "REVIEW", "owner": "Detection and QA", "milestone": "M1", "gate": "The hybrid bundle cannot qualify until frozen per-entity metrics and seeded verification cover the combined providers." } }
+      ]
+    },
+    {
+      "id": "ADR-004",
+      "controls": [
+        { "id": "ADR-004-C01", "control": "Shared offset library and contract fixtures for surrogate pairs, combining marks, normalization, RTL, and zero-width characters.", "resolution": { "type": "AUTOMATED", "evidence": ["fixtures/unicode/offset-vectors.json", "packages/domain/test/span.test.ts", "services/inference-python/tests/test_contracts.py"], "command": "pnpm check" } },
+        { "id": "ADR-004-C02", "control": "All spans validate `0 <= start < end <= length` against the referenced extraction digest.", "resolution": { "type": "AUTOMATED", "evidence": ["packages/domain/src/span.ts", "packages/domain/test/span.test.ts", "packages/span-resolution/test/resolver.test.ts"], "command": "pnpm test" } },
+        { "id": "ADR-004-C03", "control": "Normalization occurs only with a recorded reversible source map; no silent normalization at provider boundaries.", "resolution": { "type": "REVIEW", "owner": "Adapter and inference", "milestone": "M1", "gate": "Every adapter/provider conformance suite proves no normalization or validates a reversible source map." } },
+        { "id": "ADR-004-C04", "control": "Adapters fail unmappable actions rather than clamp or approximate.", "resolution": { "type": "REVIEW", "owner": "Adapter", "milestone": "M1", "gate": "Adapter qualification includes an unmappable-action negative case that blocks output." } }
+      ]
+    },
+    {
+      "id": "ADR-005",
+      "controls": [
+        { "id": "ADR-005-C01", "control": "Egress-denied end-to-end tests and private/default loopback bindings.", "resolution": { "type": "REVIEW", "owner": "Platform and security", "milestone": "M1", "gate": "The installed local workflow runs with egress denied and every listener is asserted loopback/private before qualification." } },
+        { "id": "ADR-005-C02", "control": "No third-party browser assets/analytics or automatic crash reporting.", "resolution": { "type": "REVIEW", "owner": "Web and security", "milestone": "M3", "gate": "The production web bundle and runtime receive dependency, network, analytics, and crash-upload inspection." } },
+        { "id": "ADR-005-C03", "control": "Model manifests, digests, license/provenance, and explicit activation.", "resolution": { "type": "REVIEW", "owner": "Inference and supply chain", "milestone": "M1", "gate": "Model acquisition and activation verify every asset digest, license, provenance field, and explicit operator selection." } },
+        { "id": "ADR-005-C04", "control": "Capability output clearly states engine mode and any disabled required detector.", "resolution": { "type": "REVIEW", "owner": "Core and CLI", "milestone": "M1", "gate": "Capability and policy-preflight fixtures prove engine mode plus disabled/unavailable required-detector reporting." } }
+      ]
+    },
+    {
+      "id": "ADR-006",
+      "controls": [
+        { "id": "ADR-006-C01", "control": "Canonical path and file identity checks, symlink containment, generated safe names, and atomic no-clobber creation.", "resolution": { "type": "REVIEW", "owner": "Adapter and security", "milestone": "M1", "gate": "Adversarial path tests cover aliases, hard links, parent symlinks, case folding, file identity, races, and atomic no-clobber output." } },
+        { "id": "ADR-006-C02", "control": "Input/output/artifact digests bound into extraction, plan, and verification reports.", "resolution": { "type": "REVIEW", "owner": "Core and adapter", "milestone": "M1", "gate": "Runtime extraction, plan, writer receipt, and verification reports bind the exact input/output digests and validate canonically." } },
+        { "id": "ADR-006-C03", "control": "Partial writes remain quarantined and inaccessible through normal download routes.", "resolution": { "type": "REVIEW", "owner": "Storage and API", "milestone": "M1", "gate": "Store and interface tests prove staged/failed artifacts cannot be returned through a normal output route." } },
+        { "id": "ADR-006-C04", "control": "Retention and disk-pressure admission prevent unbounded duplicate storage.", "resolution": { "type": "REVIEW", "owner": "Storage and operations", "milestone": "M1", "gate": "Quota reservation, retention cleanup, deduplication, and disk-pressure admission tests pass." } }
+      ]
+    },
+    {
+      "id": "ADR-007",
+      "controls": [
+        { "id": "ADR-007-C01", "control": "Report binds output/plan/policy/profile/component digests and invalidates on byte change.", "resolution": { "type": "REVIEW", "owner": "Verification", "milestone": "M1", "gate": "The canonical runtime report binds every behavior digest and a byte-mutation test invalidates it." } },
+        { "id": "ADR-007-C02", "control": "Writer receipts reconcile expected action IDs/counts.", "resolution": { "type": "REVIEW", "owner": "Adapter and verification", "milestone": "M1", "gate": "Writer conformance emits a receipt and verification blocks every missing, duplicate, or changed action ID/count." } },
+        { "id": "ADR-007-C03", "control": "Seeded native-region canaries and residual detectors block supported high-risk formats.", "resolution": { "type": "REVIEW", "owner": "Adapter, verification, and QA", "milestone": "M1", "gate": "Every qualified format seeds each declared surface and blocks publication when any canary or residual remains." } },
+        { "id": "ADR-007-C04", "control": "Publication transition is authorized and atomic; verifier cannot publish directly.", "resolution": { "type": "REVIEW", "owner": "Core and security", "milestone": "M2", "gate": "Publication requires an authorized core transition after immutable verification; verifier interfaces expose no publish authority." } }
+      ]
+    },
+    {
+      "id": "ADR-008",
+      "controls": [
+        { "id": "ADR-008-C01", "control": "Compare-and-swap job revisions, stage leases, deterministic idempotency keys, and outbox events.", "resolution": { "type": "REVIEW", "owner": "Jobs and persistence", "milestone": "M1", "gate": "Durable-store conformance covers CAS, lease ownership/expiry, idempotency replay, and transactional outbox behavior." } },
+        { "id": "ADR-008-C02", "control": "Partial artifacts remain quarantined; terminal/publication invariants are database-enforced where possible.", "resolution": { "type": "REVIEW", "owner": "Jobs and storage", "milestone": "M1", "gate": "Persistence constraints and E2E tests prevent partial artifacts from entering a publishable terminal state." } },
+        { "id": "ADR-008-C03", "control": "Bounded retries by typed error and component; no infinite poison-job loop.", "resolution": { "type": "REVIEW", "owner": "Jobs and operations", "milestone": "M1", "gate": "Retry matrices enforce per-component budgets and terminal handling for nonretryable or exhausted failures." } },
+        { "id": "ADR-008-C04", "control": "Recovery, cancellation, duplicate event, and crash-at-every-stage tests.", "resolution": { "type": "REVIEW", "owner": "Jobs and QA", "milestone": "M1", "gate": "The durable-job fault suite covers restart, cancellation, duplicate delivery, and crashes at every stage boundary." } }
+      ]
+    },
+    {
+      "id": "ADR-009",
+      "controls": [
+        { "id": "ADR-009-C01", "control": "Reference benchmark manifests record hardware, OS, runtime, threads, chunks, batch, model digest, and accuracy outcome.", "resolution": { "type": "REVIEW", "owner": "ML, performance, and QA", "milestone": "M1", "gate": "Every published benchmark contains the complete reproducibility manifest and accuracy outcome." } },
+        { "id": "ADR-009-C02", "control": "Hard memory/concurrency limits and queue admission prevent host thrashing.", "resolution": { "type": "REVIEW", "owner": "Inference and operations", "milestone": "M1", "gate": "Reference and low-resource load tests prove hard memory, concurrency, and queue admission bounds." } },
+        { "id": "ADR-009-C03", "control": "Noninferiority gates are per high-risk entity and exact span, not just aggregate F1.", "resolution": { "type": "REVIEW", "owner": "ML and QA", "milestone": "M1", "gate": "Model/runtime optimization is blocked on any high-risk exact-span entity regression beyond its approved bound." } },
+        { "id": "ADR-009-C04", "control": "Capability manifests expose runtime/precision/device so behavior is reproducible.", "resolution": { "type": "REVIEW", "owner": "Contracts and inference", "milestone": "M1", "gate": "The active model capability contract and snapshot expose validated runtime, precision, and device fields." } }
+      ]
+    },
+    {
+      "id": "ADR-010",
+      "controls": [
+        { "id": "ADR-010-C01", "control": "Policy schema/semantic validation, shallow approved inheritance, deterministic digest, and no remote includes/interpolation.", "resolution": { "type": "REVIEW", "owner": "Policy and security", "milestone": "M1", "gate": "Policy compiler conformance covers schema/semantic rules, approved inheritance, digest determinism, and prohibited remote/interpolated input." } },
+        { "id": "ADR-010-C02", "control": "Preflight distinguishes zero findings from unavailable detector and declares unsupported native features.", "resolution": { "type": "REVIEW", "owner": "Policy, core, and adapter", "milestone": "M1", "gate": "Preflight requirements include detector availability and native feature status, with distinct fail-closed tests." } },
+        { "id": "ADR-010-C03", "control": "Every exception has principal, reason code, scope, expiry, and audit event.", "resolution": { "type": "REVIEW", "owner": "Policy and security", "milestone": "M2", "gate": "Either v1 rejects all exceptions or the exception contract and authorization suite proves every required field and audit event." } },
+        { "id": "ADR-010-C04", "control": "Bundled policies are examples with no regulatory certification claim.", "resolution": { "type": "REVIEW", "owner": "Product and legal", "milestone": "M5", "gate": "Release content review confirms example labeling and absence of regulatory certification claims." } }
+      ]
+    },
+    {
+      "id": "ADR-011",
+      "controls": [
+        { "id": "ADR-011-C01", "control": "Central structured logger with allow-listed fields and safe typed error mapping.", "resolution": { "type": "REVIEW", "owner": "Observability and security", "milestone": "M3", "gate": "Logger contract tests reject unknown/sensitive fields and map all public failures to canonical safe errors." } },
+        { "id": "ADR-011-C02", "control": "Synthetic PII/secret canaries scanned across logs, metrics, traces, reports, snapshots, and diagnostic archives.", "resolution": { "type": "REVIEW", "owner": "Observability, security, and QA", "milestone": "M3", "gate": "Every implemented sink and diagnostic surface is included in the planted-canary release scan." } },
+        { "id": "ADR-011-C03", "control": "Bounded metric dimensions and protected retention/access for operational metadata.", "resolution": { "type": "REVIEW", "owner": "Observability and operations", "milestone": "M3", "gate": "Metric schema, cardinality, retention, and access-control review passes before telemetry activation." } },
+        { "id": "ADR-011-C04", "control": "Keyed purpose-separated digests only where correlation is explicitly needed and approved.", "resolution": { "type": "REVIEW", "owner": "Privacy and security", "milestone": "M3", "gate": "Any correlation feature requires purpose approval, separated keys, rotation/retention design, and cryptographic tests." } }
+      ]
+    },
+    {
+      "id": "ADR-012",
+      "controls": [
+        { "id": "ADR-012-C01", "control": "Dependency-boundary linting and public `exports` maps prevent cross-package internal imports.", "resolution": { "type": "REVIEW", "owner": "Core architecture", "milestone": "M0", "gate": "Boundary lint enforces the complete allowed package-dependency graph as well as public exports and internal-import bans." } },
+        { "id": "ADR-012-C02", "control": "Interface equivalence end-to-end tests use the same synthetic job through CLI/SDK/API/web where practical.", "resolution": { "type": "REVIEW", "owner": "Interface owners and QA", "milestone": "M3", "gate": "Each shipped interface joins the shared synthetic lifecycle equivalence suite." } },
+        { "id": "ADR-012-C03", "control": "Core ports abstract providers/adapters/stores; applications are the only composition roots.", "resolution": { "type": "REVIEW", "owner": "Core architecture", "milestone": "M0", "gate": "Shared use cases move out of CLI composition and architecture tests enforce provider, adapter, and store dependency direction." } },
+        { "id": "ADR-012-C04", "control": "Exit codes/UI states/HTTP errors map to the same canonical result and error taxonomy.", "resolution": { "type": "REVIEW", "owner": "Interface owners and contracts", "milestone": "M3", "gate": "CLI, SDK, API, and web mapping fixtures prove one canonical result/error taxonomy." } }
+      ]
+    },
+    {
+      "id": "ADR-013",
+      "controls": [
+        { "id": "ADR-013-C01", "control": "Probe enumerates encryption, active/embedded/skipped features, limits, and assurance before work.", "resolution": { "type": "REVIEW", "owner": "Adapter and contracts", "milestone": "M1", "gate": "The adapter probe contract and conformance suite enumerate every feature state, limit, and assurance claim before extraction." } },
+        { "id": "ADR-013-C02", "control": "Source map/digest binds canonical spans to native locations; unmappable actions block.", "resolution": { "type": "REVIEW", "owner": "Adapter and core", "milestone": "M1", "gate": "Source-map conformance binds revisions and native locations and includes fail-closed unmappable actions." } },
+        { "id": "ADR-013-C03", "control": "Seeded canaries cover every declared content/metadata surface and independent reopen verifies output.", "resolution": { "type": "REVIEW", "owner": "Adapter, verification, and QA", "milestone": "M1", "gate": "Each format fixture seeds every declared surface and an independent reopen verifier blocks skipped/residual canaries." } },
+        { "id": "ADR-013-C04", "control": "Adapters run in job-scoped restricted workspaces with resource and path limits.", "resolution": { "type": "REVIEW", "owner": "Adapter and security", "milestone": "M1", "gate": "Workspace containment, symlink/path escape, byte/time/resource, and cleanup tests pass." } }
+      ]
+    },
+    {
+      "id": "ADR-014",
+      "controls": [
+        { "id": "ADR-014-C01", "control": "Expected job and extraction revision on every decision; stale updates return conflict.", "resolution": { "type": "REVIEW", "owner": "Review and persistence", "milestone": "M3", "gate": "Review API/store conformance requires expected revisions and returns canonical conflicts for stale decisions." } },
+        { "id": "ADR-014-C02", "control": "Browser-submitted spans validate against server-side canonical length/source map and do not include trusted values.", "resolution": { "type": "REVIEW", "owner": "Review API and security", "milestone": "M3", "gate": "Negative API/browser tests reject invalid revisions/bounds and value-bearing decision payloads." } },
+        { "id": "ADR-014-C03", "control": "Review set and decision ordering have canonical digests; plan references the exact digest.", "resolution": { "type": "REVIEW", "owner": "Review, core, and contracts", "milestone": "M3", "gate": "Replay/digest fixtures prove canonical ordering and exact review-set binding in the plan." } },
+        { "id": "ADR-014-C04", "control": "Reason codes are bounded and free text is restricted/sensitive if enabled.", "resolution": { "type": "REVIEW", "owner": "Review and privacy", "milestone": "M3", "gate": "Review schemas bound reason enums and lengths; free text is absent or receives explicit sensitive-data controls." } }
+      ]
+    },
+    {
+      "id": "ADR-015",
+      "controls": [
+        { "id": "ADR-015-C01", "control": "Canaries in text, metadata, annotations, forms, attachments, hidden layers, incremental updates, and image/overlay combinations.", "resolution": { "type": "REVIEW", "owner": "PDF, security, and QA", "milestone": "M4B", "gate": "The PDF malicious/leakage corpus seeds every named recoverable surface and bypass combination." } },
+        { "id": "ADR-015-C02", "control": "Search/copy/multiple extractor/native object/visual checks bound to the exact output digest.", "resolution": { "type": "REVIEW", "owner": "PDF and verification", "milestone": "M4B", "gate": "All independent PDF verification routes bind results to the exact output digest." } },
+        { "id": "ADR-015-C03", "control": "Capability warnings and high-risk block for unsupported encryption/fonts/layout/features.", "resolution": { "type": "REVIEW", "owner": "PDF, policy, and security", "milestone": "M4B", "gate": "Capability/preflight matrices expose every unsupported feature and block high-risk output." } },
+        { "id": "ADR-015-C04", "control": "Focused external security/redaction review before GA claim.", "resolution": { "type": "REVIEW", "owner": "Security and product", "milestone": "M4B", "gate": "An independent focused PDF redaction review closes critical/high findings before any qualified claim." } }
+      ]
+    },
+    {
+      "id": "ADR-016",
+      "controls": [
+        { "id": "ADR-016-C01", "control": "Immutable manifests/digests and readiness/capability checks for every active reference.", "resolution": { "type": "REVIEW", "owner": "Contracts and core", "milestone": "M0", "gate": "The pinned job snapshot names every contract, policy, detector, model, resolver, adapter, strategy, and verifier digest with readiness checks." } },
+        { "id": "ADR-016-C02", "control": "Asset garbage collection considers active/retained jobs and rollback/support windows.", "resolution": { "type": "REVIEW", "owner": "Storage and operations", "milestone": "M1", "gate": "Asset-GC tests retain every active/retained reference and configured rollback/support window." } },
+        { "id": "ADR-016-C03", "control": "Migration creates new revisions, invalidates affected downstream stages, and records actor/reason/from/to.", "resolution": { "type": "REVIEW", "owner": "Jobs and operations", "milestone": "M1", "gate": "Migration tests prove revision creation, dependency invalidation, and complete actor/reason/from/to audit fields." } },
+        { "id": "ADR-016-C04", "control": "Release/incident tooling queries provenance without reading content.", "resolution": { "type": "REVIEW", "owner": "Operations and privacy", "milestone": "M1", "gate": "Provenance-query tests and incident drills succeed with artifact/content access denied." } }
+      ]
+    }
+  ],
+  "validationGates": [
+    { "id": "ADR-VAL-CONTRACT", "appliesTo": "ALL_ACCEPTED_ADRS", "owner": "Architecture and QA", "gate": "Every affected boundary has canonical contract tests before its capability is advertised." },
+    { "id": "ADR-VAL-E2E", "appliesTo": "ALL_ACCEPTED_ADRS", "owner": "Feature owner and QA", "gate": "Every implemented decision has an end-to-end normal path and at least one injected dependency failure." },
+    { "id": "ADR-VAL-SECURITY", "appliesTo": "ALL_ACCEPTED_ADRS", "owner": "Security", "gate": "Security review confirms logs and errors disclose no document content before production qualification." },
+    { "id": "ADR-VAL-CPU", "appliesTo": "ALL_ACCEPTED_ADRS", "owner": "Performance and QA", "gate": "Reference CPU benchmarks prove each implemented decision remains practical before qualification." }
+  ]
+}

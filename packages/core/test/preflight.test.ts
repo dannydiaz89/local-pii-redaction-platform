@@ -53,6 +53,16 @@ describe('capability manifest and preflight', () => {
     }).toThrow(SafeError);
   });
 
+  it('does not let rules-only capabilities satisfy a contextual-model requirement', () => {
+    expect(() => {
+      assertCapabilities(
+        { ...developmentTextRequirement, detectorKinds: ['MODEL'] },
+        capabilityManifest(),
+        'cor_synthetic_contextual_001'
+      );
+    }).toThrow(SafeError);
+  });
+
   it('does not let development capabilities satisfy a qualified requirement', () => {
     expect(() => {
       assertCapabilities(

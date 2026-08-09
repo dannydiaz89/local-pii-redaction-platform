@@ -7,6 +7,7 @@
     "integration": { "status": "ACTIVE", "purpose": "Behavior across package and provider boundaries" },
     "end-to-end": { "status": "ACTIVE", "purpose": "User-visible lifecycle through a real interface" },
     "format-conformance": { "status": "ACTIVE", "purpose": "Adapter extraction, writing, reopening, fidelity, and leakage" },
+    "governance": { "status": "ACTIVE", "purpose": "Architecture decisions, evidence mappings, and mandatory review gates" },
     "evaluation": { "status": "PLANNED", "purpose": "Frozen-corpus detector and model quality metrics", "milestone": "M1" },
     "fuzz": { "status": "PLANNED", "purpose": "Malformed and adversarial untrusted-boundary campaigns", "milestone": "M1" },
     "security-privacy": { "status": "ACTIVE", "purpose": "Abuse cases, residual leakage, and sensitive-sink canaries" },
@@ -31,6 +32,7 @@
   "executableGates": {
     "contract": ["pnpm contracts:check"],
     "format-conformance": ["pnpm fixtures:check"],
+    "governance": ["pnpm adr:check"],
     "security-privacy": ["pnpm privacy:check"]
   }
 }
