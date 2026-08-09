@@ -40,6 +40,6 @@
     "contract": ["pnpm contracts:check"],
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
-    "security-privacy": ["pnpm privacy:check"]
+    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check"]
   }
 }

@@ -62,7 +62,7 @@ const usage = `Usage:
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact scan <file.txt|file.md> [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md> [--policy <development-labels|high-risk-disclosure>] [--output <path>] [--json]
+  pii-redact redact <file.txt|file.md> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
   pii-redact verify <file.txt|file.md> [--json]
   pii-redact inspect <file.txt|file.md> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
@@ -351,6 +351,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
   }
   if (!validEngineSelection(parsed)) return false;
   if (parsed.apply) return false;
+  if (parsed.command === 'redact' && parsed.output === undefined) return false;
   if (parsed.output !== undefined && parsed.command !== 'redact') return false;
   if (parsed.selectedPolicy !== undefined && parsed.command !== 'redact') return false;
   if (parsed.policyName !== undefined) return false;

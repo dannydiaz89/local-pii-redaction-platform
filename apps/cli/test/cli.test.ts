@@ -267,7 +267,11 @@ describe('CLI TXT vertical slice', () => {
     const stream = capture();
     expect(await executeCli(['redact', 'sample.txt', '--output', '--json'], stream.io)).toBe(2);
     expect(stream.stdout).toHaveLength(0);
-    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({
+    const report = JSON.parse(stream.stderr.join('')) as {
+      readonly schemaVersion: string;
+      readonly error: { readonly code: string };
+    };
+    expect(report).toMatchObject({
       schemaVersion: '1.0.0',
       error: { code: 'SCHEMA_INVALID', message: 'The command arguments are invalid.' }
     });
@@ -296,6 +300,25 @@ describe('CLI TXT vertical slice', () => {
       expect(await executeCli([...argv, '--json'], invalidPolicy.io), argv.join(' ')).toBe(2);
       expect(JSON.parse(invalidPolicy.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
     }
+  });
+
+  it('requires an explicit redaction output before reading input or creating files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-cli-'));
+    directories.push(root);
+    const stream = capture();
+    const missingInput = join(root, 'must-not-be-read.txt');
+
+    expect(await executeCli(['redact', missingInput, '--json'], stream.io)).toBe(2);
+    expect(stream.stdout).toHaveLength(0);
+    const usageReport = JSON.parse(stream.stderr.join('')) as {
+      readonly schemaVersion: string;
+      readonly error: { readonly code: string };
+    };
+    expect(usageReport).toMatchObject({
+      schemaVersion: '1.0.0',
+      error: { code: 'SCHEMA_INVALID' }
+    });
+    expect(await readdir(root)).toEqual([]);
   });
 
   it('runs an explicitly experimental hybrid scan against a pinned local Ollama model', async () => {

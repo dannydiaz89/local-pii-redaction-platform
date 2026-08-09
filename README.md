@@ -22,10 +22,16 @@ python3 -m venv .venv
 pnpm generate
 pnpm check
 pnpm build
+pnpm ephemeral:check
 ```
 
 The default runtime makes no network request and the repository accepts only synthetic fixtures.
 The opt-in Ollama path talks only to a numeric loopback address on the same machine.
+`pnpm ephemeral:check` builds and spawns the default rules-only CLI with Node filesystem permissions
+and an injected network/DNS guard. It proves read-only commands retain no files and successful
+redaction adds only the requested verified output inside a disposable workspace. This is
+application-level evidence; OS syscall tracing and network-namespace packaging tests remain later
+release gates.
 
 ## Try the CLI
 
@@ -51,6 +57,8 @@ pnpm --silent pii-redact cleanup-stages \
 The tracked `test-output/` directory is a local workspace for generated artifacts and JSON reports;
 everything inside it except its `.gitignore` is ignored by Git. Delete or rename an existing output
 before rerunning a command because the CLI intentionally never overwrites output files.
+`redact` always requires an explicit `--output`; it never silently chooses a destination beside the
+input.
 
 `cleanup-stages` is a bounded recovery tool for an interrupted redaction. It is a dry run unless
 `--apply` is supplied, considers only private stages older than 24 hours that match the exact

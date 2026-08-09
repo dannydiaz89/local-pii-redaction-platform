@@ -16,5 +16,20 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error'
     }
+  },
+  {
+    ...tseslint.configs.disableTypeChecked,
+    files: [
+      'tooling/ephemeral-profile-network-guard.cjs',
+      'tooling/ephemeral-profile-network-guard-self-test.mjs'
+    ],
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { console: 'readonly', fetch: 'readonly', process: 'readonly', require: 'readonly' }
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      '@typescript-eslint/no-require-imports': 'off'
+    }
   }
 );
