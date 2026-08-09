@@ -172,6 +172,20 @@ describe('CLI TXT vertical slice', () => {
       '--allow-experimental', '--ollama-url', 'http://example.test:11434', '--json'
     ], remoteEndpoint.io)).toBe(2);
     expect(JSON.parse(remoteEndpoint.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+
+    for (const argv of [
+      ['scan', 'sample.txt', '--policy', 'development-labels'],
+      ['verify', 'sample.txt', '--policy', 'development-labels'],
+      ['inspect', 'sample.txt', '--policy', 'development-labels'],
+      ['redact', 'sample.txt', '--policy', 'unknown-policy'],
+      ['redact', 'sample.txt', '--policy', 'development-labels', '--policy', 'development-labels'],
+      ['redact', 'sample.txt', '--output', 'first.txt', '--output', 'second.txt'],
+      ['redact', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--policy', 'development-labels']
+    ]) {
+      const invalidPolicy = capture();
+      expect(await executeCli([...argv, '--json'], invalidPolicy.io), argv.join(' ')).toBe(2);
+      expect(JSON.parse(invalidPolicy.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+    }
   });
 
   it('runs an explicitly experimental hybrid scan against a pinned local Ollama model', async () => {
@@ -302,7 +316,31 @@ describe('CLI TXT vertical slice', () => {
     expect(redacted).toContain('[API_KEY_1]');
     expect(redacted).not.toContain('alpha@example.test');
     expect(await readFile(input, 'utf8')).toBe(original);
-    expect(stream.stdout.join('')).toContain('"outcome": "VERIFIED"');
+    const report = JSON.parse(stream.stdout.join('')) as {
+      readonly outcome: string;
+      readonly policy: { readonly id: string; readonly version: string; readonly digest: string };
+      readonly plan: { readonly policyDigest: string };
+    };
+    expect(report.outcome).toBe('VERIFIED');
+    expect(report.policy).toMatchObject({ id: 'development-labels', version: '0.1.0' });
+    expect(report.plan.policyDigest).toBe(report.policy.digest);
+    expect(stream.stdout.join('')).not.toContain(input);
+    expect(stream.stdout.join('')).not.toContain(output);
+  });
+
+  it('fails a high-risk policy before reading a missing input or creating output', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-policy-'));
+    directories.push(root);
+    const input = join(root, 'does-not-exist.txt');
+    const output = join(root, 'must-not-exist.txt');
+    const stream = capture();
+    expect(await executeCli([
+      'redact', input, '--policy', 'high-risk-disclosure', '--output', output, '--json'
+    ], stream.io)).toBe(3);
+    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({
+      error: { code: 'POLICY_UNSATISFIABLE', correlationId: 'cor_cli_redact' }
+    });
+    await expect(readFile(output, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('fails verification on an unredacted input and refuses to overwrite output', async () => {

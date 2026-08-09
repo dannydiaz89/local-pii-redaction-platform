@@ -14,6 +14,7 @@
     "input": { "$ref": "#/$defs/artifactSummary" },
     "output": { "$ref": "#/$defs/artifactSummary" },
     "artifact": { "$ref": "#/$defs/artifactSummary" },
+    "policy": { "$ref": "#/$defs/policySummary" },
     "detectorBundleVersion": { "type": "string", "minLength": 1, "maxLength": 100 },
     "counts": {
       "type": "object", "additionalProperties": false, "required": ["detections", "conflicts", "byEntity"],
@@ -44,9 +45,11 @@
       }
     },
     "plan": {
-      "type": "object", "additionalProperties": false, "required": ["digest", "strategy", "actionCount", "byEntity"],
+      "type": "object", "additionalProperties": false, "required": ["digest", "policyDigest", "strategy", "actionCount", "byEntity"],
       "properties": {
-        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }, "strategy": { "const": "TYPED_LABEL" },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "policyDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "strategy": { "const": "TYPED_LABEL" },
         "actionCount": { "type": "integer", "minimum": 0 },
         "byEntity": { "type": "object", "propertyNames": { "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0" }, "additionalProperties": { "type": "integer", "minimum": 1 } }
       }
@@ -61,6 +64,16 @@
     }
   },
   "$defs": {
+    "policySummary": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "digest", "riskTier", "example"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
+        "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "riskTier": { "enum": ["LOW", "MODERATE", "HIGH"] },
+        "example": { "const": true }
+      }
+    },
     "artifactSummary": {
       "type": "object", "additionalProperties": false, "required": ["byteLength", "digest"],
       "properties": {
@@ -90,14 +103,24 @@
     }
   },
   "allOf": [
-    { "if": { "properties": { "operation": { "const": "SCAN" } } }, "then": { "properties": { "input": true, "detectorBundleVersion": true, "counts": true, "detections": true, "conflicts": true }, "required": ["input", "detectorBundleVersion", "counts", "detections", "conflicts"] } },
-    { "if": { "properties": { "operation": { "const": "REDACT" } } }, "then": { "properties": { "input": true, "output": true, "plan": true, "verification": true }, "required": ["input", "output", "plan", "verification"] } },
-    { "if": { "properties": { "operation": { "const": "VERIFY" } } }, "then": { "properties": { "artifact": true, "verification": true }, "required": ["artifact", "verification"] } },
-    { "if": { "properties": { "operation": { "const": "INSPECT" } } }, "then": { "properties": { "artifact": true, "capability": true }, "required": ["artifact", "capability"] } }
+    { "if": { "properties": { "operation": { "const": "SCAN" } } }, "then": { "properties": { "input": true, "policy": false, "detectorBundleVersion": true, "counts": true, "detections": true, "conflicts": true }, "required": ["input", "detectorBundleVersion", "counts", "detections", "conflicts"] } },
+    { "if": { "properties": { "operation": { "const": "REDACT" } } }, "then": { "properties": { "input": true, "output": true, "policy": true, "plan": true, "verification": true }, "required": ["input", "output", "policy", "plan", "verification"] } },
+    { "if": { "properties": { "operation": { "const": "VERIFY" } } }, "then": { "properties": { "artifact": true, "policy": false, "verification": true }, "required": ["artifact", "verification"] } },
+    { "if": { "properties": { "operation": { "const": "INSPECT" } } }, "then": { "properties": { "artifact": true, "policy": false, "capability": true }, "required": ["artifact", "capability"] } }
   ],
-  "examples": [{
-    "schemaVersion": "1.0.0", "operation": "SCAN", "outcome": "SUCCEEDED",
-    "input": { "displayName": "synthetic.txt", "mediaType": "text/plain", "byteLength": 18, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    "detectorBundleVersion": "0.1.0", "counts": { "detections": 0, "conflicts": 0, "byEntity": {} }, "detections": [], "conflicts": []
-  }]
+  "examples": [
+    {
+      "schemaVersion": "1.0.0", "operation": "SCAN", "outcome": "SUCCEEDED",
+      "input": { "displayName": "synthetic.txt", "mediaType": "text/plain", "byteLength": 18, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "detectorBundleVersion": "0.1.0", "counts": { "detections": 0, "conflicts": 0, "byEntity": {} }, "detections": [], "conflicts": []
+    },
+    {
+      "schemaVersion": "1.0.0", "operation": "REDACT", "outcome": "VERIFIED",
+      "input": { "byteLength": 18, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "output": { "byteLength": 9, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+      "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW", "example": true },
+      "plan": { "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "strategy": "TYPED_LABEL", "actionCount": 0, "byEntity": {} },
+      "verification": { "schemaVersion": "1.0.0", "profile": "text-rescan-v1", "outcome": "PASS", "detectorBundleVersion": "0.1.0", "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION"], "findings": [] }
+    }
+  ]
 }

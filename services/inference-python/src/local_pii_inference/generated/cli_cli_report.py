@@ -117,6 +117,23 @@ class DateTime(RootModel[AwareDatetime]):
     root: AwareDatetime
 
 
+class RiskTier(Enum):
+    LOW = 'LOW'
+    MODERATE = 'MODERATE'
+    HIGH = 'HIGH'
+
+
+class PolicySummary(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
+    version: Semver
+    digest: Digest
+    riskTier: RiskTier
+    example: Literal[True]
+
+
 class MediaType(Enum):
     text_plain = 'text/plain'
     text_markdown = 'text/markdown'
@@ -193,6 +210,7 @@ class Plan(BaseModel):
         extra='forbid',
     )
     digest: Digest
+    policyDigest: Digest
     strategy: Literal['TYPED_LABEL']
     actionCount: conint(ge=0, strict=True)
     byEntity: dict[EntityType, conint(ge=1, strict=True)]
@@ -217,6 +235,7 @@ class CLIOperationReport(BaseModel):
     input: ArtifactSummary | None = None
     output: ArtifactSummary | None = None
     artifact: ArtifactSummary | None = None
+    policy: PolicySummary | None = None
     detectorBundleVersion: (
         constr(min_length=1, max_length=100, strict=True) | None
     ) = None

@@ -67,7 +67,7 @@ describe('boundary checker', () => {
     });
 
     expect(violations.map(({ message }) => message)).toContain(
-      'workspace runtime dependencies must be exactly: contracts, domain, redaction, span-resolution'
+      'workspace runtime dependencies must be exactly: contracts, domain, policy, redaction, span-resolution'
     );
     expect(violations.map(({ message }) => message)).toContain(
       'must not declare unknown workspace dependencies: @local-pii/durable-store'

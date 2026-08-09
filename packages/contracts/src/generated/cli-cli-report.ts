@@ -12,6 +12,7 @@ export type CLIOperationReport = {
   input?: ArtifactSummary;
   output?: ArtifactSummary;
   artifact?: ArtifactSummary;
+  policy?: PolicySummary;
   detectorBundleVersion?: string;
   counts?: {
     detections: number;
@@ -48,6 +49,7 @@ export type CLIOperationReport = {
   }[];
   plan?: {
     digest: string;
+    policyDigest: string;
     strategy: 'TYPED_LABEL';
     actionCount: number;
     byEntity: {
@@ -103,6 +105,17 @@ export interface ArtifactSummary {
   extractionRevision?: string;
   unicodeCodePoints?: number;
   hasUtf8Bom?: boolean;
+}
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema
+ * via the `definition` "policySummary".
+ */
+export interface PolicySummary {
+  id: string;
+  version: string;
+  digest: string;
+  riskTier: 'LOW' | 'MODERATE' | 'HIGH';
+  example: true;
 }
 /**
  * This interface was referenced by `undefined`'s JSON-Schema

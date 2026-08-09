@@ -62,7 +62,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
   verification: ['detectors', 'domain', 'span-resolution'],
-  core: ['contracts', 'domain', 'redaction', 'span-resolution']
+  core: ['contracts', 'domain', 'policy', 'redaction', 'span-resolution']
 };
 
 const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {

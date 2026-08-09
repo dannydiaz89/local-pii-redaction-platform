@@ -18,7 +18,8 @@
           "enum": [
             "CONTRACT_UNSUPPORTED", "SCHEMA_INVALID", "IDEMPOTENCY_CONFLICT",
             "INPUT_TOO_LARGE", "FORMAT_UNSUPPORTED", "FORMAT_ENCRYPTED", "FORMAT_CORRUPT",
-            "POLICY_UNSATISFIABLE", "REQUIRED_DETECTOR_UNAVAILABLE", "MODEL_UNAVAILABLE",
+            "POLICY_UNSATISFIABLE", "POLICY_REVIEW_REQUIRED", "POLICY_BLOCKED",
+            "REQUIRED_DETECTOR_UNAVAILABLE", "MODEL_UNAVAILABLE",
             "DETECTOR_TIMEOUT", "DETECTION_LIMIT_EXCEEDED", "MODEL_OUTPUT_INVALID",
             "SOURCE_MAP_INVALID", "REDACTION_PLAN_CONFLICT", "REDACTION_COUNT_MISMATCH",
             "VERIFICATION_RESIDUAL", "VERIFICATION_INCOMPLETE", "FIDELITY_OUT_OF_RANGE",
@@ -56,13 +57,33 @@
       }
     }
   },
-  "examples": [{
-    "schemaVersion": "1.0.0",
-    "error": {
-      "code": "FORMAT_ENCRYPTED",
-      "message": "The input is encrypted and cannot be processed by this profile.",
-      "retryable": false,
-      "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V"
+  "examples": [
+    {
+      "schemaVersion": "1.0.0",
+      "error": {
+        "code": "FORMAT_ENCRYPTED",
+        "message": "The input is encrypted and cannot be processed by this profile.",
+        "retryable": false,
+        "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V"
+      }
+    },
+    {
+      "schemaVersion": "1.0.0",
+      "error": {
+        "code": "POLICY_REVIEW_REQUIRED",
+        "message": "The selected policy requires review before output can be published.",
+        "retryable": false,
+        "correlationId": "cor_policy_review"
+      }
+    },
+    {
+      "schemaVersion": "1.0.0",
+      "error": {
+        "code": "POLICY_BLOCKED",
+        "message": "The selected policy blocked output publication.",
+        "retryable": false,
+        "correlationId": "cor_policy_blocked"
+      }
     }
-  }]
+  ]
 }

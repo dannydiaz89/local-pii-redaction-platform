@@ -95,6 +95,9 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../domain
+      '@local-pii/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@local-pii/redaction':
         specifier: workspace:*
         version: link:../redaction

@@ -37,13 +37,16 @@ pnpm --silent pii-redact policies list --json
 pnpm --silent pii-redact policies explain development-labels --json
 pnpm --silent pii-redact policies explain high-risk-disclosure --json
 pnpm --silent pii-redact capabilities --json
-pnpm pii-redact inspect ./sample.txt
-pnpm --silent pii-redact scan ./sample.txt --json
-pnpm pii-redact redact ./sample.txt --output ./sample.redacted.txt
+pnpm pii-redact inspect ./sample-data/input/sample.txt
+pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
+pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
+  --policy development-labels --output ./sample.redacted.txt --json
 pnpm --silent pii-redact verify ./sample.redacted.txt --json
 ```
 
-`redact` never overwrites its input or an existing output. It writes to a private staging file,
+Every rules-only `redact` is policy-bound. When `--policy` is omitted, the CLI explicitly selects
+and reports `development-labels` for compatibility. `redact` never overwrites its input or an
+existing output. It writes to a private staging file,
 reopens the staged UTF-8 artifact, rescans it, and publishes the requested path only when the
 `text-rescan-v1` profile passes. Machine reports contain entity types and offsets, not matched
 values.
@@ -53,8 +56,10 @@ the current rules-only text capability without opening a document or contacting 
 `development-labels` example is currently satisfiable. `high-risk-disclosure` is deliberately
 reported as unsatisfiable because the available components are not qualified for high-risk use and
 the required detector, transformation, and verification assurances are incomplete. Policy
-inspection does not yet select processing behavior; `--policy` will be added only after core plans
-retain and enforce the policy digest and per-entity evidence requirements.
+inspection is also available separately, while `redact --policy development-labels` now enforces
+its confidence and exact supporting-evidence requirements before staging an output. Selecting
+`high-risk-disclosure` for redaction fails before the document is read because the current local
+components do not satisfy that policy's qualification and capability requirements.
 
 To compare the rules with an already-installed local Ollama model, run an experimental hybrid scan:
 
@@ -71,7 +76,7 @@ explicitly. This path is scan-only, bounded to 80,000 input bytes/20,000 Unicode
 fails closed rather than silently falling back to rules-only behavior.
 
 Exit codes are `0` for success, `2` for usage, `3` for processing errors, `4` for failed
-verification, `5` for unresolved scan conflicts, and `6` for output collisions.
+verification, `5` for unresolved scan conflicts or policy review, and `6` for output collisions.
 
 ## Current limitations
 

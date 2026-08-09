@@ -5,10 +5,13 @@
     { "file": "valid/detect-request-unicode.json", "schemaId": "https://local-pii.dev/schemas/detection/detect-request/1.0.0", "valid": true },
     { "file": "valid/error-envelope.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
     { "file": "valid/error-privacy-safe-details.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
+    { "file": "valid/error-policy-review-required.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
+    { "file": "valid/error-policy-blocked.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
     { "file": "valid/artifact-identifiers-digest.json", "schemaId": "https://local-pii.dev/schemas/artifacts/artifact/1.0.0", "valid": true },
     { "file": "valid/job-identifiers-digest.json", "schemaId": "https://local-pii.dev/schemas/jobs/job/1.0.0", "valid": true },
     { "file": "valid/detection-unicode-code-point-span.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": true },
     { "file": "valid/cli-scan-report.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": true },
+    { "file": "valid/cli-redact-policy-bound-report.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": true },
     { "file": "valid/cli-policy-list-report.json", "schemaId": "https://local-pii.dev/schemas/cli/policy-report/1.0.0", "valid": true },
     { "file": "valid/capability-rules-only-text.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": true },
     { "file": "invalid/detection-unknown-field.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": false },
@@ -30,6 +33,8 @@
     { "file": "invalid/detection-utf16-offset-unit.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": false },
     { "file": "invalid/entity-type-alias.json", "schemaId": "https://local-pii.dev/schemas/common/entity-type/1.0.0", "valid": false },
     { "file": "invalid/cli-report-matched-value.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": false },
+    { "file": "invalid/cli-redact-report-missing-policy.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": false },
+    { "file": "invalid/cli-redact-report-missing-plan-policy-digest.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": false },
     { "file": "invalid/cli-policy-report-source-text.json", "schemaId": "https://local-pii.dev/schemas/cli/policy-report/1.0.0", "valid": false },
     { "file": "invalid/capability-unknown-operation.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": false }
   ]

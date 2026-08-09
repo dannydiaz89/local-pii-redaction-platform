@@ -739,6 +739,9 @@ export const schemaCatalog = [
       "artifact": {
         "$ref": "#/$defs/artifactSummary"
       },
+      "policy": {
+        "$ref": "#/$defs/policySummary"
+      },
       "detectorBundleVersion": {
         "type": "string",
         "minLength": 1,
@@ -861,12 +864,16 @@ export const schemaCatalog = [
         "additionalProperties": false,
         "required": [
           "digest",
+          "policyDigest",
           "strategy",
           "actionCount",
           "byEntity"
         ],
         "properties": {
           "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "policyDigest": {
             "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
           },
           "strategy": {
@@ -922,6 +929,39 @@ export const schemaCatalog = [
       }
     },
     "$defs": {
+      "policySummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier",
+          "example"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          },
+          "example": {
+            "const": true
+          }
+        }
+      },
       "artifactSummary": {
         "type": "object",
         "additionalProperties": false,
@@ -1057,6 +1097,7 @@ export const schemaCatalog = [
         "then": {
           "properties": {
             "input": true,
+            "policy": false,
             "detectorBundleVersion": true,
             "counts": true,
             "detections": true,
@@ -1083,12 +1124,14 @@ export const schemaCatalog = [
           "properties": {
             "input": true,
             "output": true,
+            "policy": true,
             "plan": true,
             "verification": true
           },
           "required": [
             "input",
             "output",
+            "policy",
             "plan",
             "verification"
           ]
@@ -1105,6 +1148,7 @@ export const schemaCatalog = [
         "then": {
           "properties": {
             "artifact": true,
+            "policy": false,
             "verification": true
           },
           "required": [
@@ -1124,6 +1168,7 @@ export const schemaCatalog = [
         "then": {
           "properties": {
             "artifact": true,
+            "policy": false,
             "capability": true
           },
           "required": [
@@ -1152,6 +1197,45 @@ export const schemaCatalog = [
         },
         "detections": [],
         "conflicts": []
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "REDACT",
+        "outcome": "VERIFIED",
+        "input": {
+          "byteLength": 18,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "output": {
+          "byteLength": 9,
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "riskTier": "LOW",
+          "example": true
+        },
+        "plan": {
+          "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "strategy": "TYPED_LABEL",
+          "actionCount": 0,
+          "byEntity": {}
+        },
+        "verification": {
+          "schemaVersion": "1.0.0",
+          "profile": "text-rescan-v1",
+          "outcome": "PASS",
+          "detectorBundleVersion": "0.1.0",
+          "checks": [
+            "UTF8_REOPEN",
+            "DETERMINISTIC_RESCAN",
+            "SPAN_RESOLUTION"
+          ],
+          "findings": []
+        }
       }
     ]
   },
@@ -1464,6 +1548,8 @@ export const schemaCatalog = [
               "FORMAT_ENCRYPTED",
               "FORMAT_CORRUPT",
               "POLICY_UNSATISFIABLE",
+              "POLICY_REVIEW_REQUIRED",
+              "POLICY_BLOCKED",
               "REQUIRED_DETECTOR_UNAVAILABLE",
               "MODEL_UNAVAILABLE",
               "DETECTOR_TIMEOUT",
@@ -1554,6 +1640,24 @@ export const schemaCatalog = [
           "message": "The input is encrypted and cannot be processed by this profile.",
           "retryable": false,
           "correlationId": "cor_01J4M8Z7QK2C5B6TFXDA9R4M3V"
+        }
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "error": {
+          "code": "POLICY_REVIEW_REQUIRED",
+          "message": "The selected policy requires review before output can be published.",
+          "retryable": false,
+          "correlationId": "cor_policy_review"
+        }
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "error": {
+          "code": "POLICY_BLOCKED",
+          "message": "The selected policy blocked output publication.",
+          "retryable": false,
+          "correlationId": "cor_policy_blocked"
         }
       }
     ]

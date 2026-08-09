@@ -8,6 +8,7 @@
   "references": [
     { "path": "../contracts" },
     { "path": "../domain" },
+    { "path": "../policy" },
     { "path": "../span-resolution" },
     { "path": "../redaction" }
   ],

@@ -15,6 +15,8 @@ export interface TypedErrorEnvelope {
       | 'FORMAT_ENCRYPTED'
       | 'FORMAT_CORRUPT'
       | 'POLICY_UNSATISFIABLE'
+      | 'POLICY_REVIEW_REQUIRED'
+      | 'POLICY_BLOCKED'
       | 'REQUIRED_DETECTOR_UNAVAILABLE'
       | 'MODEL_UNAVAILABLE'
       | 'DETECTOR_TIMEOUT'

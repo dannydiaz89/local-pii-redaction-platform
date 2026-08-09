@@ -6,6 +6,7 @@ import type {
 import type { TypedLabelPlan } from '@local-pii/redaction';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
+import type { EffectivePolicy, PolicyDecision } from '@local-pii/policy';
 
 export interface CapabilityRequirement {
   readonly contractVersion: string;
@@ -133,7 +134,21 @@ export interface TextCommand {
 export interface RedactTextCommand {
   readonly session: TextProcessingSession;
   readonly requirement: CapabilityRequirement;
+  /** The immutable compiled policy that governs this entire redaction. */
+  readonly policy: EffectivePolicy;
   readonly signal?: AbortSignal;
+}
+
+export interface PolicyBinding {
+  readonly id: string;
+  readonly version: string;
+  readonly digest: Sha256Digest;
+  readonly riskTier: 'LOW' | 'MODERATE' | 'HIGH';
+}
+
+export interface PolicySpanDecision extends PolicyDecision {
+  readonly spanId: string;
+  readonly evidenceIds: readonly string[];
 }
 
 export interface TextInspectionResult {
@@ -155,6 +170,8 @@ export interface TextVerifyResult {
 
 export interface TextRedactionResult {
   readonly input: TextArtifact;
+  readonly policy: PolicyBinding;
+  readonly policyDecisions: readonly PolicySpanDecision[];
   readonly detectorBundleVersion: string;
   readonly evidence: readonly DetectionEvidence[];
   readonly resolution: ResolutionSet;

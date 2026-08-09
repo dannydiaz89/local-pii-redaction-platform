@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "REDACT",
+  "outcome": "VERIFIED",
+  "input": {
+    "byteLength": 18,
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "output": {
+    "byteLength": 9,
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "riskTier": "LOW",
+    "example": true
+  },
+  "plan": {
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "strategy": "TYPED_LABEL",
+    "actionCount": 0,
+    "byEntity": {}
+  },
+  "verification": {
+    "schemaVersion": "1.0.0",
+    "profile": "text-rescan-v1",
+    "outcome": "PASS",
+    "detectorBundleVersion": "0.1.0",
+    "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION"],
+    "findings": []
+  }
+}

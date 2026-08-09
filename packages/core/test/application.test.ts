@@ -22,8 +22,10 @@ import {
   type TextProcessingSession,
   type TextVerificationReport
 } from '../src/index.js';
+import { compilePolicy, developmentLabelsPolicy, highRiskDisclosurePolicy } from '@local-pii/policy';
 
 const context = { correlationId: 'cor_core_application_001' };
+const policy = compilePolicy(developmentLabelsPolicy);
 const digest = (value: string): Sha256Digest => parseSha256Digest(`sha256:${createHash('sha256').update(value).digest('hex')}`);
 const revision = (value: string): Sha256Digest => digest(`canonical:${value}`);
 
@@ -45,7 +47,7 @@ function artifact(reference: string, text: string): TextArtifact {
 }
 
 const passingVerification: TextVerificationReport = {
-  schemaVersion: '1.0.0', profile: 'fake-rescan', outcome: 'PASS',
+  schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'PASS',
   detectorBundleVersion: 'test-verifier', checks: ['TEST'], findings: []
 };
 
@@ -116,9 +118,15 @@ describe('TextProcessingApplication', () => {
 
   it.each(['ephemeral', 'durable'] as const)('runs the same redact sequence for a %s session', async (kind) => {
     const session = new FakeSession(kind);
-    const result = await createTextProcessingApplication(dependencies()).redact({ session, requirement }, context);
+    const result = await createTextProcessingApplication(dependencies()).redact({ session, requirement, policy }, context);
     expect(result.published.reference).toBe('published://stage://pending');
     expect(result.plan.actions).toHaveLength(1);
+    expect(result.policy).toMatchObject({ id: 'development-labels', digest: policy.digest });
+    expect(result.plan.policy.digest).toBe(policy.digest);
+    expect(result.plan.actions[0]).toMatchObject({
+      sourceSpanId: 'rsp_11111111111141118111111111111111',
+      evidenceIds: ['11111111-1111-4111-8111-111111111111']
+    });
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'publish']);
   });
 
@@ -130,7 +138,42 @@ describe('TextProcessingApplication', () => {
         { id: parseDetectionId('22222222-2222-4222-8222-222222222222'), entityType: 'PHONE', span: { start: 5, end: 20, offsetUnit: 'UNICODE_CODE_POINT', extractionRevision }, confidence: 1, source: 'REGEX', detector: { id: 'phone-pattern', version: 'test' } }
       ]) }
     }));
-    await expect(app.redact({ session, requirement }, context)).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    expect(session.events).toEqual(['input:false']);
+  });
+
+  it('rejects an unsatisfied high-risk policy before reading input or running detection', async () => {
+    const session = new FakeSession('ephemeral');
+    let detectorCalls = 0;
+    const app = createTextProcessingApplication(dependencies({
+      detector: {
+        detectorBundleVersion: 'test-detector',
+        detect: () => { detectorCalls += 1; return Promise.resolve([]); }
+      }
+    }));
+    await expect(app.redact({
+      session,
+      requirement,
+      policy: compilePolicy(highRiskDisclosurePolicy)
+    }, context)).rejects.toMatchObject({ code: 'POLICY_UNSATISFIABLE' });
+    expect(session.events).toEqual([]);
+    expect(detectorCalls).toBe(0);
+  });
+
+  it('requires review before staging when accepted evidence is below the policy threshold', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      detector: {
+        detectorBundleVersion: 'test-detector',
+        detect: (text, extractionRevision) => Promise.resolve(emailEvidence(text, extractionRevision).map((item) => ({
+          ...item,
+          confidence: 0.94
+        })))
+      }
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'POLICY_REVIEW_REQUIRED'
+    });
     expect(session.events).toEqual(['input:false']);
   });
 
@@ -138,10 +181,35 @@ describe('TextProcessingApplication', () => {
     const session = new FakeSession('ephemeral');
     const verifierCalls: string[] = [];
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: (text) => { verifierCalls.push(text); return Promise.resolve({ schemaVersion: '1.0.0', profile: 'injected', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [{ code: 'TEST', severity: 'ERROR', blocking: true }] }); } }
+      verifier: { verify: (text) => { verifierCalls.push(text); return Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [{ code: 'TEST', severity: 'ERROR', blocking: true }] }); } }
     }));
-    await expect(app.redact({ session, requirement }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
     expect(verifierCalls).toEqual(['Email [EMAIL_1]']);
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('discards staging when the verifier does not run the policy-required profile', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: { verify: () => Promise.resolve({ ...passingVerification, profile: 'wrong-profile' }) }
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE'
+    });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('honors policy warning blocking even when a verifier reports PASS', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: { verify: () => Promise.resolve({
+        ...passingVerification,
+        findings: [{ code: 'TEST_WARNING', severity: 'WARNING', blocking: false }]
+      }) }
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_RESIDUAL'
+    });
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
   });
 
@@ -149,7 +217,7 @@ describe('TextProcessingApplication', () => {
     const session = new FakeSession('durable');
     session.publish = () => Promise.reject(new Error('private artifact storage location'));
     const app = createTextProcessingApplication(dependencies());
-    const failure = await app.redact({ session, requirement }, context).catch((error: unknown) => error);
+    const failure = await app.redact({ session, requirement, policy }, context).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(SafeError);
     expect(failure).toMatchObject({ code: 'INTERNAL_ERROR', correlationId: context.correlationId });
     expect((failure as Error).message).not.toContain('private artifact');
@@ -160,9 +228,9 @@ describe('TextProcessingApplication', () => {
     const session = new FakeSession('ephemeral');
     session.discard = () => Promise.reject(new Error('private staging path'));
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'test', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
+      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
     }));
-    const failure = await app.redact({ session, requirement }, context).catch((error: unknown) => error);
+    const failure = await app.redact({ session, requirement, policy }, context).catch((error: unknown) => error);
     expect(failure).toMatchObject({
       code: 'STORAGE_UNAVAILABLE',
       correlationId: context.correlationId,
@@ -180,7 +248,7 @@ describe('TextProcessingApplication', () => {
       detector: { detectorBundleVersion: 'test', detect: (text, extractionRevision, provided) => { if (provided !== undefined) seen.push(provided); return Promise.resolve(emailEvidence(text, extractionRevision)); } },
       verifier: { verify: (_text, _revision, provided) => { if (provided !== undefined) seen.push(provided); return Promise.resolve(passingVerification); } }
     }));
-    await app.redact({ session, requirement, signal }, context);
+    await app.redact({ session, requirement, policy, signal }, context);
     expect(seen).toEqual([signal, signal, signal]);
     expect(session.events).toEqual(['input:true', 'stage:true', 'reopen:true', 'publish:true']);
   });
@@ -189,9 +257,9 @@ describe('TextProcessingApplication', () => {
     const signal = AbortSignal.abort();
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'test', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
+      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
     }));
-    await expect(app.redact({ session, requirement, signal }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
+    await expect(app.redact({ session, requirement, policy, signal }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
     expect(session.events).toEqual(['input:true', 'stage:true', 'reopen:true', 'discard:false']);
   });
 });

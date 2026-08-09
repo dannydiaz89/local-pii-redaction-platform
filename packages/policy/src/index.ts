@@ -6,7 +6,14 @@ import {
   type CapabilitiesCapabilityManifestContract,
   type PolicyRedactionPolicyContract
 } from '@local-pii/contracts';
-import { entityTypes, type EntityType, type Sha256Digest } from '@local-pii/domain';
+import {
+  detectorSources,
+  entityTypes,
+  parseSha256Digest,
+  type DetectorSource,
+  type EntityType,
+  type Sha256Digest
+} from '@local-pii/domain';
 
 const policySchemaId = 'https://local-pii.dev/schemas/policy/redaction-policy/1.0.0';
 const capabilitySchemaId = 'https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0';
@@ -86,7 +93,36 @@ export interface CapabilityRequirementContext {
 export interface PolicyDecision {
   readonly entityType: EntityType;
   readonly action: PolicyAction;
-  readonly explanationCode: 'POLICY_ACTION' | 'POLICY_REVIEW_BAND' | 'POLICY_BELOW_THRESHOLD';
+  readonly explanationCode:
+    | 'POLICY_ACTION'
+    | 'POLICY_REVIEW_BAND'
+    | 'POLICY_BELOW_THRESHOLD'
+    | 'POLICY_REQUIRED_EVIDENCE_MISSING';
+}
+
+/** Structural input compatible with a resolved span after binding its extraction revision. */
+export interface AcceptedSpanInput {
+  readonly entityType: EntityType;
+  readonly start: number;
+  readonly end: number;
+  readonly confidence: number;
+  readonly evidenceIds: readonly string[];
+  readonly extractionRevision: Sha256Digest;
+}
+
+/** Structural subset of detection evidence; matched values and source text are intentionally absent. */
+export interface SupportingEvidenceInput {
+  readonly id: string;
+  readonly entityType: EntityType;
+  readonly span: Readonly<{
+    start: number;
+    end: number;
+    offsetUnit: 'UNICODE_CODE_POINT';
+    extractionRevision: Sha256Digest;
+  }>;
+  readonly confidence: number;
+  readonly source: DetectorSource;
+  readonly detector: Readonly<{ id: string }>;
 }
 
 export type CapabilityDecisionCode =
@@ -389,6 +425,131 @@ export function evaluatePolicy(policy: EffectivePolicy, entityType: EntityType, 
     return deepFreeze({ entityType, action: 'REQUIRE_REVIEW', explanationCode: 'POLICY_REVIEW_BAND' });
   }
   return deepFreeze({ entityType, action: rule.action, explanationCode: 'POLICY_ACTION' });
+}
+
+function assertAcceptedSpanShape(span: AcceptedSpanInput): void {
+  parseSha256Digest(span.extractionRevision);
+  if (!entityTypes.includes(span.entityType)) throw new TypeError('Invalid accepted span entity type.');
+  if (!Number.isSafeInteger(span.start) || !Number.isSafeInteger(span.end) || span.start < 0 || span.start >= span.end) {
+    throw new TypeError('Invalid accepted span offsets.');
+  }
+  if (!Number.isFinite(span.confidence) || span.confidence < 0 || span.confidence > 1) {
+    throw new TypeError('Invalid accepted span confidence.');
+  }
+  if (!Array.isArray(span.evidenceIds) || span.evidenceIds.length === 0) {
+    throw new TypeError('An accepted span must reference evidence.');
+  }
+  const ids = new Set<string>();
+  for (const id of span.evidenceIds) {
+    if (typeof id !== 'string' || id.length === 0 || ids.has(id)) {
+      throw new TypeError('Accepted span evidence references must be non-empty and unique.');
+    }
+    ids.add(id);
+  }
+}
+
+function referencedEvidence(
+  span: AcceptedSpanInput,
+  evidence: readonly SupportingEvidenceInput[]
+): readonly SupportingEvidenceInput[] {
+  if (!Array.isArray(evidence)) throw new TypeError('Evidence must be an array.');
+  const referencedIds = new Set(span.evidenceIds);
+  const byId = new Map<string, Readonly<Record<string, unknown>>>();
+  for (const value of evidence as readonly unknown[]) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+    const candidate = value as Readonly<Record<string, unknown>>;
+    const id = candidate.id;
+    if (typeof id !== 'string' || !referencedIds.has(id)) continue;
+    if (byId.has(id)) throw new TypeError('Referenced evidence IDs must be unique.');
+    byId.set(id, candidate);
+  }
+
+  return span.evidenceIds.map((id) => {
+    const candidate = byId.get(id);
+    if (candidate === undefined) throw new TypeError('Accepted span references unknown evidence.');
+    const candidateSpan = candidate.span;
+    const detector = candidate.detector;
+    if (
+      candidateSpan === null
+      || typeof candidateSpan !== 'object'
+      || Array.isArray(candidateSpan)
+      || detector === null
+      || typeof detector !== 'object'
+      || Array.isArray(detector)
+    ) {
+      throw new TypeError('Referenced evidence is malformed.');
+    }
+    const structuralSpan = candidateSpan as Readonly<Record<string, unknown>>;
+    const structuralDetector = detector as Readonly<Record<string, unknown>>;
+    if (
+      candidate.entityType !== span.entityType
+      || structuralSpan.start !== span.start
+      || structuralSpan.end !== span.end
+      || structuralSpan.offsetUnit !== 'UNICODE_CODE_POINT'
+      || structuralSpan.extractionRevision !== span.extractionRevision
+    ) {
+      throw new TypeError('Referenced evidence does not match the accepted span.');
+    }
+    parseSha256Digest(structuralSpan.extractionRevision as string);
+    const confidence = candidate.confidence;
+    if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new TypeError('Invalid referenced evidence confidence.');
+    }
+    const source = candidate.source;
+    if (typeof source !== 'string' || !detectorSources.includes(source as DetectorSource)) {
+      throw new TypeError('Invalid referenced evidence source.');
+    }
+    const detectorId = structuralDetector.id;
+    if (typeof detectorId !== 'string' || detectorId.length === 0) {
+      throw new TypeError('Invalid referenced detector ID.');
+    }
+    return {
+      id,
+      entityType: span.entityType,
+      span: {
+        start: span.start,
+        end: span.end,
+        offsetUnit: 'UNICODE_CODE_POINT',
+        extractionRevision: span.extractionRevision
+      },
+      confidence,
+      source: source as DetectorSource,
+      detector: { id: detectorId }
+    };
+  });
+}
+
+/**
+ * Evaluates one accepted span only after proving that its exact supporting evidence is intact.
+ * The returned decision contains no offsets, evidence IDs, detector IDs, or source content.
+ */
+export function evaluateAcceptedSpan(
+  policy: EffectivePolicy,
+  span: AcceptedSpanInput,
+  evidence: readonly SupportingEvidenceInput[]
+): PolicyDecision {
+  assertAcceptedSpanShape(span);
+  const supporting = referencedEvidence(span, evidence);
+  const strongestConfidence = Math.max(...supporting.map(({ confidence }) => confidence));
+  if (strongestConfidence !== span.confidence) {
+    throw new TypeError('Accepted span confidence does not match its supporting evidence.');
+  }
+  const rule = policy.entities.find(({ entityType }) => entityType === span.entityType);
+  if (rule === undefined) throw new TypeError('Entity type is not present in the effective policy.');
+
+  const requiredEvidencePresent = rule.requiredDetectors.every((detectorId) =>
+    supporting.some(({ detector }) => detector.id === detectorId)
+  ) && rule.requiredDetectorKinds.every((kind) =>
+    supporting.some(({ source }) => source === kind)
+  );
+  if (!requiredEvidencePresent) {
+    return deepFreeze({
+      entityType: span.entityType,
+      action: rule.uncertainBehavior,
+      explanationCode: 'POLICY_REQUIRED_EVIDENCE_MISSING'
+    });
+  }
+  return evaluatePolicy(policy, span.entityType, span.confidence);
 }
 
 export const developmentLabelsPolicy = deepFreeze({

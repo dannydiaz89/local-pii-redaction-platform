@@ -34,6 +34,7 @@ interface ParsedArguments {
   readonly command: string | undefined;
   readonly input: string | undefined;
   readonly policyName: string | undefined;
+  readonly selectedPolicy: keyof typeof bundledPolicies | undefined;
   readonly output: string | undefined;
   readonly engine: 'rules' | 'ollama';
   readonly engineSpecified: boolean;
@@ -51,7 +52,7 @@ const usage = `Usage:
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact scan <file.txt|file.md> [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md> [--output <path>] [--json]
+  pii-redact redact <file.txt|file.md> [--policy <development-labels|high-risk-disclosure>] [--output <path>] [--json]
   pii-redact verify <file.txt|file.md> [--json]
   pii-redact inspect <file.txt|file.md> [--json]
   pii-redact --version
@@ -69,6 +70,7 @@ const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
   let output: string | undefined;
+  let selectedPolicy: keyof typeof bundledPolicies | undefined;
   let engine: 'rules' | 'ollama' = 'rules';
   let engineSpecified = false;
   let model: string | undefined;
@@ -91,7 +93,17 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (value === '--help' || value === '-h') help = true;
     else if (value === '--license') license = true;
     else if (value === '--allow-experimental') allowExperimental = true;
+    else if (value === '--policy') {
+      if (selectedPolicy !== undefined) throw new Error('duplicate policy');
+      const selected = valueAfter(index, '--policy');
+      if (selected !== 'development-labels' && selected !== 'high-risk-disclosure') {
+        throw new Error('unknown policy');
+      }
+      selectedPolicy = selected;
+      index += 1;
+    }
     else if (value === '--output' || value === '-o') {
+      if (output !== undefined) throw new Error('duplicate output');
       output = valueAfter(index, '--output');
       index += 1;
     } else if (value === '--engine') {
@@ -121,6 +133,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     command: positional[0],
     input: positional[1],
     policyName: positional[2],
+    selectedPolicy,
     output,
     engine,
     engineSpecified,
@@ -285,6 +298,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
   if (parsed.command === 'policies') {
     const commonOptionsValid = !parsed.engineSpecified
       && parsed.output === undefined
+      && parsed.selectedPolicy === undefined
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
@@ -298,23 +312,39 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
   }
   if (!validEngineSelection(parsed)) return false;
   if (parsed.output !== undefined && parsed.command !== 'redact') return false;
+  if (parsed.selectedPolicy !== undefined && parsed.command !== 'redact') return false;
   if (parsed.policyName !== undefined) return false;
   return true;
 }
 
-async function runRedact(input: string, output: string | undefined, json: boolean, io: CliIo): Promise<number> {
+async function runRedact(
+  input: string,
+  output: string | undefined,
+  policyName: keyof typeof bundledPolicies | undefined,
+  json: boolean,
+  io: CliIo
+): Promise<number> {
+  const policy = compilePolicy(bundledPolicies[policyName ?? 'development-labels']);
   const result = await localTextApplication.redact({
-    session: createLocalTextArtifactSession(input, output),
-    requirement: textCapabilityRequirement('REDACT')
+    session: createLocalTextArtifactSession(input, output, policy.limits.maximumInputBytes),
+    requirement: textCapabilityRequirement('REDACT'),
+    policy
   }, { correlationId: 'cor_cli_redact' });
   const report = {
     schemaVersion: '1.0.0', operation: 'REDACT', outcome: 'VERIFIED',
+    policy: policySummary(policy),
     input: { digest: result.input.digest, byteLength: result.input.byteLength },
-    output: { path: result.published.reference, digest: result.published.digest, byteLength: result.published.byteLength },
-    plan: { digest: result.plan.digest, strategy: result.plan.strategy, actionCount: result.plan.actions.length, byEntity: entityCounts(result.plan.actions.map((action) => action.entityType)) },
+    output: { digest: result.published.digest, byteLength: result.published.byteLength },
+    plan: {
+      digest: result.plan.digest,
+      policyDigest: result.policy.digest,
+      strategy: result.plan.strategy,
+      actionCount: result.plan.actions.length,
+      byEntity: entityCounts(result.plan.actions.map((action) => action.entityType))
+    },
     verification: result.verification
   };
-  writeResult(io, json, report, `Wrote verified output to ${result.published.reference} with ${String(result.plan.actions.length)} replacement(s).`);
+  writeResult(io, json, report, `Wrote verified output under ${policy.id} ${policy.version} with ${String(result.plan.actions.length)} replacement(s).`);
   return 0;
 }
 
@@ -364,7 +394,13 @@ function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: n
   };
   assertContract(errorEnvelopeSchemaId, envelope);
   io.stderr(json ? `${JSON.stringify(envelope, null, 2)}\n` : `${error.code}: ${error.message}\n`);
-  return exitCode ?? (error.code === 'OUTPUT_COLLISION' ? 6 : error.code.startsWith('VERIFICATION_') ? 4 : 3);
+  return exitCode ?? (error.code === 'OUTPUT_COLLISION'
+    ? 6
+    : error.code === 'POLICY_REVIEW_REQUIRED' || error.code === 'POLICY_BLOCKED'
+      ? 5
+      : error.code.startsWith('VERIFICATION_')
+        ? 4
+        : 3);
 }
 
 function writeUsageError(json: boolean, io: CliIo): number {
@@ -419,7 +455,9 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
       return writeUsageError(parsed.json, io);
     }
     if (parsed.command === 'scan') return await runScan(parsed.input, parsed, io);
-    if (parsed.command === 'redact') return await runRedact(parsed.input, parsed.output, parsed.json, io);
+    if (parsed.command === 'redact') {
+      return await runRedact(parsed.input, parsed.output, parsed.selectedPolicy, parsed.json, io);
+    }
     if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io);
     return await runInspect(parsed.input, parsed.json, io);
   } catch (error: unknown) {

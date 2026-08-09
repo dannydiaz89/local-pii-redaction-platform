@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseSha256Digest } from '@local-pii/domain';
 
 import {
   PolicyValidationError,
@@ -6,12 +7,14 @@ import {
   compileCapabilityRequirement,
   compilePolicy,
   developmentLabelsPolicy,
+  evaluateAcceptedSpan,
   evaluateCapabilities,
   evaluatePolicy,
   highRiskDisclosurePolicy,
   validatePolicy
 } from '../src/index.js';
 import type { CapabilityManifest } from '../src/index.js';
+import type { AcceptedSpanInput, SupportingEvidenceInput } from '../src/index.js';
 
 function expectPolicyError(operation: () => unknown, code: PolicyValidationError['code']): void {
   try {
@@ -51,6 +54,32 @@ const developmentManifest: CapabilityManifest = {
   }],
   limits: { maximumInputBytes: 104_857_600, maximumCanonicalCodePoints: 10_000_000, maximumDetections: 10_000 }
 };
+
+const extractionRevision = parseSha256Digest(`sha256:${'a'.repeat(64)}`);
+
+function acceptedEmail(overrides: Partial<AcceptedSpanInput> = {}): AcceptedSpanInput {
+  return {
+    entityType: 'EMAIL',
+    start: 7,
+    end: 29,
+    confidence: 0.97,
+    evidenceIds: ['11111111-1111-5111-8111-111111111111'],
+    extractionRevision,
+    ...overrides
+  };
+}
+
+function emailEvidence(overrides: Partial<SupportingEvidenceInput> = {}): SupportingEvidenceInput {
+  return {
+    id: '11111111-1111-5111-8111-111111111111',
+    entityType: 'EMAIL',
+    span: { start: 7, end: 29, offsetUnit: 'UNICODE_CODE_POINT', extractionRevision },
+    confidence: 0.97,
+    source: 'REGEX',
+    detector: { id: 'email-pattern' },
+    ...overrides
+  };
+}
 
 describe('policy validation and compilation', () => {
   it('validates and freezes both exact bundled examples', () => {
@@ -193,6 +222,61 @@ describe('policy validation and compilation', () => {
       entityType: 'SSN', action: 'BLOCK', explanationCode: 'POLICY_BELOW_THRESHOLD'
     });
     expect(() => evaluatePolicy(effective, 'PERSON', Number.NaN)).toThrow(RangeError);
+  });
+
+  it('evaluates accepted spans only when required supporting evidence is present', () => {
+    const effective = compilePolicy({
+      ...developmentLabelsPolicy,
+      entities: {
+        EMAIL: {
+          ...developmentLabelsPolicy.entities.EMAIL,
+          requiredDetectorKinds: ['REGEX']
+        }
+      }
+    });
+    const span = acceptedEmail();
+    const support = emailEvidence();
+    expect(evaluateAcceptedSpan(effective, span, [support])).toEqual({
+      entityType: 'EMAIL', action: 'TYPED_LABEL', explanationCode: 'POLICY_ACTION'
+    });
+
+    expect(evaluateAcceptedSpan(effective, span, [{ ...support, detector: { id: 'other-pattern' } }])).toEqual({
+      entityType: 'EMAIL', action: 'REQUIRE_REVIEW', explanationCode: 'POLICY_REQUIRED_EVIDENCE_MISSING'
+    });
+    expect(evaluateAcceptedSpan(effective, span, [{ ...support, source: 'MODEL' }])).toEqual({
+      entityType: 'EMAIL', action: 'REQUIRE_REVIEW', explanationCode: 'POLICY_REQUIRED_EVIDENCE_MISSING'
+    });
+  });
+
+  it('rejects broken accepted-span evidence integrity and ignores unreferenced evidence', () => {
+    const effective = compilePolicy(developmentLabelsPolicy);
+    const span = acceptedEmail();
+    const support = emailEvidence();
+    const unrelated = emailEvidence({
+      id: '22222222-2222-5222-8222-222222222222',
+      entityType: 'PERSON',
+      span: { start: 40, end: 45, offsetUnit: 'UNICODE_CODE_POINT', extractionRevision },
+      detector: { id: 'person-model' },
+      source: 'MODEL'
+    });
+    const forward = evaluateAcceptedSpan(effective, span, [support, unrelated]);
+    const reverse = evaluateAcceptedSpan(effective, span, [unrelated, support]);
+    expect(forward).toEqual(reverse);
+    expect(Object.keys(forward).sort()).toEqual(['action', 'entityType', 'explanationCode']);
+    expect(JSON.stringify(forward)).not.toMatch(/11111111|email-pattern|sha256|start|end/u);
+
+    const invalidInputs: readonly [AcceptedSpanInput, readonly SupportingEvidenceInput[]][] = [
+      [{ ...span, evidenceIds: ['unknown-id'] }, [support]],
+      [{ ...span, evidenceIds: [support.id, support.id] }, [support]],
+      [span, [support, { ...support }]],
+      [span, [{ ...support, entityType: 'PERSON' }]],
+      [span, [{ ...support, span: { ...support.span, start: 8 } }]],
+      [span, [{ ...support, span: { ...support.span, extractionRevision: parseSha256Digest(`sha256:${'b'.repeat(64)}`) } }]],
+      [{ ...span, confidence: 0.96 }, [support]]
+    ];
+    for (const [candidate, evidence] of invalidInputs) {
+      expect(() => evaluateAcceptedSpan(effective, candidate, evidence)).toThrow(TypeError);
+    }
   });
 
   it('explains capability satisfaction without policy or artifact values', () => {
