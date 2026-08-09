@@ -35,14 +35,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                required: [schemaVersion, contractVersions]
-                properties:
-                  schemaVersion: { const: 1.0.0 }
-                  contractVersions:
-                    type: array
-                    items: { type: string }
+                $ref: "./schemas/capabilities/capability-manifest.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId

@@ -28,7 +28,9 @@
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
     "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
     "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],
-    "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"]
+    "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"],
+    "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
+    "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"]
   },
   "executableGates": {
     "contract": ["pnpm contracts:check"],

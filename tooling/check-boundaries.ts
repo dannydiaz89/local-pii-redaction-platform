@@ -4,6 +4,7 @@ import { relative, resolve } from 'node:path';
 import { repositoryRoot } from './schema-utils.js';
 
 const forbiddenDomainImports = ['node:fs', 'node:net', 'node:http', 'node:https', 'node:child_process', 'fastify', 'express'];
+const forbiddenPackageFrameworkImports = ['fastify', 'hono', '@hono/node-server', 'express'];
 const packageRoot = resolve(repositoryRoot, 'packages');
 
 function sourceFiles(directory: string): string[] {
@@ -45,6 +46,15 @@ for (const root of [resolve(repositoryRoot, 'packages'), resolve(repositoryRoot,
     const internalWorkspaceImports = source.matchAll(/from\s+['"](@local-pii\/[a-z0-9-]+\/[^'"]+)['"]/gu);
     for (const match of internalWorkspaceImports) {
       violations.push(`${relative(repositoryRoot, path)} imports non-public workspace path ${match[1] ?? ''}`);
+    }
+  }
+}
+
+for (const path of sourceFiles(resolve(repositoryRoot, 'packages'))) {
+  const source = readFileSync(path, 'utf8');
+  for (const moduleName of forbiddenPackageFrameworkImports) {
+    if (source.includes(`from '${moduleName}`) || source.includes(`from "${moduleName}`)) {
+      violations.push(`${relative(repositoryRoot, path)} imports HTTP framework ${moduleName}`);
     }
   }
 }
