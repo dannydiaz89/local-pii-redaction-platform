@@ -8,8 +8,11 @@ import { SafeError } from '@local-pii/domain';
 import {
   assertCapabilities,
   assertCapabilityManifest,
+  createJobApplication,
+  type ApplicationContext,
   type CapabilityManifest,
-  type CapabilityRequirement
+  type CapabilityRequirement,
+  type JobApplicationDependencies
 } from '../src/index.js';
 
 function capabilityManifest(): CapabilityManifest {
@@ -29,6 +32,24 @@ const developmentTextRequirement: CapabilityRequirement = {
   maximumInputBytes: 1_048_576,
   minimumQualification: 'DEVELOPMENT'
 };
+
+const applicationContext: ApplicationContext = { correlationId: 'cor_synthetic_application_001' };
+
+interface SyntheticTextRequest {
+  readonly artifactId: string;
+}
+
+interface SyntheticTextResult {
+  readonly outcome: 'SUCCEEDED';
+}
+
+function applicationDependencies(overrides: Partial<JobApplicationDependencies<SyntheticTextRequest, SyntheticTextResult>> = {}): JobApplicationDependencies<SyntheticTextRequest, SyntheticTextResult> {
+  return {
+    capabilityProvider: { getCapabilities: () => Promise.resolve(capabilityManifest()) },
+    rulesOnlyTextPipeline: { execute: () => Promise.resolve({ outcome: 'SUCCEEDED' }) },
+    ...overrides
+  };
+}
 
 describe('capability manifest and preflight', () => {
   it('accepts a valid, internally consistent manifest', () => {
@@ -116,4 +137,88 @@ describe('capability manifest and preflight', () => {
       assertCapabilityManifest(manifest, 'cor_synthetic_manifest_006');
     }).toThrow(SafeError);
   });
+});
+
+describe('framework-independent job application composition', () => {
+  it('routes capabilities through an explicit injected port', async () => {
+    const application = createJobApplication(applicationDependencies());
+
+    expect((await application.getCapabilities(applicationContext)).engineMode).toBe('RULES_ONLY');
+    expect(Object.isFrozen(application)).toBe(true);
+  });
+
+  it('preflights the active manifest before invoking the injected text pipeline', async () => {
+    const requests: SyntheticTextRequest[] = [];
+    const correlations: string[] = [];
+    const application = createJobApplication(applicationDependencies({
+      rulesOnlyTextPipeline: {
+        execute: (request, correlationId) => {
+          requests.push(request);
+          correlations.push(correlationId);
+          return Promise.resolve({ outcome: 'SUCCEEDED' });
+        }
+      }
+    }));
+    const request = { artifactId: 'art_01J4M8Z7QK2C5B6TFXDA9R4M3V' };
+
+    await expect(application.executeRulesOnlyText(
+      { request, requirement: developmentTextRequirement },
+      applicationContext
+    )).resolves.toEqual({ outcome: 'SUCCEEDED' });
+    expect(requests).toEqual([request]);
+    expect(correlations).toEqual([applicationContext.correlationId]);
+  });
+
+  it('fails closed before execution when rules-only capabilities cannot satisfy the request', async () => {
+    let executed = false;
+    const application = createJobApplication(applicationDependencies({
+      rulesOnlyTextPipeline: {
+        execute: () => {
+          executed = true;
+          return Promise.resolve({ outcome: 'SUCCEEDED' });
+        }
+      }
+    }));
+
+    await expect(application.executeRulesOnlyText({
+      request: { artifactId: 'art_01J4M8Z7QK2C5B6TFXDA9R4M3V' },
+      requirement: { ...developmentTextRequirement, detectorKinds: ['MODEL'] }
+    }, applicationContext)).rejects.toMatchObject({
+      code: 'POLICY_UNSATISFIABLE',
+      correlationId: applicationContext.correlationId
+    });
+    expect(executed).toBe(false);
+  });
+
+  it('maps unexpected dependency failures without disclosing their messages', async () => {
+    const application = createJobApplication(applicationDependencies({
+      capabilityProvider: {
+        getCapabilities: () => Promise.reject(new Error('private path /synthetic/input and alpha@example.test'))
+      }
+    }));
+
+    const failure = await application.getCapabilities(applicationContext).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SafeError);
+    expect(failure).toMatchObject({ code: 'INTERNAL_ERROR', correlationId: applicationContext.correlationId });
+    expect(JSON.stringify(failure)).not.toContain('alpha@example.test');
+    expect((failure as Error).message).not.toContain('/synthetic/input');
+  });
+
+  it('preserves typed dependency failures for transport adapters to map canonically', async () => {
+    const expected = new SafeError({
+      code: 'MODEL_UNAVAILABLE',
+      message: 'The required local model is unavailable.',
+      retryable: true,
+      correlationId: applicationContext.correlationId
+    });
+    const application = createJobApplication(applicationDependencies({
+      rulesOnlyTextPipeline: { execute: () => Promise.reject(expected) }
+    }));
+
+    await expect(application.executeRulesOnlyText({
+      request: { artifactId: 'art_01J4M8Z7QK2C5B6TFXDA9R4M3V' },
+      requirement: developmentTextRequirement
+    }, applicationContext)).rejects.toBe(expected);
+  });
+
 });

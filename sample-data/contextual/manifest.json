@@ -1,0 +1,479 @@
+{
+  "schemaVersion": "1.0.0",
+  "corpusId": "contextual-harness-v1",
+  "corpusDigest": "sha256:ee370b492649c93f7bed886c0050f7869e660df8d92810ad98116d3829ecdd08",
+  "qualification": {
+    "level": "HARNESS_ONLY",
+    "statisticallySufficientForRelease": false,
+    "statement": "This small synthetic corpus validates evaluator plumbing and candidate comparisons; it cannot establish release accuracy."
+  },
+  "generator": {
+    "id": "local-pii-contextual-harness",
+    "version": "1.0.0",
+    "seed": "local-pii-contextual-2026-08-08",
+    "recipe": "tooling/contextual-corpus.ts#createContextualCorpus"
+  },
+  "provenance": {
+    "classification": "SYNTHETIC",
+    "license": "AGPL-3.0-only",
+    "approvedForRepository": true
+  },
+  "exclusionRules": [
+    "No production or private documents",
+    "No real personal data",
+    "No live credentials or routable infrastructure addresses",
+    "No release accuracy claim from this harness corpus"
+  ],
+  "splitPurpose": {
+    "DEVELOPMENT": "Prompt, label-map, threshold, and evaluator development only.",
+    "EVALUATION": "Frozen comparison inputs that must not be used for tuning.",
+    "CHALLENGE": "Unicode, instruction-like content, and long-context robustness checks."
+  },
+  "distribution": {
+    "documentsBySplit": {
+      "DEVELOPMENT": 2,
+      "EVALUATION": 2,
+      "CHALLENGE": 3
+    },
+    "entitiesByType": {
+      "PERSON": 4,
+      "ADDRESS": 4,
+      "LOCATION": 4,
+      "ORGANIZATION": 4,
+      "DATE_OF_BIRTH": 4,
+      "ACCOUNT_ID": 4
+    }
+  },
+  "documents": [
+    {
+      "id": "contextual-development-positive",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-positive.txt",
+      "digest": "sha256:aa2e167acd3d6f3d12691e9685654cef5f8aecb7c0e2bf44ae9252238cfaa769",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "multi-entity",
+        "threshold-development"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "dev-person-1",
+            "entityType": "PERSON",
+            "start": 55,
+            "end": 66,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employee-name"
+            }
+          },
+          {
+            "id": "dev-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 74,
+            "end": 103,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "dev-location-1",
+            "entityType": "LOCATION",
+            "start": 107,
+            "end": 118,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "dev-address-1",
+            "entityType": "ADDRESS",
+            "start": 143,
+            "end": 164,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "mailing-address"
+            }
+          },
+          {
+            "id": "dev-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 193,
+            "end": 203,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "dev-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 239,
+            "end": 252,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-development-negative",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-negative.txt",
+      "digest": "sha256:142a3be3621097a4ee2d862cbededb594bdad972ce0fd96bb0379e7a482e4a45",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "entity-label-words",
+        "common-nouns"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-evaluation-positive",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-positive.txt",
+      "digest": "sha256:5752d86bce1dceb3319e86e3ebe47de6a88a26d32563d39f07a332c5c62d37d2",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "multi-entity",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "eval-person-1",
+            "entityType": "PERSON",
+            "start": 34,
+            "end": 43,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "representative-name"
+            }
+          },
+          {
+            "id": "eval-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 55,
+            "end": 75,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "represented-organization"
+            }
+          },
+          {
+            "id": "eval-location-1",
+            "entityType": "LOCATION",
+            "start": 81,
+            "end": 97,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "eval-address-1",
+            "entityType": "ADDRESS",
+            "start": 129,
+            "end": 152,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "correspondence-address"
+            }
+          },
+          {
+            "id": "eval-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 194,
+            "end": 207,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "natural-language-birth-date"
+            }
+          },
+          {
+            "id": "eval-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 231,
+            "end": 243,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "ledger-account-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-negative",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-negative.txt",
+      "digest": "sha256:2aa223918bd5826ba1ce706a0f2f4877df91229007aebf6ea7544feb81cfc837",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "schema-headings",
+        "lexical-overlap"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-challenge-unicode",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-unicode.txt",
+      "digest": "sha256:39f12eeeb16837e5707d242bf84f314c79a2ff2b616d5d3c6d957b5caf671a94",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "unicode",
+        "astral",
+        "combining-mark",
+        "rtl-prefix",
+        "zero-width"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "unicode-person-1",
+            "entityType": "PERSON",
+            "start": 73,
+            "end": 84,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "decomposed-name"
+            }
+          },
+          {
+            "id": "unicode-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 100,
+            "end": 119,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "decomposed-organization"
+            }
+          },
+          {
+            "id": "unicode-location-1",
+            "entityType": "LOCATION",
+            "start": 152,
+            "end": 169,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "location-after-rtl-prefix"
+            }
+          },
+          {
+            "id": "unicode-address-1",
+            "entityType": "ADDRESS",
+            "start": 214,
+            "end": 230,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-with-zero-width"
+            }
+          },
+          {
+            "id": "unicode-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 244,
+            "end": 254,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "unicode-document-birth-date"
+            }
+          },
+          {
+            "id": "unicode-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 303,
+            "end": 313,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-with-astral-symbol"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-injection-like",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-injection-like.txt",
+      "digest": "sha256:ca585b59b07884d92a9b432890c8812a376c6ac1722aef1d1898058e03980bc7",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "instruction-like-content",
+        "prompt-injection-resistance",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "injection-person-1",
+            "entityType": "PERSON",
+            "start": 165,
+            "end": 176,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employee-name-after-instruction-like-text"
+            }
+          },
+          {
+            "id": "injection-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 187,
+            "end": 205,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "injection-location-1",
+            "entityType": "LOCATION",
+            "start": 209,
+            "end": 223,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "injection-address-1",
+            "entityType": "ADDRESS",
+            "start": 248,
+            "end": 274,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "correspondence-address"
+            }
+          },
+          {
+            "id": "injection-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 306,
+            "end": 316,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "injection-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 336,
+            "end": 350,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-long-context",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-long-context.txt",
+      "digest": "sha256:ff6a97001aa8de211ea6d35e6c1d6de85a95a9b48ea2e294d246f4cda7277feb",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "long-context",
+        "approximate-chunk-boundary",
+        "entity-label-words"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    }
+  ]
+}

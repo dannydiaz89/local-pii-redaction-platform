@@ -8,7 +8,7 @@
     "end-to-end": { "status": "ACTIVE", "purpose": "User-visible lifecycle through a real interface" },
     "format-conformance": { "status": "ACTIVE", "purpose": "Adapter extraction, writing, reopening, fidelity, and leakage" },
     "governance": { "status": "ACTIVE", "purpose": "Architecture decisions, evidence mappings, and mandatory review gates" },
-    "evaluation": { "status": "PLANNED", "purpose": "Frozen-corpus detector and model quality metrics", "milestone": "M1" },
+    "evaluation": { "status": "ACTIVE", "purpose": "Frozen-corpus detector and model quality metrics" },
     "fuzz": { "status": "PLANNED", "purpose": "Malformed and adversarial untrusted-boundary campaigns", "milestone": "M1" },
     "security-privacy": { "status": "ACTIVE", "purpose": "Abuse cases, residual leakage, and sensitive-sink canaries" },
     "performance": { "status": "PLANNED", "purpose": "Fixed-profile latency, throughput, and resource bounds", "milestone": "M1" },
@@ -27,7 +27,8 @@
     "packages/domain/test/span.test.ts": ["unit", "contract"],
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
     "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
-    "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"]
+    "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],
+    "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"]
   },
   "executableGates": {
     "contract": ["pnpm contracts:check"],

@@ -7,6 +7,14 @@ contain real personal data, credentials, or private documents.
 - `expected/sample.redacted.txt` is the expected typed-label output.
 - `manifest.json` records generator provenance, digests, Unicode ground-truth spans, native text
   locations, ambiguity, and the expected policy outcome without copying planted values.
+- `contextual/` contains frozen development, evaluation, and challenge inputs for contextual-model
+  evaluator development. Its manifest includes exact Unicode code-point spans for `PERSON`,
+  `ADDRESS`, `LOCATION`, `ORGANIZATION`, `DATE_OF_BIRTH`, and `ACCOUNT_ID`, along with provenance,
+  seed, and content digests.
+
+The contextual corpus is deliberately small and synthetic. It validates evaluator plumbing and
+supports candidate comparisons, but it is not statistically sufficient evidence for a model or
+detector release. Its `EVALUATION` split must not be used for prompt or threshold tuning.
 
 The corpus is generated deterministically. Regenerate or verify it with:
 
@@ -26,3 +34,17 @@ pnpm pii-redact verify ./sample-data/expected/sample.redacted.txt --json
 
 Because expected outputs are tracked, write manual redaction results to a temporary or differently
 named path to avoid the intentional output-collision protection.
+
+Compare already-installed Ollama models against the contextual harness with:
+
+```sh
+pnpm eval:ollama -- --model phi4-mini:3.8b --repeat 3
+pnpm eval:ollama -- --model llama3.2:3b --repeat 3
+pnpm eval:ollama -- --model qwen3.5:4b --repeat 3 --timeout-ms 120000
+```
+
+The evaluator connects only to an unauthenticated loopback IP, never pulls a model, and emits JSON
+metrics without document text or matched values. Exact per-entity scores and repeatability are
+useful for comparison, but this small harness is not release qualification. Ollama may use GPU
+acceleration automatically; a run is not CPU-baseline evidence unless the server is separately
+configured and verified for CPU-only execution.

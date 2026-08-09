@@ -14,6 +14,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check && pnpm fixtures:check && pnpm taxonomy:check && pnpm adr:check && pnpm privacy:check",
     "adr:check": "node --import tsx tooling/check-adr-controls.ts",
     "contracts:check": "node --import tsx tooling/check-schema-governance.ts && node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-domain-contract-drift.ts && node --import tsx tooling/check-generated.ts",
+    "eval:ollama": "node --import tsx tooling/evaluate-ollama.ts",
     "generate": "node --import tsx tooling/generate-typescript.ts && .venv/bin/python services/inference-python/scripts/generate_models.py",
     "fixtures:check": "node --import tsx tooling/generate-synthetic-fixtures.ts",
     "fixtures:generate": "node --import tsx tooling/generate-synthetic-fixtures.ts --write",

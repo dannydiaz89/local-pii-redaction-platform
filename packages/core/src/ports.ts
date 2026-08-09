@@ -1,4 +1,4 @@
-import type { DetectionEvidence, Sha256Digest } from '@local-pii/domain';
+import type { CorrelationId, DetectionEvidence, Sha256Digest } from '@local-pii/domain';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
 
 export interface Extraction {
@@ -40,3 +40,33 @@ export type CapabilityOperation = CapabilityFormat['operations'][number];
 export type CapabilityDetectorKind = CapabilityManifest['detectors'][number]['kinds'][number];
 export type CapabilityTransformationAction = CapabilityManifest['transformations'][number]['action'];
 export type CapabilityQualification = CapabilitiesCapabilityManifestContract.Qualification;
+
+export interface ApplicationContext {
+  readonly correlationId: string;
+}
+
+export interface CapabilityProvider {
+  getCapabilities(): Promise<CapabilityManifest>;
+}
+
+export interface RulesOnlyTextPipeline<Request, Result> {
+  execute(request: Request, correlationId: CorrelationId): Promise<Result>;
+}
+
+export interface ExecuteRulesOnlyTextCommand<Request> {
+  readonly request: Request;
+  readonly requirement: CapabilityRequirement;
+}
+
+export interface JobApplicationDependencies<Request, Result> {
+  readonly capabilityProvider: CapabilityProvider;
+  readonly rulesOnlyTextPipeline: RulesOnlyTextPipeline<Request, Result>;
+}
+
+export interface JobApplication<Request, Result> {
+  getCapabilities(context: ApplicationContext): Promise<CapabilityManifest>;
+  executeRulesOnlyText(
+    command: ExecuteRulesOnlyTextCommand<Request>,
+    context: ApplicationContext
+  ): Promise<Result>;
+}

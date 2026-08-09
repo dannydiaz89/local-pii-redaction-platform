@@ -1,0 +1,7 @@
+😀 Unicode challenge with logical offsets after an astral symbol.
+Person: Noé Vesper.
+Organization: Café Aster Archive.
+Location after RTL marker אבג: Test Quarter East.
+Address containing a zero-width character: 9 Zero​Width Way.
+Birth date: 2000-02-29.
+Account reference containing an astral symbol: SYN-😀-9001.

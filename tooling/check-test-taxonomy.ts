@@ -28,7 +28,8 @@ const taxonomyPath = resolve(repositoryRoot, 'tooling/test-taxonomy.json');
 const taxonomy = JSON.parse(await readFile(taxonomyPath, 'utf8')) as TestTaxonomy;
 const discovered = (await Promise.all([
   findTests(resolve(repositoryRoot, 'apps')),
-  findTests(resolve(repositoryRoot, 'packages'))
+  findTests(resolve(repositoryRoot, 'packages')),
+  findTests(resolve(repositoryRoot, 'tooling'))
 ])).flat().sort();
 const declared = Object.keys(taxonomy.tests).sort();
 
