@@ -40,9 +40,15 @@ pnpm --silent pii-redact capabilities --json
 pnpm pii-redact inspect ./sample-data/input/sample.txt
 pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
 pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
-  --policy development-labels --output ./sample.redacted.txt --json
-pnpm --silent pii-redact verify ./sample.redacted.txt --json
+  --policy development-labels --output ./test-output/sample.redacted.txt --json \
+  > ./test-output/sample.redact-report.json
+pnpm --silent pii-redact verify ./test-output/sample.redacted.txt --json \
+  > ./test-output/sample.verify-report.json
 ```
+
+The tracked `test-output/` directory is a local workspace for generated artifacts and JSON reports;
+everything inside it except its `.gitignore` is ignored by Git. Delete or rename an existing output
+before rerunning a command because the CLI intentionally never overwrites output files.
 
 Every rules-only `redact` is policy-bound. When `--policy` is omitted, the CLI explicitly selects
 and reports `development-labels` for compatibility. `redact` never overwrites its input or an
