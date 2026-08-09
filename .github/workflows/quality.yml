@@ -29,11 +29,18 @@ jobs:
           cache: pip
       - run: python -m venv .venv
       - run: .venv/bin/pip install -e 'services/inference-python[dev]'
+      - name: Install Linux syscall tracer
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes strace
       - name: Run clean quality and build gates
         shell: bash
         run: |
           set -o pipefail
           (pnpm exec tsc -b --clean && pnpm check && pnpm build) 2>&1 | tee .quality-output.log
+      - name: Trace built default CLI syscall boundary
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm ephemeral:syscall:check 2>&1 | tee -a .quality-output.log
       - name: Scan quality output for planted privacy canaries
         if: always()
         run: pnpm privacy:scan -- .quality-output.log

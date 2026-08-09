@@ -34,12 +34,13 @@
     "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"],
     "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
-    "tooling/check-boundaries.test.ts": ["unit", "governance", "security-privacy"]
+    "tooling/check-boundaries.test.ts": ["unit", "governance", "security-privacy"],
+    "tooling/check-linux-syscall-gate.test.ts": ["unit", "security-privacy"]
   },
   "executableGates": {
     "contract": ["pnpm contracts:check"],
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
-    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check"]
+    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check"]
   }
 }

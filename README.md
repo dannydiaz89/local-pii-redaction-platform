@@ -31,9 +31,12 @@ The opt-in Ollama path talks only to a numeric loopback address on the same mach
 and an injected network/DNS guard. It proves read-only commands retain no files and successful
 redaction adds only the requested verified output inside a disposable workspace. It also sends
 real `SIGINT` and `SIGTERM` signals after a private stage exists and proves cancellation removes the
-stage without publishing. This is application-level evidence; OS syscall tracing and
-network-namespace packaging tests remain later
-release gates.
+stage without publishing. That permission and final-tree proof is application-level evidence.
+Ubuntu CI additionally traces the built rules-only CLI with `strace`: default commands must make
+zero network syscalls, read-only and
+failure commands must make no filesystem mutations, and successful redaction may only create its
+private stage, hard-link the verified output, and unlink the stage. That evidence is Linux-specific;
+it does not qualify macOS, Windows, kernel storage behavior, or a network namespace.
 
 ## Try the CLI
 
