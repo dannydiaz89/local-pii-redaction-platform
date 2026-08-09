@@ -4,6 +4,11 @@ import { link, lstat, open, readFile, realpath, stat, unlink } from 'node:fs/pro
 import { basename, dirname, extname, resolve } from 'node:path';
 
 import { SafeError, parseSha256Digest, type Sha256Digest } from '@local-pii/domain';
+import {
+  computeWriterReceiptDigest,
+  type RedactionWriterReceiptContract
+} from '@local-pii/contracts';
+import { assertTypedLabelPlanIntegrity, type TypedLabelPlan } from '@local-pii/redaction';
 
 const utf8Bom = Uint8Array.from([0xef, 0xbb, 0xbf]);
 export const textAdapterVersion = '0.1.0';
@@ -59,7 +64,19 @@ export interface StagedTextArtifact extends WrittenTextArtifact {
   /** Opaque application-level handle; the local implementation uses `path`. */
   readonly reference: string;
   readonly targetPath: string;
+  /**
+   * Privacy-safe evidence of the exact immutable plan actions applied to this
+   * staged artifact.  It deliberately contains neither paths nor source text.
+   */
+  readonly receipt: TextWriterReceipt;
 }
+
+/**
+ * A deterministic, privacy-safe writer attestation for action reconciliation.
+ * The verifier compares this receipt with the full immutable plan; neither
+ * source text, replacement text, nor storage locations are reported here.
+ */
+export type TextWriterReceipt = RedactionWriterReceiptContract.WriterReceipt;
 
 /**
  * The read side of a text-artifact exchange.  This is deliberately structural:
@@ -79,7 +96,7 @@ export interface TextInputSession {
  */
 export interface TextArtifactSession extends TextInputSession {
   readonly writer: Readonly<{ readonly id: string; readonly version: string }>;
-  stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
+  stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication>;
   discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
@@ -87,6 +104,155 @@ export interface TextArtifactSession extends TextInputSession {
 
 function digestBytes(bytes: Uint8Array): Sha256Digest {
   return parseSha256Digest(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+}
+
+function actionIdIsSafe(id: string): boolean {
+  return /^act_[0-9A-HJKMNP-TV-Z]{26}$/u.test(id);
+}
+
+function assertWriterPlanCanApply(plan: TypedLabelPlan, source: TextArtifact): void {
+  try {
+    assertTypedLabelPlanIntegrity(plan);
+  } catch {
+    throw new SafeError({
+      code: 'REDACTION_PLAN_CONFLICT',
+      message: 'The redaction plan provenance is invalid.',
+      retryable: false,
+      correlationId: 'cor_text_adapter'
+    });
+  }
+  if (
+    plan.inputDigest !== source.digest
+    || plan.extractionRevision !== source.extractionRevision
+  ) {
+    throw new SafeError({
+      code: 'REDACTION_PLAN_CONFLICT',
+      message: 'The redaction plan does not match this input.',
+      retryable: false,
+      correlationId: 'cor_text_adapter'
+    });
+  }
+  if (plan.writer.id !== textWriterDescriptor.id || plan.writer.version !== textWriterDescriptor.version) {
+    throw new SafeError({
+      code: 'REDACTION_PLAN_CONFLICT',
+      message: 'The redaction plan targets a different writer.',
+      retryable: false,
+      correlationId: 'cor_text_adapter'
+    });
+  }
+  if (
+    !Number.isSafeInteger(plan.expectedActionCount)
+    || plan.expectedActionCount < 0
+    || plan.expectedActionCount > 100_000
+    || plan.expectedActionCount !== plan.actions.length
+  ) {
+    throw new SafeError({
+      code: 'REDACTION_COUNT_MISMATCH',
+      message: 'The redaction plan action count is invalid.',
+      retryable: false,
+      correlationId: 'cor_text_adapter'
+    });
+  }
+  const sourceLength = Array.from(source.text).length;
+  const actionIds = new Set<string>();
+  const intervals: Array<readonly [number, number]> = [];
+  for (const action of plan.actions) {
+    if (
+      !actionIdIsSafe(action.id)
+      || actionIds.has(action.id)
+      || !Number.isSafeInteger(action.start)
+      || !Number.isSafeInteger(action.end)
+      || action.start < 0
+      || action.start >= action.end
+      || action.end > sourceLength
+      || typeof action.replacement !== 'string'
+      || Array.from(action.replacement).length > 500
+    ) {
+      throw new SafeError({
+        code: 'REDACTION_PLAN_CONFLICT',
+        message: 'The redaction plan actions are invalid.',
+        retryable: false,
+        correlationId: 'cor_text_adapter'
+      });
+    }
+    actionIds.add(action.id);
+    intervals.push([action.start, action.end]);
+  }
+  intervals.sort(([leftStart, leftEnd], [rightStart, rightEnd]) => leftStart - rightStart || leftEnd - rightEnd);
+  for (let index = 1; index < intervals.length; index += 1) {
+    if ((intervals[index - 1]?.[1] ?? 0) > (intervals[index]?.[0] ?? 0)) {
+      throw new SafeError({
+        code: 'REDACTION_PLAN_CONFLICT',
+        message: 'The redaction plan contains overlapping actions.',
+        retryable: false,
+        correlationId: 'cor_text_adapter'
+      });
+    }
+  }
+}
+
+function applyWriterPlan(text: string, plan: TypedLabelPlan): string {
+  const codePoints = Array.from(text);
+  let output = codePoints;
+  for (const action of [...plan.actions].sort((left, right) => right.start - left.start || right.end - left.end)) {
+    output = [...output.slice(0, action.start), action.replacement, ...output.slice(action.end)];
+  }
+  return output.join('');
+}
+
+function receiptWithoutDigest(
+  plan: TypedLabelPlan,
+  staged: Pick<WrittenTextArtifact, 'digest' | 'byteLength'>
+): Omit<TextWriterReceipt, 'receiptDigest'> {
+  return {
+    schemaVersion: '1.0.0',
+    planDigest: parseSha256Digest(plan.digest),
+    writer: Object.freeze({ id: textWriterDescriptor.id, version: textWriterDescriptor.version }),
+    stagedDigest: staged.digest,
+    stagedByteLength: staged.byteLength,
+    expectedActionCount: plan.expectedActionCount,
+    appliedActionCount: plan.actions.length,
+    appliedActionIds: Object.freeze(plan.actions.map(({ id }) => id)) as string[]
+  };
+}
+
+export function createTextWriterReceipt(
+  plan: TypedLabelPlan,
+  staged: Pick<WrittenTextArtifact, 'digest' | 'byteLength'>
+): TextWriterReceipt {
+  const unsigned = receiptWithoutDigest(plan, staged);
+  return Object.freeze({
+    ...unsigned,
+    receiptDigest: parseSha256Digest(computeWriterReceiptDigest(unsigned))
+  });
+}
+
+/** Rejects a receipt whose action coverage or staged-byte binding was altered. */
+export function assertTextWriterReceiptIntegrity(receipt: TextWriterReceipt): void {
+  parseSha256Digest(receipt.planDigest);
+  parseSha256Digest(receipt.stagedDigest);
+  const schemaVersion = receipt.schemaVersion as string;
+  if (
+    schemaVersion !== '1.0.0'
+    || receipt.writer.id !== textWriterDescriptor.id
+    || receipt.writer.version !== textWriterDescriptor.version
+    || !Number.isSafeInteger(receipt.appliedActionCount)
+    || receipt.appliedActionCount < 0
+    || receipt.appliedActionCount !== receipt.appliedActionIds.length
+    || !Number.isSafeInteger(receipt.expectedActionCount)
+    || receipt.expectedActionCount < 0
+    || receipt.expectedActionCount !== receipt.appliedActionCount
+    || !Number.isSafeInteger(receipt.stagedByteLength)
+    || receipt.stagedByteLength < 0
+    || new Set(receipt.appliedActionIds).size !== receipt.appliedActionIds.length
+    || !receipt.appliedActionIds.every(actionIdIsSafe)
+  ) {
+    throw new TypeError('The text writer receipt is invalid.');
+  }
+  const { receiptDigest, ...unsigned } = receipt;
+  if (parseSha256Digest(receiptDigest) !== computeWriterReceiptDigest(unsigned)) {
+    throw new TypeError('The text writer receipt digest is invalid.');
+  }
 }
 
 function extractionDigest(text: string): Sha256Digest {
@@ -156,7 +322,7 @@ export async function stageTextArtifact(
   source: TextArtifact,
   outputPath: string,
   text: string
-): Promise<StagedTextArtifact> {
+): Promise<Omit<StagedTextArtifact, 'receipt'>> {
   const target = resolve(outputPath);
   if (target === source.path) {
     throw new SafeError({ code: 'OUTPUT_COLLISION', message: 'The output path must be different from the input path.', retryable: false, correlationId: 'cor_text_adapter' });
@@ -207,7 +373,7 @@ export async function stageTextArtifact(
 
 export async function publishStagedTextArtifact(
   source: TextArtifact,
-  staged: StagedTextArtifact
+  staged: Pick<StagedTextArtifact, 'path' | 'targetPath' | 'byteLength' | 'digest'>
 ): Promise<WrittenTextArtifact> {
   const stagedBytes = await readFile(staged.path);
   if (digestBytes(stagedBytes) !== staged.digest) {
@@ -239,7 +405,7 @@ export async function publishStagedTextArtifact(
   }
 }
 
-export async function discardStagedTextArtifact(staged: StagedTextArtifact): Promise<void> {
+export async function discardStagedTextArtifact(staged: Pick<StagedTextArtifact, 'path'>): Promise<void> {
   try {
     await unlink(staged.path);
   } catch (error: unknown) {
@@ -277,12 +443,18 @@ export function createLocalTextArtifactSession(
   return {
     writer: textWriterDescriptor,
     input,
-    async stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact> {
+    async stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact> {
       signal?.throwIfAborted();
       const source = await input(signal);
       signal?.throwIfAborted();
+      assertWriterPlanCanApply(plan, source);
+      const text = applyWriterPlan(source.text, plan);
       const target = outputPath === undefined ? deriveRedactedOutputPath(source.path) : resolve(outputPath);
-      const staged = await stageTextArtifact(source, target, text);
+      const stagedArtifact = await stageTextArtifact(source, target, text);
+      const staged = Object.freeze({
+        ...stagedArtifact,
+        receipt: createTextWriterReceipt(plan, stagedArtifact)
+      });
       try {
         signal?.throwIfAborted();
       } catch (error: unknown) {

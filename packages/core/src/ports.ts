@@ -6,6 +6,7 @@ import type {
 import type { TypedLabelPlan } from '@local-pii/redaction';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
+import type { RedactionWriterReceiptContract } from '@local-pii/contracts';
 import type { EffectivePolicy, PolicyDecision } from '@local-pii/policy';
 
 export interface CapabilityRequirement {
@@ -57,6 +58,7 @@ export interface StagedTextArtifact {
   readonly reference: string;
   readonly byteLength: number;
   readonly digest: Sha256Digest;
+  readonly receipt: WriterReceipt;
 }
 
 export interface PublishedTextArtifact {
@@ -70,6 +72,8 @@ export interface ArtifactWriterReference {
   readonly version: string;
 }
 
+export type WriterReceipt = RedactionWriterReceiptContract.WriterReceipt;
+
 /** Reads the caller-selected input only after application capability preflight. */
 export interface TextInputSession {
   input(signal?: AbortSignal): Promise<TextArtifact>;
@@ -81,8 +85,10 @@ export interface TextInputSession {
  */
 export interface TextArtifactSession {
   readonly writer: ArtifactWriterReference;
-  stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact>;
+  /** Applies the immutable plan and returns private staged bytes plus an action receipt. */
+  stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
+  /** Atomically publishes the exact staged digest/length or rejects without exposing other bytes. */
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<PublishedTextArtifact>;
   discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
 }
@@ -182,6 +188,7 @@ export interface TextRedactionResult {
   readonly evidence: readonly DetectionEvidence[];
   readonly resolution: ResolutionSet;
   readonly plan: TypedLabelPlan;
+  readonly writerReceipt: WriterReceipt;
   readonly verification: TextVerificationReport;
   readonly published: PublishedTextArtifact;
 }

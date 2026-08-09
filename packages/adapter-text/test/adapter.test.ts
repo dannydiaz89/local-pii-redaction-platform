@@ -5,15 +5,19 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseSha256Digest } from '@local-pii/domain';
+import { compileTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction';
 
 import { rm } from 'node:fs/promises';
 
 import {
   createLocalTextArtifactSession,
+  createTextWriterReceipt,
   discardStagedTextArtifact,
   readTextArtifact,
   writeTextArtifact,
-  type StagedTextArtifact
+  assertTextWriterReceiptIntegrity,
+  type StagedTextArtifact,
+  type TextArtifact
 } from '../src/index.js';
 
 const directories: string[] = [];
@@ -26,6 +30,49 @@ async function directory(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), 'local-pii-adapter-'));
   directories.push(path);
   return path;
+}
+
+interface TestAction {
+  readonly start: number;
+  readonly end: number;
+  readonly replacement: string;
+}
+
+function typedLabelPlan(source: TextArtifact, actions: readonly TestAction[] = [{
+  start: 0,
+  end: Array.from(source.text).length,
+  replacement: '[EMAIL_1]'
+}]): TypedLabelPlan {
+  return compileTypedLabelPlan({
+    extractionRevision: source.extractionRevision,
+    algorithmVersion: '0.1.0',
+    digest: parseSha256Digest(`sha256:${'d'.repeat(64)}`),
+    spans: actions.map((action, index) => {
+      const suffix = String(index + 1).padStart(12, '0');
+      const evidenceId = `00000000-0000-4000-8000-${suffix}`;
+      return {
+        id: `rsp_${evidenceId.replaceAll('-', '')}`,
+        entityType: 'EMAIL' as const,
+        start: action.start,
+        end: action.end,
+        confidence: 1,
+        evidenceIds: [evidenceId]
+      };
+    }),
+    conflicts: [],
+    suppressedEvidenceIds: []
+  }, {
+    inputDigest: source.digest,
+    capabilityDigest: parseSha256Digest(`sha256:${'c'.repeat(64)}`),
+    detectorBundleVersion: 'test-detector',
+    policy: {
+      id: 'development-labels',
+      version: '0.1.0',
+      digest: parseSha256Digest(`sha256:${'e'.repeat(64)}`),
+      riskTier: 'LOW'
+    },
+    writer: { id: 'text-adapter', version: '0.1.0' },
+  });
 }
 
 describe('text adapter', () => {
@@ -94,17 +141,62 @@ describe('text adapter', () => {
     const output = join(root, 'redacted.txt');
     await writeFile(input, 'alice@example.test');
     const session = createLocalTextArtifactSession(input, output);
-
-    const staged = await session.stage('[EMAIL_1]');
+    const plan = typedLabelPlan(await session.input());
+    const staged = await session.stage(plan);
     expect((await stat(staged.path)).mode & 0o777).toBe(0o600);
     const reopened = await session.reopen(staged);
     expect(reopened.digest).toBe(staged.digest);
     expect(reopened.byteLength).toBe(staged.byteLength);
     expect(await readFile(staged.path, 'utf8')).toBe('[EMAIL_1]');
+    expect(staged.receipt).toMatchObject({
+      planDigest: plan.digest,
+      writer: { id: 'text-adapter', version: '0.1.0' },
+      expectedActionCount: 1,
+      appliedActionIds: [plan.actions[0]?.id],
+      appliedActionCount: 1,
+      stagedDigest: staged.digest,
+      stagedByteLength: staged.byteLength
+    });
+    expect(staged.receipt).not.toHaveProperty('path');
+    expect(Object.keys(staged.receipt).sort()).toEqual([
+      'appliedActionCount',
+      'appliedActionIds',
+      'expectedActionCount',
+      'planDigest',
+      'receiptDigest',
+      'schemaVersion',
+      'stagedByteLength',
+      'stagedDigest',
+      'writer'
+    ]);
+    assertTextWriterReceiptIntegrity(staged.receipt);
 
     await writeFile(output, 'must-not-be-replaced');
     await expect(session.publish(staged)).rejects.toMatchObject({ code: 'OUTPUT_COLLISION' });
     expect(await readFile(output, 'utf8')).toBe('must-not-be-replaced');
+    await session.discard(staged);
+  });
+
+  it('applies multiple Unicode code-point actions in reverse without changing canonical receipt order', async () => {
+    const root = await directory();
+    const input = join(root, 'unicode.txt');
+    const text = '😀 alpha@example.test و beta@example.test';
+    await writeFile(input, text);
+    const session = createLocalTextArtifactSession(input);
+    const source = await session.input();
+    const firstValue = 'alpha@example.test';
+    const secondValue = 'beta@example.test';
+    const firstStart = Array.from(text.slice(0, text.indexOf(firstValue))).length;
+    const secondStart = Array.from(text.slice(0, text.indexOf(secondValue))).length;
+    const plan = typedLabelPlan(source, [
+      { start: firstStart, end: firstStart + Array.from(firstValue).length, replacement: '[EMAIL_1]' },
+      { start: secondStart, end: secondStart + Array.from(secondValue).length, replacement: '[EMAIL_2]' }
+    ]);
+
+    const staged = await session.stage(plan);
+
+    expect(await readFile(staged.path, 'utf8')).toBe('😀 [EMAIL_1] و [EMAIL_2]');
+    expect(staged.receipt.appliedActionIds).toEqual(plan.actions.map(({ id }) => id));
     await session.discard(staged);
   });
 
@@ -114,10 +206,24 @@ describe('text adapter', () => {
     const output = join(root, 'redacted.txt');
     await writeFile(input, 'alice@example.test');
     const session = createLocalTextArtifactSession(input, output);
-    const staged = await session.stage('[EMAIL_1]');
+    const staged = await session.stage(typedLabelPlan(await session.input()));
     await writeFile(input, 'changed@example.test');
 
     await expect(session.publish(staged)).rejects.toMatchObject({ code: 'JOB_CONFLICT' });
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await session.discard(staged);
+  });
+
+  it('rejects publication when receipted staged bytes change after verification', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    await writeFile(staged.path, 'tampered staged bytes');
+
+    await expect(session.publish(staged)).rejects.toMatchObject({ code: 'STORAGE_UNAVAILABLE' });
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await session.discard(staged);
   });
@@ -128,7 +234,7 @@ describe('text adapter', () => {
     const output = join(root, 'redacted.txt');
     await writeFile(input, 'alice@example.test');
     const session = createLocalTextArtifactSession(input, output);
-    const staged = await session.stage('[EMAIL_1]');
+    const staged = await session.stage(typedLabelPlan(await session.input()));
 
     const published = await session.publish(staged);
 
@@ -145,7 +251,7 @@ describe('text adapter', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(session.stage('[EMAIL_1]', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(session.stage(typedLabelPlan(await session.input()), controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(await readdir(root)).toEqual(['input.txt']);
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -166,7 +272,7 @@ describe('text adapter', () => {
       }
     } as unknown as AbortSignal;
 
-    await expect(session.stage('[EMAIL_1]', signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(session.stage(typedLabelPlan(await session.input()), signal)).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(await readdir(root)).toEqual(['input.txt']);
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -177,7 +283,8 @@ describe('text adapter', () => {
     const input = join(root, 'input.txt');
     await writeFile(input, 'alice@example.test');
     const session = createLocalTextArtifactSession(input);
-    const staged = await session.stage('[EMAIL_1]');
+    const source = await session.input();
+    const staged = await session.stage(typedLabelPlan(source));
 
     await session.discard(staged);
     await expect(session.discard(staged)).resolves.toBeUndefined();
@@ -189,11 +296,80 @@ describe('text adapter', () => {
       path: directoryAtStagedPath,
       targetPath: join(root, 'out.txt'),
       byteLength: 0,
-      digest: parseSha256Digest('sha256:0000000000000000000000000000000000000000000000000000000000000000')
+      digest: parseSha256Digest('sha256:0000000000000000000000000000000000000000000000000000000000000000'),
+      receipt: createTextWriterReceipt(typedLabelPlan(source, []), {
+        byteLength: 0,
+        digest: parseSha256Digest('sha256:0000000000000000000000000000000000000000000000000000000000000000')
+      })
     };
     await expect(discardStagedTextArtifact(invalidStage)).rejects.toMatchObject({
       code: 'STORAGE_UNAVAILABLE',
       message: 'The staged artifact could not be removed.'
     });
+  });
+
+  it('rejects plans that were bound to a different source, writer, or action count', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input);
+    const source = await session.input();
+    const plan = typedLabelPlan(source);
+
+    await expect(session.stage({
+      ...plan,
+      inputDigest: parseSha256Digest(`sha256:${'b'.repeat(64)}`)
+    })).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    await expect(session.stage({
+      ...plan,
+      writer: { id: 'another-writer', version: '1.0.0' }
+    })).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    await expect(session.stage({ ...plan, expectedActionCount: 2 })).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+
+    expect(await readdir(root)).toEqual(['input.txt']);
+  });
+
+  it('rejects tampered or overlapping action plans and receipt mutations', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, 'alpha@example.test beta@example.test');
+    const session = createLocalTextArtifactSession(input);
+    const source = await session.input();
+    const plan = typedLabelPlan(source, [
+      { start: 0, end: 18, replacement: '[EMAIL_1]' },
+      { start: 10, end: 20, replacement: '[EMAIL_2]' }
+    ]);
+    await expect(session.stage(plan)).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+
+    const staged = await session.stage(typedLabelPlan(source));
+    expect(() => {
+      assertTextWriterReceiptIntegrity({
+        ...staged.receipt,
+        appliedActionIds: []
+      });
+    }).toThrow('invalid');
+    expect(() => {
+      assertTextWriterReceiptIntegrity({
+        ...staged.receipt,
+        stagedByteLength: staged.receipt.stagedByteLength + 1
+      });
+    }).toThrow('digest');
+    await session.discard(staged);
+  });
+
+  it('rejects a plan whose actions changed after its immutable digest was compiled', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input);
+    const plan = typedLabelPlan(await session.input());
+    const action = plan.actions[0];
+    if (action === undefined) throw new Error('Expected one test action.');
+
+    await expect(session.stage({
+      ...plan,
+      actions: [{ ...action, replacement: '[TAMPERED_1]' }]
+    })).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    expect(await readdir(root)).toEqual(['input.txt']);
   });
 });

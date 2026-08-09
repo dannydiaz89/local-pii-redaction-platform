@@ -53,7 +53,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
  * accidental import from the CLI or a lower layer.
  */
 const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
-  'adapter-text': ['domain'],
+  'adapter-text': ['contracts', 'domain', 'redaction'],
   contracts: [],
   detectors: ['domain'],
   domain: [],

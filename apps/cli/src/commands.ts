@@ -350,6 +350,14 @@ async function runRedact(
       actionCount: result.plan.actions.length,
       byEntity: entityCounts(result.plan.actions.map((action) => action.entityType))
     },
+    writerReceipt: {
+      receiptDigest: result.writerReceipt.receiptDigest,
+      planDigest: result.writerReceipt.planDigest,
+      outputDigest: result.writerReceipt.stagedDigest,
+      writer: result.writerReceipt.writer,
+      expectedActionCount: result.writerReceipt.expectedActionCount,
+      appliedActionCount: result.writerReceipt.appliedActionCount
+    },
     verification: result.verification
   };
   writeResult(io, json, report, `Wrote verified output under ${policy.id} ${policy.version} with ${String(result.plan.actions.length)} replacement(s).`);
@@ -406,7 +414,7 @@ function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: n
     ? 6
     : error.code === 'POLICY_REVIEW_REQUIRED' || error.code === 'POLICY_BLOCKED'
       ? 5
-      : error.code.startsWith('VERIFICATION_')
+      : error.code.startsWith('VERIFICATION_') || error.code === 'REDACTION_COUNT_MISMATCH'
         ? 4
         : 3);
 }

@@ -32,14 +32,6 @@
     "actionCount": 0,
     "byEntity": {}
   },
-  "writerReceipt": {
-    "receiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
-    "planDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-    "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "writer": { "id": "text-adapter", "version": "0.1.0" },
-    "expectedActionCount": 0,
-    "appliedActionCount": 0
-  },
   "verification": {
     "schemaVersion": "1.0.0",
     "profile": "text-rescan-v1",

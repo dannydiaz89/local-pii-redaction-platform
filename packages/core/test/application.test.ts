@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { computeWriterReceiptDigest, type UnsignedWriterReceipt } from '@local-pii/contracts';
 
 import {
   SafeError,
@@ -24,11 +25,16 @@ import {
   type TextVerificationReport
 } from '../src/index.js';
 import { compilePolicy, developmentLabelsPolicy, highRiskDisclosurePolicy } from '@local-pii/policy';
+import { applyTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction';
 
 const context = { correlationId: 'cor_core_application_001' };
 const policy = compilePolicy(developmentLabelsPolicy);
 const digest = (value: string): Sha256Digest => parseSha256Digest(`sha256:${createHash('sha256').update(value).digest('hex')}`);
 const revision = (value: string): Sha256Digest => digest(`canonical:${value}`);
+
+function canonicalReceiptDigest(value: UnsignedWriterReceipt): Sha256Digest {
+  return parseSha256Digest(computeWriterReceiptDigest(value));
+}
 
 function manifest(): CapabilityManifest {
   return JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../fixtures/contracts/valid/capability-rules-only-text.json'), 'utf8')) as CapabilityManifest;
@@ -75,10 +81,28 @@ class FakeSession implements TextProcessingSession {
     this.events.push(`input:${String(signal?.aborted ?? false)}`);
     return Promise.resolve(this.source);
   }
-  stage(text: string, signal?: AbortSignal): Promise<StagedTextArtifact> {
+  stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact> {
     this.events.push(`stage:${String(signal?.aborted ?? false)}`);
+    const text = applyTypedLabelPlan(this.source.text, plan);
     this.stagedText = text;
-    return Promise.resolve({ reference: 'stage://pending', byteLength: Buffer.byteLength(text), digest: digest(text) });
+    const byteLength = Buffer.byteLength(text);
+    const stagedDigest = digest(text);
+    const unsignedReceipt = {
+      schemaVersion: '1.0.0' as const,
+      planDigest: plan.digest,
+      writer: this.writer,
+      stagedDigest,
+      stagedByteLength: byteLength,
+      expectedActionCount: plan.expectedActionCount,
+      appliedActionCount: plan.actions.length,
+      appliedActionIds: plan.actions.map(({ id }) => id)
+    };
+    return Promise.resolve({
+      reference: 'stage://pending',
+      byteLength,
+      digest: stagedDigest,
+      receipt: { ...unsignedReceipt, receiptDigest: canonicalReceiptDigest(unsignedReceipt) }
+    });
   }
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact> {
     this.events.push(`reopen:${String(signal?.aborted ??false)}`);
@@ -235,6 +259,86 @@ describe('TextProcessingApplication', () => {
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
   });
 
+  it('discards staging when a validly signed writer receipt omits a planned action', async () => {
+    const session = new FakeSession('ephemeral');
+    const originalStage = session.stage.bind(session);
+    session.stage = async (plan, signal) => {
+      const staged = await originalStage(plan, signal);
+      const changed = {
+        schemaVersion: staged.receipt.schemaVersion,
+        planDigest: staged.receipt.planDigest,
+        writer: staged.receipt.writer,
+        stagedDigest: staged.receipt.stagedDigest,
+        stagedByteLength: staged.receipt.stagedByteLength,
+        expectedActionCount: staged.receipt.expectedActionCount,
+        appliedActionCount: 0,
+        appliedActionIds: []
+      };
+      return {
+        ...staged,
+        receipt: { ...changed, receiptDigest: canonicalReceiptDigest(changed) }
+      };
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy
+    }, context)).rejects.toMatchObject({ code: 'REDACTION_COUNT_MISMATCH' });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'discard']);
+  });
+
+  it('treats a tampered writer receipt digest as incomplete and never reopens or publishes', async () => {
+    const session = new FakeSession('ephemeral');
+    const originalStage = session.stage.bind(session);
+    session.stage = async (plan, signal) => {
+      const staged = await originalStage(plan, signal);
+      return {
+        ...staged,
+        receipt: {
+          ...staged.receipt,
+          receiptDigest: parseSha256Digest(`sha256:${'0'.repeat(64)}`)
+        }
+      };
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy
+    }, context)).rejects.toMatchObject({ code: 'VERIFICATION_INCOMPLETE' });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'discard']);
+  });
+
+  it('rejects an unexpected writer action ID even when the receipt count matches', async () => {
+    const session = new FakeSession('ephemeral');
+    const originalStage = session.stage.bind(session);
+    session.stage = async (plan, signal) => {
+      const staged = await originalStage(plan, signal);
+      const changed = {
+        schemaVersion: staged.receipt.schemaVersion,
+        planDigest: staged.receipt.planDigest,
+        writer: staged.receipt.writer,
+        stagedDigest: staged.receipt.stagedDigest,
+        stagedByteLength: staged.receipt.stagedByteLength,
+        expectedActionCount: staged.receipt.expectedActionCount,
+        appliedActionCount: staged.receipt.appliedActionCount,
+        appliedActionIds: [`act_${'0'.repeat(26)}`]
+      };
+      return {
+        ...staged,
+        receipt: { ...changed, receiptDigest: canonicalReceiptDigest(changed) }
+      };
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy
+    }, context)).rejects.toMatchObject({ code: 'REDACTION_COUNT_MISMATCH' });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'discard']);
+  });
+
   it('discards an already staged artifact when publication fails without leaking dependency detail', async () => {
     const session = new FakeSession('durable');
     session.publish = () => Promise.reject(new Error('private artifact storage location'));
@@ -244,6 +348,24 @@ describe('TextProcessingApplication', () => {
     expect(failure).toMatchObject({ code: 'INTERNAL_ERROR', correlationId: context.correlationId });
     expect((failure as Error).message).not.toContain('private artifact');
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('rejects a publication result that does not match the receipted staged bytes', async () => {
+    const session = new FakeSession('ephemeral');
+    const originalPublish = session.publish.bind(session);
+    session.publish = async (staged, signal) => ({
+      ...await originalPublish(staged, signal),
+      digest: digest('different-published-bytes')
+    });
+
+    await expect(createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy
+    }, context)).rejects.toMatchObject({ code: 'STORAGE_UNAVAILABLE' });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual([
+      'input', 'stage', 'reopen', 'publish', 'discard'
+    ]);
   });
 
   it('returns a privacy-safe deterministic error when processing and cleanup both fail', async () => {

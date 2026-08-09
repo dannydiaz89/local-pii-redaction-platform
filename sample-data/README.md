@@ -30,9 +30,10 @@ Try it with:
 ```sh
 pnpm build
 pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
+sample_test_dir=$(mktemp -d)
 pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
-  --output /tmp/sample.redacted.txt --json
-diff -u ./sample-data/expected/sample.redacted.txt /tmp/sample.redacted.txt
+  --output "$sample_test_dir/sample.redacted.txt" --json
+diff -u ./sample-data/expected/sample.redacted.txt "$sample_test_dir/sample.redacted.txt"
 pnpm --silent pii-redact verify ./sample-data/expected/sample.redacted.txt --json
 ```
 

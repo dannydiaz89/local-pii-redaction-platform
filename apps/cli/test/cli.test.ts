@@ -322,6 +322,7 @@ describe('CLI TXT vertical slice', () => {
       readonly policy: { readonly id: string; readonly version: string; readonly digest: string };
       readonly plan: {
         readonly id: string;
+        readonly digest: string;
         readonly inputDigest: string;
         readonly extractionRevision: string;
         readonly resolutionDigest: string;
@@ -331,6 +332,15 @@ describe('CLI TXT vertical slice', () => {
         readonly writer: { readonly id: string; readonly version: string };
         readonly strategyVersion: string;
       };
+      readonly writerReceipt: {
+        readonly receiptDigest: string;
+        readonly planDigest: string;
+        readonly outputDigest: string;
+        readonly writer: { readonly id: string; readonly version: string };
+        readonly expectedActionCount: number;
+        readonly appliedActionCount: number;
+      };
+      readonly output: { readonly digest: string };
     };
     expect(report.outcome).toBe('VERIFIED');
     expect(report.policy).toMatchObject({ id: 'development-labels', version: '0.1.0' });
@@ -343,6 +353,15 @@ describe('CLI TXT vertical slice', () => {
     expect(report.plan.detectorBundleVersion).toBe('0.1.0');
     expect(report.plan.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
     expect(report.plan.strategyVersion).toBe('0.1.0');
+    expect(report.writerReceipt).toMatchObject({
+      planDigest: report.plan.digest,
+      outputDigest: report.output.digest,
+      writer: report.plan.writer,
+      expectedActionCount: 5,
+      appliedActionCount: 5
+    });
+    expect(report.writerReceipt.receiptDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(stream.stdout.join('')).not.toContain('appliedActionIds');
     expect(stream.stdout.join('')).not.toContain(input);
     expect(stream.stdout.join('')).not.toContain(output);
   });

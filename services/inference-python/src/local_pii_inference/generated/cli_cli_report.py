@@ -143,7 +143,6 @@ class ArtifactSummary(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    path: constr(min_length=1, strict=True) | None = None
     displayName: constr(min_length=1, max_length=255, strict=True) | None = None
     mediaType: MediaType | None = None
     byteLength: conint(ge=0, strict=True)
@@ -151,6 +150,26 @@ class ArtifactSummary(BaseModel):
     extractionRevision: Digest | None = None
     unicodeCodePoints: conint(ge=0, strict=True) | None = None
     hasUtf8Bom: StrictBool | None = None
+
+
+class Writer(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
+    version: Semver
+
+
+class WriterReceiptSummary(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    receiptDigest: Digest
+    planDigest: Digest
+    outputDigest: Digest
+    writer: Writer
+    expectedActionCount: conint(ge=0, le=100000, strict=True)
+    appliedActionCount: conint(ge=0, le=100000, strict=True)
 
 
 class Outcome1(Enum):
@@ -205,14 +224,6 @@ class Detection(BaseModel):
     evidenceIds: list[UUID] = Field(..., min_length=1)
 
 
-class Writer(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    id: constr(pattern=r'^[a-z][a-z0-9-]{2,63}$', strict=True)
-    version: Semver
-
-
 class Plan(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -259,5 +270,6 @@ class CLIOperationReport(BaseModel):
     detections: list[Detection] | None = Field(None, max_length=10000)
     conflicts: list[Conflict] | None = Field(None, max_length=10000)
     plan: Plan | None = None
+    writerReceipt: WriterReceiptSummary | None = None
     verification: Verification | None = None
     capability: Capability | None = None

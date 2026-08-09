@@ -77,9 +77,15 @@ importers:
 
   packages/adapter-text:
     dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../domain
+      '@local-pii/redaction':
+        specifier: workspace:*
+        version: link:../redaction
 
   packages/contracts:
     dependencies:

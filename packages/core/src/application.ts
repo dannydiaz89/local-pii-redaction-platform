@@ -1,11 +1,12 @@
 import {
   SafeError,
   parseCorrelationId,
+  parseSha256Digest,
   unicodeCodePointLength,
   type CorrelationId
 } from '@local-pii/domain';
-import { assertContract } from '@local-pii/contracts';
-import { applyTypedLabelPlan, compileTypedLabelPlan } from '@local-pii/redaction';
+import { assertContract, computeWriterReceiptDigest } from '@local-pii/contracts';
+import { compileTypedLabelPlan } from '@local-pii/redaction';
 import { resolveEvidence } from '@local-pii/span-resolution';
 import { compileCapabilityRequirement, evaluateAcceptedSpan } from '@local-pii/policy';
 
@@ -17,11 +18,13 @@ import type {
   TextCommand,
   TextProcessingApplication,
   TextProcessingApplicationDependencies,
-  TextScanResult
+  TextScanResult,
+  WriterReceipt
 } from './ports.js';
 
 const fallbackCorrelationId = 'cor_core_application';
 const redactionPlanSchemaId = 'https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0';
+const writerReceiptSchemaId = 'https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0';
 
 function correlationId(context: ApplicationContext): CorrelationId {
   try {
@@ -128,6 +131,49 @@ function verificationIncomplete(correlationId: CorrelationId): SafeError {
     retryable: false,
     correlationId
   });
+}
+
+function redactionCountMismatch(correlationId: CorrelationId): SafeError {
+  return new SafeError({
+    code: 'REDACTION_COUNT_MISMATCH',
+    message: 'The writer did not apply the exact redaction plan actions.',
+    retryable: false,
+    correlationId
+  });
+}
+
+function assertWriterReceipt(
+  receipt: WriterReceipt,
+  plan: Awaited<ReturnType<typeof compileTypedLabelPlan>>,
+  staged: Readonly<{ readonly digest: string; readonly byteLength: number }>,
+  correlationId: CorrelationId
+): void {
+  try {
+    assertContract(writerReceiptSchemaId, receipt);
+    const { receiptDigest, ...unsigned } = receipt;
+    if (
+      parseSha256Digest(receiptDigest) !== computeWriterReceiptDigest(unsigned)
+      || parseSha256Digest(receipt.planDigest) !== plan.digest
+      || parseSha256Digest(receipt.stagedDigest) !== staged.digest
+      || receipt.stagedByteLength !== staged.byteLength
+      || receipt.writer.id !== plan.writer.id
+      || receipt.writer.version !== plan.writer.version
+    ) {
+      throw new Error('writer receipt binding mismatch');
+    }
+  } catch {
+    throw verificationIncomplete(correlationId);
+  }
+
+  const expectedActionIds = plan.actions.map(({ id }) => id);
+  if (
+    receipt.expectedActionCount !== plan.expectedActionCount
+    || receipt.appliedActionCount !== receipt.appliedActionIds.length
+    || receipt.appliedActionCount !== expectedActionIds.length
+    || receipt.appliedActionIds.some((id, index) => id !== expectedActionIds[index])
+  ) {
+    throw redactionCountMismatch(correlationId);
+  }
 }
 
 function policyDecisionBlocked(
@@ -297,10 +343,10 @@ export function createTextProcessingApplication(
           writer: command.session.writer
         });
         assertContract(redactionPlanSchemaId, plan);
-        const redactedText = applyTypedLabelPlan(scanned.artifact.text, plan);
         let staged: Awaited<ReturnType<RedactTextCommand['session']['stage']>> | undefined;
         try {
-          staged = await command.session.stage(redactedText, command.signal);
+          staged = await command.session.stage(plan, command.signal);
+          assertWriterReceipt(staged.receipt, plan, staged, requestCorrelationId);
           const reopened = await command.session.reopen(staged, command.signal);
           if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
             throw stagedBytesChanged(requestCorrelationId);
@@ -326,6 +372,9 @@ export function createTextProcessingApplication(
             throw residualsBlocked(requestCorrelationId, verification.findings.length);
           }
           const published = await command.session.publish(staged, command.signal);
+          if (published.digest !== staged.digest || published.byteLength !== staged.byteLength) {
+            throw stagedBytesChanged(requestCorrelationId);
+          }
           return {
             input: scanned.artifact,
             policy,
@@ -334,6 +383,7 @@ export function createTextProcessingApplication(
             evidence: scanned.evidence,
             resolution: scanned.resolution,
             plan,
+            writerReceipt: staged.receipt,
             verification,
             published
           };

@@ -51,7 +51,9 @@ reopens the staged UTF-8 artifact, rescans it, and publishes the requested path 
 `text-rescan-v1` profile passes. Machine reports contain entity types and offsets, not matched
 values. Redaction reports also expose privacy-safe provenance digests binding the exact input,
 resolved detector evidence, capability snapshot, policy, detector bundle, and writer used by the
-plan.
+plan. The text adapter now applies that immutable plan itself and returns a writer receipt. Core
+independently reconciles the receipt's exact action IDs and counts before verification and
+publication; the public JSON report exposes only its safe digests and bounded counts.
 
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
 the current rules-only text capability without opening a document or contacting Ollama. The

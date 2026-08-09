@@ -67,6 +67,7 @@ export type CLIOperationReport = {
       [k: string]: number;
     };
   };
+  writerReceipt?: WriterReceiptSummary;
   verification?: Verification;
   capability?: {
     adapter: 'text';
@@ -108,7 +109,6 @@ export type EntityType =
  * via the `definition` "artifactSummary".
  */
 export interface ArtifactSummary {
-  path?: string;
   displayName?: string;
   mediaType?: 'text/plain' | 'text/markdown';
   byteLength: number;
@@ -127,6 +127,21 @@ export interface PolicySummary {
   digest: string;
   riskTier: 'LOW' | 'MODERATE' | 'HIGH';
   example: true;
+}
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema
+ * via the `definition` "writerReceiptSummary".
+ */
+export interface WriterReceiptSummary {
+  receiptDigest: string;
+  planDigest: string;
+  outputDigest: string;
+  writer: {
+    id: string;
+    version: string;
+  };
+  expectedActionCount: number;
+  appliedActionCount: number;
 }
 /**
  * This interface was referenced by `undefined`'s JSON-Schema

@@ -944,6 +944,9 @@ export const schemaCatalog = [
           }
         }
       },
+      "writerReceipt": {
+        "$ref": "#/$defs/writerReceiptSummary"
+      },
       "verification": {
         "$ref": "#/$defs/verification"
       },
@@ -1019,10 +1022,6 @@ export const schemaCatalog = [
           "digest"
         ],
         "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
-          },
           "displayName": {
             "type": "string",
             "minLength": 1,
@@ -1050,6 +1049,56 @@ export const schemaCatalog = [
           },
           "hasUtf8Bom": {
             "type": "boolean"
+          }
+        }
+      },
+      "writerReceiptSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "receiptDigest",
+          "planDigest",
+          "outputDigest",
+          "writer",
+          "expectedActionCount",
+          "appliedActionCount"
+        ],
+        "properties": {
+          "receiptDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "planDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "outputDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "writer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{2,63}$"
+              },
+              "version": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+              }
+            }
+          },
+          "expectedActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "appliedActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
           }
         }
       },
@@ -1147,6 +1196,7 @@ export const schemaCatalog = [
           "properties": {
             "input": true,
             "policy": false,
+            "writerReceipt": false,
             "detectorBundleVersion": true,
             "counts": true,
             "detections": true,
@@ -1175,6 +1225,7 @@ export const schemaCatalog = [
             "output": true,
             "policy": true,
             "plan": true,
+            "writerReceipt": true,
             "verification": true
           },
           "required": [
@@ -1182,6 +1233,7 @@ export const schemaCatalog = [
             "output",
             "policy",
             "plan",
+            "writerReceipt",
             "verification"
           ]
         }
@@ -1198,6 +1250,7 @@ export const schemaCatalog = [
           "properties": {
             "artifact": true,
             "policy": false,
+            "writerReceipt": false,
             "verification": true
           },
           "required": [
@@ -1218,6 +1271,7 @@ export const schemaCatalog = [
           "properties": {
             "artifact": true,
             "policy": false,
+            "writerReceipt": false,
             "capability": true
           },
           "required": [
@@ -1283,6 +1337,17 @@ export const schemaCatalog = [
           "strategyVersion": "0.1.0",
           "actionCount": 0,
           "byEntity": {}
+        },
+        "writerReceipt": {
+          "receiptDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "planDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "writer": {
+            "id": "text-adapter",
+            "version": "0.1.0"
+          },
+          "expectedActionCount": 0,
+          "appliedActionCount": 0
         },
         "verification": {
           "schemaVersion": "1.0.0",
@@ -2971,6 +3036,101 @@ export const schemaCatalog = [
           }
         ],
         "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0",
+    "title": "Writer receipt",
+    "description": "Privacy-safe record of a writer's bounded application of one immutable redaction plan to a staged artifact. Applied action IDs retain canonical redaction-plan order; paths and clear values are excluded.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "planDigest",
+      "writer",
+      "stagedDigest",
+      "stagedByteLength",
+      "expectedActionCount",
+      "appliedActionCount",
+      "appliedActionIds",
+      "receiptDigest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "planDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "writer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          }
+        }
+      },
+      "stagedDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "stagedByteLength": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1073741824
+      },
+      "expectedActionCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "appliedActionCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "appliedActionIds": {
+        "type": "array",
+        "maxItems": 100000,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^act_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "description": "Exact action IDs in canonical immutable redaction-plan order; a writer may traverse native targets in a different safe mutation order."
+      },
+      "receiptDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "planDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "writer": {
+          "id": "text-adapter",
+          "version": "0.1.0"
+        },
+        "stagedDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "stagedByteLength": 38,
+        "expectedActionCount": 2,
+        "appliedActionCount": 2,
+        "appliedActionIds": [
+          "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+          "act_01J4M8Z7QK2C5B6TFXDA9R4M3W"
+        ],
+        "receiptDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
       }
     ]
   },
