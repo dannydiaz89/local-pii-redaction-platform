@@ -18,6 +18,7 @@ const repositoryRoot = resolve(import.meta.dirname, '..');
 const cliEntry = resolve(repositoryRoot, 'apps/cli/dist/index.js');
 const networkGuard = resolve(import.meta.dirname, 'ephemeral-profile-network-guard.cjs');
 const networkGuardSelfTest = resolve(import.meta.dirname, 'ephemeral-profile-network-guard-self-test.mjs');
+const signalStageGate = resolve(import.meta.dirname, 'ephemeral-profile-signal-stage-gate.cjs');
 
 function fileDigest(content: Uint8Array): string {
   return createHash('sha256').update(content).digest('hex');
@@ -78,6 +79,76 @@ async function runNode(args: readonly string[], cwd: string): Promise<{ readonly
   });
 }
 
+async function runNodeUntilPrivateStageRead(
+  args: readonly string[],
+  cwd: string,
+  signal: 'SIGINT' | 'SIGTERM'
+): Promise<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }> {
+  return await new Promise((resolveResult, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd,
+      env: { ...process.env, NODE_OPTIONS: undefined, LOCAL_PII_SIGNAL_STAGE_GATE: '1' },
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    if (child.stdout === null || child.stderr === null) {
+      child.kill('SIGKILL');
+      reject(new Error('G1 private-stage child did not expose captured output streams.'));
+      return;
+    }
+    const childStdout = child.stdout;
+    const childStderr = child.stderr;
+    let stageReady = false;
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    };
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(() => {
+        reject(new Error(`G1 ${signal} stage-cancellation child did not reach or leave the private-stage checkpoint.`));
+      });
+    }, 10_000);
+    childStdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    childStderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', (error) => {
+      finish(() => {
+        reject(error);
+      });
+    });
+    child.on('message', (message: unknown) => {
+      if (stageReady || JSON.stringify(message) !== JSON.stringify({ type: 'LOCAL_PII_SIGNAL_STAGE_READY' })) return;
+      stageReady = true;
+      if (!child.kill(signal)) {
+        finish(() => {
+          reject(new Error(`G1 could not deliver ${signal} to the private-stage child.`));
+        });
+      }
+    });
+    child.once('close', (code, processSignal) => {
+      finish(() => {
+        if (!stageReady) {
+          reject(new Error(`G1 ${signal} child exited before the private-stage checkpoint.`));
+          return;
+        }
+        if (processSignal !== null) {
+          reject(new Error(`G1 ${signal} child terminated directly from ${processSignal}.`));
+          return;
+        }
+        resolveResult({
+          exitCode: code ?? 1,
+          stdout: Buffer.concat(stdout).toString('utf8'),
+          stderr: Buffer.concat(stderr).toString('utf8')
+        });
+      });
+    });
+  });
+}
+
 function permissionedNodeArguments(readPaths: readonly string[], writePath: string | undefined): string[] {
   const directoryPermission = (path: string): string => `${resolve(path)}/`;
   return [
@@ -111,6 +182,49 @@ async function runBuiltCli(
     throw new Error(`G1 ${label} exited ${String(result.exitCode)} instead of ${String(expectedExitCode)}: ${result.stderr}`);
   }
   assertWriteSet(label, before, after, expectedAdded);
+  return { label, stdout: result.stdout, stderr: result.stderr };
+}
+
+async function runBuiltCliUntilPrivateStageRead(
+  signal: 'SIGINT' | 'SIGTERM',
+  root: string,
+  writeDirectory: string,
+  source: string,
+  output: string,
+  expectedExitCode: number
+): Promise<CapturedCommand> {
+  const label = `redact ${signal} during stage readback`;
+  const before = await snapshotFiles(root);
+  const canonicalRoot = await realpath(root);
+  const result = await runNodeUntilPrivateStageRead([
+    ...permissionedNodeArguments([repositoryRoot, root, canonicalRoot], writeDirectory),
+    '--require', signalStageGate,
+    cliEntry,
+    'redact', source, '--output', output, '--json'
+  ], root, signal);
+  const after = await snapshotFiles(root);
+  if (result.exitCode !== expectedExitCode) {
+    throw new Error(`G1 ${label} exited ${String(result.exitCode)} instead of ${String(expectedExitCode)}: ${result.stderr}`);
+  }
+  assertWriteSet(label, before, after, []);
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(result.stderr) as unknown;
+  } catch {
+    throw new Error(`G1 ${label} did not return a canonical JSON cancellation envelope.`);
+  }
+  const expectedEnvelope = {
+    schemaVersion: '3.0.0',
+    error: {
+      code: 'OPERATION_CANCELLED',
+      message: 'The operation was cancelled.',
+      retryable: false,
+      correlationId: 'cor_cli_cancelled'
+    }
+  };
+  if (JSON.stringify(envelope) !== JSON.stringify(expectedEnvelope) || result.stdout.length > 0) {
+    throw new Error(`G1 ${label} did not return the privacy-safe cancellation result.`);
+  }
   return { label, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -194,6 +308,8 @@ export async function runEphemeralProfileGate(): Promise<void> {
     await assertFixtureReadPermission(root, source);
     const initialSnapshot = await snapshotFiles(root);
     const captured = [
+      await runBuiltCliUntilPrivateStageRead('SIGINT', root, writeDirectory, source, output, 130),
+      await runBuiltCliUntilPrivateStageRead('SIGTERM', root, writeDirectory, source, output, 143),
       await runBuiltCli('inspect', ['inspect', source, '--json'], root, undefined, 0, []),
       await runBuiltCli('scan', ['scan', source, '--json'], root, undefined, 0, []),
       await runBuiltCli('verify', ['verify', expected, '--json'], root, undefined, 0, []),

@@ -29,8 +29,10 @@ The default runtime makes no network request and the repository accepts only syn
 The opt-in Ollama path talks only to a numeric loopback address on the same machine.
 `pnpm ephemeral:check` builds and spawns the default rules-only CLI with Node filesystem permissions
 and an injected network/DNS guard. It proves read-only commands retain no files and successful
-redaction adds only the requested verified output inside a disposable workspace. This is
-application-level evidence; OS syscall tracing and network-namespace packaging tests remain later
+redaction adds only the requested verified output inside a disposable workspace. It also sends
+real `SIGINT` and `SIGTERM` signals after a private stage exists and proves cancellation removes the
+stage without publishing. This is application-level evidence; OS syscall tracing and
+network-namespace packaging tests remain later
 release gates.
 
 ## Try the CLI

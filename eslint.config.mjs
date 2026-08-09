@@ -21,7 +21,8 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
     files: [
       'tooling/ephemeral-profile-network-guard.cjs',
-      'tooling/ephemeral-profile-network-guard-self-test.mjs'
+      'tooling/ephemeral-profile-network-guard-self-test.mjs',
+      'tooling/ephemeral-profile-signal-stage-gate.cjs'
     ],
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,
