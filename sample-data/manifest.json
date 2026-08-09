@@ -3,8 +3,8 @@
   "corpusId": "rules-only-text-v1",
   "generator": {
     "id": "local-pii-synthetic-text",
-    "version": "1.0.0",
-    "seed": "local-pii-rules-only-2026-08-08",
+    "version": "1.1.0",
+    "seed": "local-pii-rules-only-2026-08-09",
     "recipe": "tooling/synthetic-corpus.ts#createSyntheticCorpus"
   },
   "provenance": {
@@ -25,27 +25,34 @@
       "format": "TEXT",
       "mediaType": "text/plain",
       "features": [
-        "ascii",
-        "assignment-context",
+        "unicode-code-point-offsets",
+        "astral-emoji",
+        "combining-mark",
+        "rtl-context",
+        "repeated-entity-types",
+        "punctuation-boundaries",
+        "quoted-assignment-context",
+        "natural-language-prose",
+        "safe-near-misses",
         "ipv4-reserved-range",
         "ipv6-documentation-prefix"
       ],
       "inputPath": "input/sample.txt",
       "expectedPath": "expected/sample.redacted.txt",
-      "inputDigest": "sha256:9c85115341fe9b1299217193c26495874501dcc497e3e0fa2350c33288c35439",
-      "expectedDigest": "sha256:7d8134df7634ffc2f3971572d92b3f016413ba2bae95aba86713f68e5f93e400",
+      "inputDigest": "sha256:787d20ccc61871d4d0d68fbf1e508a15e4608a5682fc0e92e5b2e758252c3ae5",
+      "expectedDigest": "sha256:c3ed4d21c36f2f4c6e7c7fd8ca3655ba417a93ab7cbdc7e53a739cfcb8c2d6c5",
       "groundTruth": {
         "offsetUnit": "UNICODE_CODE_POINT",
         "entities": [
           {
             "id": "email-1",
             "entityType": "EMAIL",
-            "start": 47,
-            "end": 65,
+            "start": 154,
+            "end": 172,
             "nativeLocation": {
-              "line": 3,
-              "columnStart": 10,
-              "columnEnd": 28
+              "line": 4,
+              "columnStart": 20,
+              "columnEnd": 38
             },
             "attributes": {
               "provenance": "synthetic",
@@ -55,14 +62,31 @@
             "expectedReplacement": "[EMAIL_1]"
           },
           {
+            "id": "email-2",
+            "entityType": "EMAIL",
+            "start": 200,
+            "end": 230,
+            "nativeLocation": {
+              "line": 5,
+              "columnStart": 27,
+              "columnEnd": 57
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[EMAIL_2]"
+          },
+          {
             "id": "phone-1",
             "entityType": "PHONE",
-            "start": 73,
-            "end": 90,
+            "start": 247,
+            "end": 264,
             "nativeLocation": {
-              "line": 4,
-              "columnStart": 8,
-              "columnEnd": 25
+              "line": 6,
+              "columnStart": 16,
+              "columnEnd": 33
             },
             "attributes": {
               "provenance": "synthetic",
@@ -72,14 +96,31 @@
             "expectedReplacement": "[PHONE_1]"
           },
           {
+            "id": "phone-2",
+            "entityType": "PHONE",
+            "start": 290,
+            "end": 305,
+            "nativeLocation": {
+              "line": 7,
+              "columnStart": 25,
+              "columnEnd": 40
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[PHONE_2]"
+          },
+          {
             "id": "ssn-1",
             "entityType": "SSN",
-            "start": 96,
-            "end": 107,
+            "start": 333,
+            "end": 344,
             "nativeLocation": {
-              "line": 5,
-              "columnStart": 6,
-              "columnEnd": 17
+              "line": 8,
+              "columnStart": 27,
+              "columnEnd": 38
             },
             "attributes": {
               "provenance": "synthetic",
@@ -91,12 +132,12 @@
           {
             "id": "card-1",
             "entityType": "CREDIT_CARD",
-            "start": 122,
-            "end": 141,
+            "start": 374,
+            "end": 393,
             "nativeLocation": {
-              "line": 6,
-              "columnStart": 15,
-              "columnEnd": 34
+              "line": 9,
+              "columnStart": 29,
+              "columnEnd": 48
             },
             "attributes": {
               "provenance": "synthetic",
@@ -106,14 +147,31 @@
             "expectedReplacement": "[CREDIT_CARD_1]"
           },
           {
+            "id": "card-2",
+            "entityType": "CREDIT_CARD",
+            "start": 427,
+            "end": 446,
+            "nativeLocation": {
+              "line": 10,
+              "columnStart": 33,
+              "columnEnd": 52
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[CREDIT_CARD_2]"
+          },
+          {
             "id": "ipv4-1",
             "entityType": "IP_ADDRESS",
-            "start": 156,
-            "end": 166,
+            "start": 472,
+            "end": 482,
             "nativeLocation": {
-              "line": 7,
-              "columnStart": 15,
-              "columnEnd": 25
+              "line": 11,
+              "columnStart": 25,
+              "columnEnd": 35
             },
             "attributes": {
               "provenance": "synthetic",
@@ -123,14 +181,14 @@
             "expectedReplacement": "[IP_ADDRESS_1]"
           },
           {
-            "id": "ipv6-1",
+            "id": "ipv4-2",
             "entityType": "IP_ADDRESS",
-            "start": 181,
-            "end": 192,
+            "start": 508,
+            "end": 521,
             "nativeLocation": {
-              "line": 8,
-              "columnStart": 15,
-              "columnEnd": 26
+              "line": 12,
+              "columnStart": 25,
+              "columnEnd": 38
             },
             "attributes": {
               "provenance": "synthetic",
@@ -140,14 +198,31 @@
             "expectedReplacement": "[IP_ADDRESS_2]"
           },
           {
+            "id": "ipv6-1",
+            "entityType": "IP_ADDRESS",
+            "start": 553,
+            "end": 564,
+            "nativeLocation": {
+              "line": 13,
+              "columnStart": 31,
+              "columnEnd": 42
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[IP_ADDRESS_3]"
+          },
+          {
             "id": "api-key-1",
             "entityType": "API_KEY",
-            "start": 217,
-            "end": 238,
+            "start": 594,
+            "end": 615,
             "nativeLocation": {
-              "line": 9,
-              "columnStart": 25,
-              "columnEnd": 46
+              "line": 14,
+              "columnStart": 28,
+              "columnEnd": 49
             },
             "attributes": {
               "provenance": "synthetic",
@@ -155,6 +230,91 @@
             },
             "allowedAmbiguity": false,
             "expectedReplacement": "[API_KEY_1]"
+          },
+          {
+            "id": "access-token-1",
+            "entityType": "ACCESS_TOKEN",
+            "start": 648,
+            "end": 673,
+            "nativeLocation": {
+              "line": 15,
+              "columnStart": 32,
+              "columnEnd": 57
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[ACCESS_TOKEN_1]"
+          },
+          {
+            "id": "password-1",
+            "entityType": "PASSWORD",
+            "start": 701,
+            "end": 724,
+            "nativeLocation": {
+              "line": 16,
+              "columnStart": 27,
+              "columnEnd": 50
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[PASSWORD_1]"
+          },
+          {
+            "id": "email-3",
+            "entityType": "EMAIL",
+            "start": 793,
+            "end": 821,
+            "nativeLocation": {
+              "line": 18,
+              "columnStart": 67,
+              "columnEnd": 95
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[EMAIL_3]"
+          },
+          {
+            "id": "phone-3",
+            "entityType": "PHONE",
+            "start": 828,
+            "end": 845,
+            "nativeLocation": {
+              "line": 18,
+              "columnStart": 102,
+              "columnEnd": 119
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[PHONE_3]"
+          },
+          {
+            "id": "ipv4-3",
+            "entityType": "IP_ADDRESS",
+            "start": 881,
+            "end": 893,
+            "nativeLocation": {
+              "line": 18,
+              "columnStart": 155,
+              "columnEnd": 167
+            },
+            "attributes": {
+              "provenance": "synthetic",
+              "testClass": "reserved-example"
+            },
+            "allowedAmbiguity": false,
+            "expectedReplacement": "[IP_ADDRESS_4]"
           }
         ]
       },

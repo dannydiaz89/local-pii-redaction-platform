@@ -3,7 +3,8 @@
 This tracked directory contains synthetic fixtures for manual and automated testing. It must never
 contain real personal data, credentials, or private documents.
 
-- `input/sample.txt` exercises every detector in the initial rules-only bundle.
+- `input/sample.txt` exercises every detector in the current rules-only bundle, including repeated
+  entity types, punctuation boundaries, quoted secrets, Unicode context, and safe near-misses.
 - `expected/sample.redacted.txt` is the expected typed-label output.
 - `manifest.json` records generator provenance, digests, Unicode ground-truth spans, native text
   locations, ambiguity, and the expected policy outcome without copying planted values.
@@ -29,6 +30,9 @@ Try it with:
 ```sh
 pnpm build
 pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
+pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
+  --output /tmp/sample.redacted.txt --json
+diff -u ./sample-data/expected/sample.redacted.txt /tmp/sample.redacted.txt
 pnpm --silent pii-redact verify ./sample-data/expected/sample.redacted.txt --json
 ```
 

@@ -1,11 +1,23 @@
-Synthetic PII detector demonstration
+Synthetic PII detector demonstration — complex rules-only fixture
+Unicode context: Café, naïve, Ελληνικά, العربية, 日本語, and emoji 🚦.
 
-Contact: alpha@example.test
-Phone: +1 (202) 555-0147
-SSN: 123-45-6789
-Payment card: 4242 4242 4242 4242
-IPv4 address: 192.0.2.10
-IPv6 address: 2001:db8::1
-API credential: api_key=synthetic_value_12345
+Résumé owner 👩🏽‍💻: alpha@example.test.
+Escalation (after hours): ops.team+night@example.invalid;
+Primary phone: +1 (202) 555-0147.
+International callback: +44 7700 900123;
+Synthetic tax identifier: 123-45-6789.
+Test payment card (spaced): 4242 4242 4242 4242.
+Test payment card (hyphenated): 4000-0000-0000-0002;
+Audit endpoint: primary=192.0.2.10.
+Reserved failover host: 198.51.100.42.
+IPv6 documentation endpoint: [2001:db8::1].
+Service config: API_KEY = "synthetic_value_12345"
+Worker config: access-token = 'sandbox/token_value_67890'
+Legacy config: password: "correct-horse-battery-9"
+
+Later, a fictional support note asked the overnight team to email release.manager@example.test, call +1 (415) 555-0136, and investigate a connection from 203.0.113.77. The note deliberately surrounds each value with ordinary prose so sentence punctuation and natural-language offsets are tested.
+
+Expected unchanged near-misses: alpha@example and api_key=short.
+Calendar-only value: 1991-07-14 (rules-only does not infer date-of-birth context).
 
 All values in this file are reserved examples or intentionally synthetic test data.

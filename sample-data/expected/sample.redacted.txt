@@ -1,11 +1,23 @@
-Synthetic PII detector demonstration
+Synthetic PII detector demonstration — complex rules-only fixture
+Unicode context: Café, naïve, Ελληνικά, العربية, 日本語, and emoji 🚦.
 
-Contact: [EMAIL_1]
-Phone: [PHONE_1]
-SSN: [SSN_1]
-Payment card: [CREDIT_CARD_1]
-IPv4 address: [IP_ADDRESS_1]
-IPv6 address: [IP_ADDRESS_2]
-API credential: api_key=[API_KEY_1]
+Résumé owner 👩🏽‍💻: [EMAIL_1].
+Escalation (after hours): [EMAIL_2];
+Primary phone: [PHONE_1].
+International callback: [PHONE_2];
+Synthetic tax identifier: [SSN_1].
+Test payment card (spaced): [CREDIT_CARD_1].
+Test payment card (hyphenated): [CREDIT_CARD_2];
+Audit endpoint: primary=[IP_ADDRESS_1].
+Reserved failover host: [IP_ADDRESS_2].
+IPv6 documentation endpoint: [[IP_ADDRESS_3]].
+Service config: API_KEY = "[API_KEY_1]"
+Worker config: access-token = '[ACCESS_TOKEN_1]'
+Legacy config: password: "[PASSWORD_1]"
+
+Later, a fictional support note asked the overnight team to email [EMAIL_3], call [PHONE_3], and investigate a connection from [IP_ADDRESS_4]. The note deliberately surrounds each value with ordinary prose so sentence punctuation and natural-language offsets are tested.
+
+Expected unchanged near-misses: alpha@example and api_key=short.
+Calendar-only value: 1991-07-14 (rules-only does not infer date-of-birth context).
 
 All values in this file are reserved examples or intentionally synthetic test data.
