@@ -1,12 +1,14 @@
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { executeCli, type CliIo } from '../src/commands.js';
+import { createProcessSignalController } from '../src/signals.js';
 
 const directories: string[] = [];
 
@@ -36,6 +38,114 @@ function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly st
 }
 
 describe('CLI TXT vertical slice', () => {
+  it('returns the stable privacy-safe cancellation envelope without reading the input', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const stream = capture();
+
+    expect(await executeCli(['scan', '/private/path/never-read.txt', '--json'], stream.io, {
+      signal: controller.signal
+    })).toBe(130);
+    expect(stream.stdout).toHaveLength(0);
+    expect(JSON.parse(stream.stderr.join(''))).toEqual({
+      schemaVersion: '3.0.0',
+      error: {
+        code: 'OPERATION_CANCELLED',
+        message: 'The operation was cancelled.',
+        retryable: false,
+        correlationId: 'cor_cli_cancelled'
+      }
+    });
+    expect(stream.stderr.join('')).not.toContain('/private/path/never-read.txt');
+  });
+
+  it('converts SIGINT and SIGTERM to cooperative cancellation and removes both listeners', async () => {
+    const source = new EventEmitter();
+    const signals = createProcessSignalController(source);
+    expect(source.listenerCount('SIGINT')).toBe(1);
+    expect(source.listenerCount('SIGTERM')).toBe(1);
+    expect(signals.signal.aborted).toBe(false);
+
+    source.emit('SIGINT');
+    expect(signals.signal.aborted).toBe(true);
+    expect(signals.exitCode).toBe(130);
+    signals.dispose();
+    expect(source.listenerCount('SIGINT')).toBe(0);
+    expect(source.listenerCount('SIGTERM')).toBe(0);
+
+    const terminationSource = new EventEmitter();
+    const termination = createProcessSignalController(terminationSource);
+    terminationSource.emit('SIGTERM');
+    expect(termination.signal.aborted).toBe(true);
+    expect(termination.exitCode).toBe(143);
+    const terminated = capture();
+    expect(await executeCli(['scan', '/private/path/never-read.txt', '--json'], terminated.io, {
+      signal: termination.signal,
+      getCancellationExitCode: () => termination.exitCode
+    })).toBe(143);
+    termination.dispose();
+  });
+
+  it('dry-runs and explicitly cleans only stale stages for the selected output', async () => {
+    const { root, output } = await fixture();
+    const selectedStage = join(root, '.source.redacted.11111111-1111-4111-8111-111111111111.staged.txt');
+    const unrelatedStage = join(root, '.another.22222222-2222-4222-8222-222222222222.staged.txt');
+    await Promise.all([writeFile(selectedStage, 'synthetic staged content'), writeFile(unrelatedStage, 'unrelated')]);
+    const old = new Date('2000-01-01T00:00:00.000Z');
+    await Promise.all([utimes(selectedStage, old, old), utimes(unrelatedStage, old, old)]);
+
+    const dryRun = capture();
+    expect(await executeCli(['cleanup-stages', '--output', output, '--json'], dryRun.io)).toBe(0);
+    const dryReport = JSON.parse(dryRun.stdout.join('')) as {
+      readonly operation: string;
+      readonly mode: string;
+      readonly staleStageFileCount: number;
+      readonly deletedStageFileCount: number;
+      readonly capped: boolean;
+    };
+    expect(dryReport).toMatchObject({
+      operation: 'STAGE_RECOVERY',
+      mode: 'DRY_RUN',
+      staleStageFileCount: 1,
+      deletedStageFileCount: 0,
+      capped: false
+    });
+    expect(dryRun.stdout.join('')).not.toContain(root);
+    expect(await readdir(root)).toContain('.source.redacted.11111111-1111-4111-8111-111111111111.staged.txt');
+
+    let checks = 0;
+    const signal = {
+      get aborted(): boolean { return checks >= 5; },
+      throwIfAborted(): void {
+        checks += 1;
+        if (checks >= 5) throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+    } as unknown as AbortSignal;
+    const cancelled = capture();
+    expect(await executeCli(['cleanup-stages', '--output', output, '--apply', '--json'], cancelled.io, { signal })).toBe(130);
+    const cancelledReport = JSON.parse(cancelled.stderr.join('')) as {
+      readonly schemaVersion: string;
+      readonly error: { readonly code: string };
+    };
+    expect(cancelledReport).toMatchObject({
+      schemaVersion: '3.0.0',
+      error: { code: 'OPERATION_CANCELLED' }
+    });
+    expect(await readFile(selectedStage, 'utf8')).toBe('synthetic staged content');
+
+    const cleanup = capture();
+    expect(await executeCli(['cleanup-stages', '--output', output, '--apply', '--json'], cleanup.io)).toBe(0);
+    expect(JSON.parse(cleanup.stdout.join(''))).toMatchObject({
+      operation: 'STAGE_RECOVERY',
+      mode: 'APPLY',
+      staleStageFileCount: 1,
+      deletedStageFileCount: 1,
+      deletionFailureCount: 0
+    });
+    expect(await readdir(root)).not.toContain('.source.redacted.11111111-1111-4111-8111-111111111111.staged.txt');
+    expect(await readFile(unrelatedStage, 'utf8')).toBe('unrelated');
+  });
+
   it('lists and explains bundled policies without accessing artifacts or Ollama', async () => {
     const fetchImplementation = vi.fn(() => {
       throw new Error('Policy inspection must not make network requests.');

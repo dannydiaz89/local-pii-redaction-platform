@@ -57,12 +57,21 @@ function internalFailure(requestCorrelationId: CorrelationId): SafeError {
 
 async function invoke<Result>(
   requestCorrelationId: CorrelationId,
+  signal: AbortSignal | undefined,
   operation: () => Promise<Result>
 ): Promise<Result> {
   try {
     return await operation();
   } catch (error: unknown) {
     if (error instanceof SafeError) throw error;
+    if (signal?.aborted === true) {
+      throw new SafeError({
+        code: 'OPERATION_CANCELLED',
+        message: 'The operation was cancelled.',
+        retryable: false,
+        correlationId: requestCorrelationId
+      });
+    }
     throw internalFailure(requestCorrelationId);
   }
 }
@@ -343,7 +352,7 @@ export function createTextProcessingApplication(
   return Object.freeze({
     async getCapabilities(context: ApplicationContext, signal?: AbortSignal): Promise<CapabilityManifest> {
       const requestCorrelationId = correlationId(context);
-      return invoke(requestCorrelationId, async () => {
+      return invoke(requestCorrelationId, signal, async () => {
         const manifest = await dependencies.capabilityProvider.getCapabilities(signal);
         assertCapabilityManifest(manifest, requestCorrelationId);
         return manifest;
@@ -352,7 +361,7 @@ export function createTextProcessingApplication(
 
     async inspect(command: TextCommand, context: ApplicationContext) {
       const requestCorrelationId = correlationId(context);
-      return invoke(requestCorrelationId, async () => {
+      return invoke(requestCorrelationId, command.signal, async () => {
         await preflight(dependencies, command.requirement, requestCorrelationId, command.signal);
         return { artifact: await command.session.input(command.signal) };
       });
@@ -360,12 +369,12 @@ export function createTextProcessingApplication(
 
     async scan(command: TextCommand, context: ApplicationContext) {
       const requestCorrelationId = correlationId(context);
-      return invoke(requestCorrelationId, () => readAndScan(dependencies, command, requestCorrelationId));
+      return invoke(requestCorrelationId, command.signal, () => readAndScan(dependencies, command, requestCorrelationId));
     },
 
     async verify(command: TextCommand, context: ApplicationContext) {
       const requestCorrelationId = correlationId(context);
-      return invoke(requestCorrelationId, async () => {
+      return invoke(requestCorrelationId, command.signal, async () => {
         await preflight(dependencies, command.requirement, requestCorrelationId, command.signal);
         const artifact = await command.session.input(command.signal);
         return {
@@ -381,7 +390,7 @@ export function createTextProcessingApplication(
 
     async redact(command: RedactTextCommand, context: ApplicationContext) {
       const requestCorrelationId = correlationId(context);
-      return invoke(requestCorrelationId, async () => {
+      return invoke(requestCorrelationId, command.signal, async () => {
         const manifest = await preflight(
           dependencies,
           command.requirement,
@@ -470,6 +479,14 @@ export function createTextProcessingApplication(
           try {
             verification = await dependencies.verifier.attest(verificationRequest, command.signal);
           } catch {
+            if (command.signal?.aborted === true) {
+              throw new SafeError({
+                code: 'OPERATION_CANCELLED',
+                message: 'The operation was cancelled.',
+                retryable: false,
+                correlationId: requestCorrelationId
+              });
+            }
             throw verificationIncomplete(requestCorrelationId);
           }
           assertVerificationAttestation(

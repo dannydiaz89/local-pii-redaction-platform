@@ -574,4 +574,65 @@ describe('TextProcessingApplication', () => {
     await expect(app.redact({ session, requirement, policy, signal }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
     expect(session.events).toEqual(['input:true', 'stage:true', 'reopen:true', 'discard:false']);
   });
+
+  it('maps cooperative cancellation after staging only after signal-free cleanup', async () => {
+    const controller = new AbortController();
+    const session = new FakeSession('ephemeral');
+    const reopen = session.reopen.bind(session);
+    session.reopen = async (staged, signal) => {
+      const artifact = await reopen(staged, signal);
+      controller.abort();
+      signal?.throwIfAborted();
+      return artifact;
+    };
+    const app = createTextProcessingApplication(dependencies());
+
+    await expect(app.redact({
+      session,
+      requirement,
+      policy,
+      signal: controller.signal
+    }, context)).rejects.toMatchObject({
+      code: 'OPERATION_CANCELLED',
+      retryable: false,
+      correlationId: context.correlationId
+    });
+    expect(session.events).toEqual(['input:false', 'stage:false', 'reopen:false', 'discard:false']);
+  });
+
+  it('preserves cooperative cancellation during attestation instead of reporting incomplete verification', async () => {
+    const controller = new AbortController();
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: verifierPort({
+        attest: () => {
+          controller.abort();
+          return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+        }
+      })
+    }));
+
+    await expect(app.redact({
+      session,
+      requirement,
+      policy,
+      signal: controller.signal
+    }, context)).rejects.toMatchObject({ code: 'OPERATION_CANCELLED' });
+    expect(session.events).toEqual(['input:false', 'stage:false', 'reopen:false', 'discard:false']);
+  });
+
+  it('does not misclassify an unrelated AbortError when the caller signal is active', async () => {
+    const app = createTextProcessingApplication(dependencies({
+      detector: {
+        detectorBundleVersion: 'test-detector',
+        detect: () => Promise.reject(new DOMException('provider aborted', 'AbortError'))
+      }
+    }));
+
+    await expect(app.scan({
+      session: new FakeSession('ephemeral'),
+      requirement,
+      signal: new AbortController().signal
+    }, context)).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+  });
 });

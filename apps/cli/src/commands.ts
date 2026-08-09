@@ -2,7 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import {
-  createLocalTextArtifactSession
+  cleanupStaleTextStages,
+  createLocalTextArtifactSession,
+  inventoryTextStages
 } from '@local-pii/adapter-text';
 import { assertContract } from '@local-pii/contracts';
 import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
@@ -30,6 +32,13 @@ export interface CliIo {
   readonly stderr: (text: string) => void;
 }
 
+export interface ExecuteCliOptions {
+  /** Cooperatively stops artifact, detector, and verification work. */
+  readonly signal?: AbortSignal;
+  /** Lets a signal source preserve a signal-specific process status. */
+  readonly getCancellationExitCode?: () => number | undefined;
+}
+
 interface ParsedArguments {
   readonly command: string | undefined;
   readonly input: string | undefined;
@@ -42,6 +51,7 @@ interface ParsedArguments {
   readonly ollamaUrl: string | undefined;
   readonly timeoutMs: number | undefined;
   readonly allowExperimental: boolean;
+  readonly apply: boolean;
   readonly json: boolean;
   readonly help: boolean;
   readonly license: boolean;
@@ -55,6 +65,7 @@ const usage = `Usage:
   pii-redact redact <file.txt|file.md> [--policy <development-labels|high-risk-disclosure>] [--output <path>] [--json]
   pii-redact verify <file.txt|file.md> [--json]
   pii-redact inspect <file.txt|file.md> [--json]
+  pii-redact cleanup-stages --output <path> [--apply] [--json]
   pii-redact --version
   pii-redact --license
 
@@ -66,8 +77,10 @@ Experimental Ollama options:
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
 const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/2.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
+const stageRecoveryReportSchemaId = 'https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 const errorEnvelopeV2SchemaId = 'https://local-pii.dev/schemas/common/errors/2.0.0';
+const errorEnvelopeV3SchemaId = 'https://local-pii.dev/schemas/common/errors/3.0.0';
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
@@ -79,6 +92,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let ollamaUrl: string | undefined;
   let timeoutMs: number | undefined;
   let allowExperimental = false;
+  let apply = false;
   let json = false;
   let help = false;
   let license = false;
@@ -95,6 +109,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (value === '--help' || value === '-h') help = true;
     else if (value === '--license') license = true;
     else if (value === '--allow-experimental') allowExperimental = true;
+    else if (value === '--apply') apply = true;
     else if (value === '--policy') {
       if (selectedPolicy !== undefined) throw new Error('duplicate policy');
       const selected = valueAfter(index, '--policy');
@@ -143,6 +158,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     ollamaUrl,
     timeoutMs,
     allowExperimental,
+    apply,
     json,
     help,
     license
@@ -151,7 +167,11 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
 function writeResult(io: CliIo, json: boolean, value: object, human: string): void {
   const operation = (value as Readonly<{ readonly operation?: unknown }>).operation;
-  assertContract(operation === 'REDACT' ? cliRedactReportV2SchemaId : cliReportSchemaId, value);
+  assertContract(operation === 'REDACT'
+    ? cliRedactReportV2SchemaId
+    : operation === 'STAGE_RECOVERY'
+      ? stageRecoveryReportSchemaId
+      : cliReportSchemaId, value);
   io.stdout(json ? `${JSON.stringify(value, null, 2)}\n` : `${human}\n`);
 }
 
@@ -217,9 +237,9 @@ function runPolicyExplain(policyName: keyof typeof bundledPolicies, json: boolea
   return 0;
 }
 
-async function runCapabilities(parsed: ParsedArguments, io: CliIo): Promise<number> {
-  const selected = await selectedApplication(parsed);
-  const manifest = await selected.getCapabilities({ correlationId: 'cor_cli_capabilities' });
+async function runCapabilities(parsed: ParsedArguments, io: CliIo, signal?: AbortSignal): Promise<number> {
+  const selected = await selectedApplication(parsed, signal);
+  const manifest = await selected.getCapabilities({ correlationId: 'cor_cli_capabilities' }, signal);
   if (parsed.engine === 'ollama') experimentalWarning(io);
   if (parsed.json) {
     io.stdout(`${JSON.stringify(manifest, null, 2)}\n`);
@@ -241,23 +261,25 @@ function experimentalWarning(io: CliIo): void {
   io.stderr('EXPERIMENTAL: Ollama hybrid detection is unqualified; results, spans, and confidence values may be wrong.\n');
 }
 
-async function selectedApplication(parsed: ParsedArguments) {
+async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal) {
   if (parsed.engine === 'rules') return localTextApplication;
   return createExperimentalOllamaTextApplication({
     model: parsed.model ?? '',
     ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
-    ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs })
+    ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+    ...(signal === undefined ? {} : { signal })
   });
 }
 
-async function runScan(input: string, parsed: ParsedArguments, io: CliIo): Promise<number> {
-  const selected = await selectedApplication(parsed);
+async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal?: AbortSignal): Promise<number> {
+  const selected = await selectedApplication(parsed, signal);
   const maximumInputBytes = parsed.engine === 'ollama'
     ? ollamaExperimentalDefaultLimits.maximumInputBytes
     : undefined;
   const result = await selected.scan({
     session: createLocalTextArtifactSession(input, undefined, maximumInputBytes),
-    requirement: textCapabilityRequirement('SCAN', parsed.engine)
+    requirement: textCapabilityRequirement('SCAN', parsed.engine),
+    ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_scan' });
   const { artifact, resolution } = result;
   const report = {
@@ -306,6 +328,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
       && !parsed.allowExperimental
+      && !parsed.apply
       && !parsed.help
       && !parsed.license;
     if (!commonOptionsValid) return false;
@@ -313,11 +336,59 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
     return parsed.input === 'explain'
       && (parsed.policyName === 'development-labels' || parsed.policyName === 'high-risk-disclosure');
   }
+  if (parsed.command === 'cleanup-stages') {
+    return parsed.input === undefined
+      && parsed.policyName === undefined
+      && parsed.output !== undefined
+      && parsed.selectedPolicy === undefined
+      && !parsed.engineSpecified
+      && parsed.model === undefined
+      && parsed.ollamaUrl === undefined
+      && parsed.timeoutMs === undefined
+      && !parsed.allowExperimental
+      && !parsed.help
+      && !parsed.license;
+  }
   if (!validEngineSelection(parsed)) return false;
+  if (parsed.apply) return false;
   if (parsed.output !== undefined && parsed.command !== 'redact') return false;
   if (parsed.selectedPolicy !== undefined && parsed.command !== 'redact') return false;
   if (parsed.policyName !== undefined) return false;
   return true;
+}
+
+const stageRecoveryMinimumAgeMs = 24 * 60 * 60 * 1000;
+
+async function runStageRecovery(
+  outputPath: string,
+  apply: boolean,
+  json: boolean,
+  io: CliIo,
+  signal?: AbortSignal
+): Promise<number> {
+  const options = {
+    outputPath,
+    minimumAgeMs: stageRecoveryMinimumAgeMs,
+    ...(signal === undefined ? {} : { signal })
+  };
+  const inventory = apply
+    ? await cleanupStaleTextStages(options)
+    : { ...(await inventoryTextStages(options)), deletedStageFileCount: 0, deletionFailureCount: 0 };
+  const report = {
+    schemaVersion: '1.0.0',
+    operation: 'STAGE_RECOVERY',
+    mode: apply ? 'APPLY' : 'DRY_RUN',
+    minimumAgeMs: stageRecoveryMinimumAgeMs,
+    ...inventory
+  };
+  writeResult(io, json, report, [
+    `Mode: ${apply ? 'apply' : 'dry-run'}`,
+    `Stale stages: ${String(inventory.staleStageFileCount)}`,
+    `Deleted stages: ${String(inventory.deletedStageFileCount)}`,
+    `Deletion failures: ${String(inventory.deletionFailureCount)}`,
+    `Bounded scan: ${inventory.capped ? 'incomplete' : 'complete'}`
+  ].join('\n'));
+  return inventory.capped || inventory.deletionFailureCount > 0 ? 3 : 0;
 }
 
 async function runRedact(
@@ -325,13 +396,15 @@ async function runRedact(
   output: string | undefined,
   policyName: keyof typeof bundledPolicies | undefined,
   json: boolean,
-  io: CliIo
+  io: CliIo,
+  signal?: AbortSignal
 ): Promise<number> {
   const policy = compilePolicy(bundledPolicies[policyName ?? 'development-labels']);
   const result = await localTextApplication.redact({
     session: createLocalTextArtifactSession(input, output, policy.limits.maximumInputBytes),
     requirement: textCapabilityRequirement('REDACT'),
-    policy
+    policy,
+    ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_redact' });
   const report = {
     schemaVersion: '2.0.0', operation: 'REDACT', outcome: 'VERIFIED',
@@ -367,10 +440,11 @@ async function runRedact(
   return 0;
 }
 
-async function runVerify(input: string, json: boolean, io: CliIo): Promise<number> {
+async function runVerify(input: string, json: boolean, io: CliIo, signal?: AbortSignal): Promise<number> {
   const result = await localTextApplication.verify({
     session: createLocalTextArtifactSession(input),
-    requirement: textCapabilityRequirement('VERIFY')
+    requirement: textCapabilityRequirement('VERIFY'),
+    ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_verify' });
   const { artifact, verification } = result;
   const report = {
@@ -384,10 +458,11 @@ async function runVerify(input: string, json: boolean, io: CliIo): Promise<numbe
   return verification.outcome === 'PASS' ? 0 : 4;
 }
 
-async function runInspect(input: string, json: boolean, io: CliIo): Promise<number> {
+async function runInspect(input: string, json: boolean, io: CliIo, signal?: AbortSignal): Promise<number> {
   const { artifact } = await localTextApplication.inspect({
     session: createLocalTextArtifactSession(input),
-    requirement: textCapabilityRequirement('INSPECT')
+    requirement: textCapabilityRequirement('INSPECT'),
+    ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_inspect' });
   const report = {
     schemaVersion: '1.0.0', operation: 'INSPECT', outcome: 'SUCCEEDED',
@@ -407,12 +482,13 @@ async function runInspect(input: string, json: boolean, io: CliIo): Promise<numb
 }
 
 function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: number): number {
-  const artifactIntegrityFailure = error.code === 'ARTIFACT_DIGEST_MISMATCH';
+  const usesV2Envelope = error.code === 'ARTIFACT_DIGEST_MISMATCH';
+  const usesV3Envelope = error.code === 'OPERATION_CANCELLED';
   const envelope = {
-    schemaVersion: artifactIntegrityFailure ? '2.0.0' : '1.0.0',
+    schemaVersion: usesV3Envelope ? '3.0.0' : usesV2Envelope ? '2.0.0' : '1.0.0',
     error: { code: error.code, message: error.message, retryable: error.retryable, correlationId: error.correlationId, ...(error.details === undefined ? {} : { details: error.details }) }
   };
-  assertContract(artifactIntegrityFailure ? errorEnvelopeV2SchemaId : errorEnvelopeSchemaId, envelope);
+  assertContract(usesV3Envelope ? errorEnvelopeV3SchemaId : usesV2Envelope ? errorEnvelopeV2SchemaId : errorEnvelopeSchemaId, envelope);
   io.stderr(json ? `${JSON.stringify(envelope, null, 2)}\n` : `${error.code}: ${error.message}\n`);
   return exitCode ?? (error.code === 'OUTPUT_COLLISION'
     ? 6
@@ -422,6 +498,8 @@ function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: n
         || error.code === 'REDACTION_COUNT_MISMATCH'
         || error.code === 'ARTIFACT_DIGEST_MISMATCH'
         ? 4
+        : error.code === 'OPERATION_CANCELLED'
+          ? 130
         : 3);
 }
 
@@ -437,16 +515,38 @@ function writeUsageError(json: boolean, io: CliIo): number {
   return 2;
 }
 
-export async function executeCli(argv: readonly string[], io: CliIo): Promise<number> {
+function writeCancellationError(json: boolean, io: CliIo, exitCode?: number): number {
+  return writeSafeError(new SafeError({
+    code: 'OPERATION_CANCELLED',
+    message: 'The operation was cancelled.',
+    retryable: false,
+    correlationId: 'cor_cli_cancelled'
+  }), json, io, exitCode);
+}
+
+function isCancellation(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+export async function executeCli(
+  argv: readonly string[],
+  io: CliIo,
+  options: ExecuteCliOptions = {}
+): Promise<number> {
+  const { signal, getCancellationExitCode } = options;
+  const cancellationExitCode = (): number => getCancellationExitCode?.() ?? 130;
   const requestedJson = argv.includes('--json');
   let parsed: ParsedArguments;
   try {
+    signal?.throwIfAborted();
     parsed = parseArguments(argv);
   } catch {
+    if (isCancellation(signal)) return writeCancellationError(requestedJson, io, cancellationExitCode());
     return writeUsageError(requestedJson, io);
   }
 
   try {
+    signal?.throwIfAborted();
     if (parsed.command === 'policies' && !validCommandOptions(parsed)) {
       return writeUsageError(parsed.json, io);
     }
@@ -471,18 +571,22 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
     }
     if (parsed.command === 'capabilities') {
       if (parsed.input !== undefined || parsed.policyName !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
-      return await runCapabilities(parsed, io);
+      return await runCapabilities(parsed, io, signal);
+    }
+    if (parsed.command === 'cleanup-stages') {
+      return await runStageRecovery(parsed.output as string, parsed.apply, parsed.json, io, signal);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
       return writeUsageError(parsed.json, io);
     }
-    if (parsed.command === 'scan') return await runScan(parsed.input, parsed, io);
+    if (parsed.command === 'scan') return await runScan(parsed.input, parsed, io, signal);
     if (parsed.command === 'redact') {
-      return await runRedact(parsed.input, parsed.output, parsed.selectedPolicy, parsed.json, io);
+      return await runRedact(parsed.input, parsed.output, parsed.selectedPolicy, parsed.json, io, signal);
     }
-    if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io);
-    return await runInspect(parsed.input, parsed.json, io);
+    if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io, signal);
+    return await runInspect(parsed.input, parsed.json, io, signal);
   } catch (error: unknown) {
+    if (isCancellation(signal)) return writeCancellationError(parsed.json, io, cancellationExitCode());
     if (error instanceof SafeError) return writeSafeError(error, parsed.json, io);
     return writeSafeError(new SafeError({
       code: 'INTERNAL_ERROR',

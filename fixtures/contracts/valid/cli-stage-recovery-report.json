@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "STAGE_RECOVERY",
+  "mode": "DRY_RUN",
+  "minimumAgeMs": 86400000,
+  "scannedEntryCount": 4,
+  "matchingStageFileCount": 1,
+  "staleStageFileCount": 1,
+  "freshStageFileCount": 0,
+  "protectedEntryCount": 0,
+  "skippedUnsafeEntryCount": 0,
+  "capped": false,
+  "deletedStageFileCount": 0,
+  "deletionFailureCount": 0
+}

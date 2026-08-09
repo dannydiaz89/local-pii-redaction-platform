@@ -10,7 +10,8 @@ import {
   validateContract,
   type CapabilitiesCapabilityManifestContract,
   type CommonErrorsContract,
-  type CommonErrorsV2Contract
+  type CommonErrorsV2Contract,
+  type CommonErrorsV3Contract
 } from '../packages/contracts/src/index.js';
 import { SafeError } from '../packages/domain/src/index.js';
 import type { ApplicationContext } from '../packages/core/src/index.js';
@@ -18,7 +19,9 @@ import type { ApplicationContext } from '../packages/core/src/index.js';
 import { loadSchemas, type JsonObject } from './schema-utils.js';
 
 export type CapabilityManifest = CapabilitiesCapabilityManifestContract.CapabilityManifest;
-type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope | CommonErrorsV2Contract.TypedErrorEnvelopeV2;
+type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope
+  | CommonErrorsV2Contract.TypedErrorEnvelopeV2
+  | CommonErrorsV3Contract.TypedErrorEnvelopeV3;
 
 export interface CapabilityApplicationPort {
   getCapabilities(context: ApplicationContext): Promise<CapabilityManifest>;
@@ -29,6 +32,8 @@ export const fastifySpikeListenOptions = Object.freeze({ host: '127.0.0.1', port
 
 const capabilitySchemaId = 'https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0';
 const errorSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
+const errorSchemaV2Id = 'https://local-pii.dev/schemas/common/errors/2.0.0';
+const errorSchemaV3Id = 'https://local-pii.dev/schemas/common/errors/3.0.0';
 const capabilitySchema = loadSchemas()
   .find(({ schema }) => schema.$id === capabilitySchemaId)?.schema;
 
@@ -99,6 +104,7 @@ function safeError(error: unknown, correlationId: string): SafeError {
 }
 
 function statusFor(error: SafeError): number {
+  if (error.code === 'OPERATION_CANCELLED') return 408;
   if (error.code === 'INPUT_TOO_LARGE') return 413;
   if (error.code === 'FORMAT_UNSUPPORTED') return 415;
   if (error.code === 'POLICY_UNSATISFIABLE') return 422;
@@ -110,6 +116,18 @@ function statusFor(error: SafeError): number {
 }
 
 function errorEnvelope(error: SafeError): ErrorEnvelope {
+  if (error.code === 'OPERATION_CANCELLED') {
+    return {
+      schemaVersion: '3.0.0',
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+        correlationId: error.correlationId,
+        ...(error.details === undefined ? {} : { details: error.details })
+      }
+    };
+  }
   if (error.code === 'ARTIFACT_DIGEST_MISMATCH') {
     return {
       schemaVersion: '2.0.0',
@@ -136,7 +154,12 @@ function errorEnvelope(error: SafeError): ErrorEnvelope {
 
 function sendError(reply: FastifyReply, statusCode: number, error: SafeError): void {
   const envelope = errorEnvelope(error);
-  if (!validateContract(errorSchemaId, envelope).valid) {
+  const envelopeSchemaId = envelope.schemaVersion === '3.0.0'
+    ? errorSchemaV3Id
+    : envelope.schemaVersion === '2.0.0'
+      ? errorSchemaV2Id
+      : errorSchemaId;
+  if (!validateContract(envelopeSchemaId, envelope).valid) {
     reply.status(500).send({
       schemaVersion: '1.0.0',
       error: {

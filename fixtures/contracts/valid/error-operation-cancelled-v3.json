@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "3.0.0",
+  "error": {
+    "code": "OPERATION_CANCELLED",
+    "message": "The operation was cancelled.",
+    "retryable": false,
+    "correlationId": "cor_operation_cancelled"
+  }
+}

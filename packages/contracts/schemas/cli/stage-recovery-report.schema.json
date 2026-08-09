@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0",
+  "title": "CLI stage recovery report",
+  "description": "Privacy-safe bounded counts from an explicit text staging inventory or cleanup.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "operation", "mode", "minimumAgeMs", "scannedEntryCount",
+    "matchingStageFileCount", "staleStageFileCount", "freshStageFileCount",
+    "protectedEntryCount", "skippedUnsafeEntryCount", "capped",
+    "deletedStageFileCount", "deletionFailureCount"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operation": { "const": "STAGE_RECOVERY" },
+    "mode": { "enum": ["DRY_RUN", "APPLY"] },
+    "minimumAgeMs": { "type": "integer", "minimum": 1, "maximum": 2678400000 },
+    "scannedEntryCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "matchingStageFileCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "staleStageFileCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "freshStageFileCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "protectedEntryCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "skippedUnsafeEntryCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "capped": { "type": "boolean" },
+    "deletedStageFileCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+    "deletionFailureCount": { "type": "integer", "minimum": 0, "maximum": 1000 }
+  },
+  "examples": [
+    {
+      "schemaVersion": "1.0.0",
+      "operation": "STAGE_RECOVERY",
+      "mode": "DRY_RUN",
+      "minimumAgeMs": 86400000,
+      "scannedEntryCount": 4,
+      "matchingStageFileCount": 1,
+      "staleStageFileCount": 1,
+      "freshStageFileCount": 0,
+      "protectedEntryCount": 0,
+      "skippedUnsafeEntryCount": 0,
+      "capped": false,
+      "deletedStageFileCount": 0,
+      "deletionFailureCount": 0
+    }
+  ]
+}

@@ -1770,6 +1770,109 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0",
+    "title": "CLI stage recovery report",
+    "description": "Privacy-safe bounded counts from an explicit text staging inventory or cleanup.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "mode",
+      "minimumAgeMs",
+      "scannedEntryCount",
+      "matchingStageFileCount",
+      "staleStageFileCount",
+      "freshStageFileCount",
+      "protectedEntryCount",
+      "skippedUnsafeEntryCount",
+      "capped",
+      "deletedStageFileCount",
+      "deletionFailureCount"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "const": "STAGE_RECOVERY"
+      },
+      "mode": {
+        "enum": [
+          "DRY_RUN",
+          "APPLY"
+        ]
+      },
+      "minimumAgeMs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2678400000
+      },
+      "scannedEntryCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "matchingStageFileCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "staleStageFileCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "freshStageFileCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "protectedEntryCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "skippedUnsafeEntryCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "capped": {
+        "type": "boolean"
+      },
+      "deletedStageFileCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "deletionFailureCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "STAGE_RECOVERY",
+        "mode": "DRY_RUN",
+        "minimumAgeMs": 86400000,
+        "scannedEntryCount": 4,
+        "matchingStageFileCount": 1,
+        "staleStageFileCount": 1,
+        "freshStageFileCount": 0,
+        "protectedEntryCount": 0,
+        "skippedUnsafeEntryCount": 0,
+        "capped": false,
+        "deletedStageFileCount": 0,
+        "deletionFailureCount": 0
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/entity-type/1.0.0",
     "title": "Entity type",
     "description": "Initial versioned PII and secret entity taxonomy proposed by the reference catalog.",
@@ -1934,6 +2037,140 @@ export const schemaCatalog = [
           "message": "The staged artifact changed before verification.",
           "retryable": false,
           "correlationId": "cor_artifact_integrity"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/errors/3.0.0",
+    "title": "Typed error envelope v3",
+    "description": "Privacy-safe stable error envelope with explicit artifact-integrity and cooperative-cancellation classifications.",
+    "schemaVersion": "3.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "error"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "3.0.0"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "correlationId"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "CONTRACT_UNSUPPORTED",
+              "SCHEMA_INVALID",
+              "IDEMPOTENCY_CONFLICT",
+              "INPUT_TOO_LARGE",
+              "FORMAT_UNSUPPORTED",
+              "FORMAT_ENCRYPTED",
+              "FORMAT_CORRUPT",
+              "POLICY_UNSATISFIABLE",
+              "POLICY_REVIEW_REQUIRED",
+              "POLICY_BLOCKED",
+              "REQUIRED_DETECTOR_UNAVAILABLE",
+              "MODEL_UNAVAILABLE",
+              "DETECTOR_TIMEOUT",
+              "DETECTION_LIMIT_EXCEEDED",
+              "MODEL_OUTPUT_INVALID",
+              "SOURCE_MAP_INVALID",
+              "REDACTION_PLAN_CONFLICT",
+              "REDACTION_COUNT_MISMATCH",
+              "VERIFICATION_RESIDUAL",
+              "VERIFICATION_INCOMPLETE",
+              "FIDELITY_OUT_OF_RANGE",
+              "ARTIFACT_DIGEST_MISMATCH",
+              "STORAGE_UNAVAILABLE",
+              "JOB_CONFLICT",
+              "OUTPUT_COLLISION",
+              "RATE_LIMITED",
+              "SUPPLY_CHAIN_INVALID",
+              "AUTHORIZATION_DENIED",
+              "OPERATION_CANCELLED",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "correlationId": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/CorrelationId"
+          },
+          "details": {
+            "type": "object",
+            "description": "Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.",
+            "maxProperties": 16,
+            "propertyNames": {
+              "enum": [
+                "format",
+                "stage",
+                "attempt",
+                "recovered",
+                "reason",
+                "detectorId",
+                "deadlineExceeded",
+                "modelId",
+                "conflictCount",
+                "findingCount",
+                "contractVersionAvailable",
+                "engineModeAvailable",
+                "formatAvailable",
+                "operationAvailable",
+                "qualificationSufficient",
+                "missingDetectorCount",
+                "missingDetectorKindCount",
+                "missingTransformationCount",
+                "verificationProfileAvailable",
+                "inputLimitSufficient",
+                "maximumInputBytes",
+                "actualInputBytes"
+              ]
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "3.0.0",
+        "error": {
+          "code": "OPERATION_CANCELLED",
+          "message": "The operation was cancelled.",
+          "retryable": false,
+          "correlationId": "cor_operation_cancelled"
         }
       }
     ]

@@ -44,11 +44,24 @@ pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
   > ./test-output/sample.redact-report.json
 pnpm --silent pii-redact verify ./test-output/sample.redacted.txt --json \
   > ./test-output/sample.verify-report.json
+pnpm --silent pii-redact cleanup-stages \
+  --output ./test-output/sample.redacted.txt --json
 ```
 
 The tracked `test-output/` directory is a local workspace for generated artifacts and JSON reports;
 everything inside it except its `.gitignore` is ignored by Git. Delete or rename an existing output
 before rerunning a command because the CLI intentionally never overwrites output files.
+
+`cleanup-stages` is a bounded recovery tool for an interrupted redaction. It is a dry run unless
+`--apply` is supplied, considers only private stages older than 24 hours that match the exact
+selected output, and reports counts without filenames or paths. Run it only in a trusted directory:
+the generated UUID filename sharply limits candidates but is not cryptographic proof that the
+application owns a file. To remove eligible stages after reviewing the dry run:
+
+```sh
+pnpm --silent pii-redact cleanup-stages \
+  --output ./test-output/sample.redacted.txt --apply --json
+```
 
 Every rules-only `redact` is policy-bound. When `--policy` is omitted, the CLI explicitly selects
 and reports `development-labels` for compatibility. `redact` never overwrites its input or an
@@ -90,8 +103,13 @@ loopback URLs; `--ollama-url http://127.0.0.1:11434` and `--timeout-ms 60000` ma
 explicitly. This path is scan-only, bounded to 80,000 input bytes/20,000 Unicode code points, and
 fails closed rather than silently falling back to rules-only behavior.
 
-Exit codes are `0` for success, `2` for usage, `3` for processing errors, `4` for failed
-verification, `5` for unresolved scan conflicts or policy review, and `6` for output collisions.
+`SIGINT` and `SIGTERM` request cooperative cancellation. The CLI waits for in-flight cleanup and
+returns the canonical `OPERATION_CANCELLED` error without publishing an unverified output. Signal
+exit codes are `130` for `SIGINT` and `143` for `SIGTERM`.
+
+Other exit codes are `0` for success, `2` for usage, `3` for processing or incomplete recovery,
+`4` for failed verification, `5` for unresolved scan conflicts or policy review, and `6` for
+output collisions.
 
 ## Current limitations
 
@@ -103,6 +121,10 @@ verification, `5` for unresolved scan conflicts or policy review, and `6` for ou
   small frozen harness. It is useful for testing integration, not for making safety claims.
 - The verification profile is a deterministic residual rescan, not a claim that all PII classes or
   contextual entities were detected.
+- Cooperative cleanup cannot run after `SIGKILL`, a process or host crash, power loss, or some
+  filesystem failures. Orphan-stage unlinking is not secure erasure and does not remove copies from
+  filesystem journals, snapshots, backups, swap, or provider logs. Recovery is an explicit
+  operator action in a trusted directory because stage-like filenames are not ownership proofs.
 - There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.

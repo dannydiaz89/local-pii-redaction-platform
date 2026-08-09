@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,7 +12,9 @@ import { rm } from 'node:fs/promises';
 import {
   createLocalTextArtifactSession,
   createTextWriterReceipt,
+  cleanupStaleTextStages,
   discardStagedTextArtifact,
+  inventoryTextStages,
   readTextArtifact,
   writeTextArtifact,
   assertTextWriterReceiptIntegrity,
@@ -36,6 +38,15 @@ interface TestAction {
   readonly start: number;
   readonly end: number;
   readonly replacement: string;
+}
+
+function stageName(stem: string, uuid: string, extension = '.txt'): string {
+  return `.${stem}.${uuid}.staged${extension}`;
+}
+
+async function makeStale(path: string): Promise<void> {
+  const stale = new Date(Date.now() - 120_000);
+  await utimes(path, stale, stale);
 }
 
 function typedLabelPlan(source: TextArtifact, actions: readonly TestAction[] = [{
@@ -259,6 +270,51 @@ describe('text adapter', () => {
     expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
   });
 
+  it('honors cancellation at the final pre-publication checkpoint', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    let checks = 0;
+    const signal = {
+      get aborted(): boolean { return checks >= 5; },
+      throwIfAborted(): void {
+        checks += 1;
+        if (checks >= 5) throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+    } as unknown as AbortSignal;
+
+    await expect(session.publish(staged, signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(staged.path, 'utf8')).toBe('[EMAIL_1]');
+    await session.discard(staged);
+  });
+
+  it('reports success when cancellation races after the publication commit barrier', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    const controller = new AbortController();
+    let checks = 0;
+    const signal = {
+      get aborted(): boolean { return controller.signal.aborted; },
+      throwIfAborted(): void {
+        checks += 1;
+        if (checks === 5) queueMicrotask(() => { controller.abort(); });
+        controller.signal.throwIfAborted();
+      }
+    } as unknown as AbortSignal;
+
+    await expect(session.publish(staged, signal)).resolves.toMatchObject({ reference: output });
+    expect(controller.signal.aborted).toBe(true);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
   it('honors cancellation before staging without leaving a staged or published artifact', async () => {
     const root = await directory();
     const input = join(root, 'input.txt');
@@ -323,6 +379,132 @@ describe('text adapter', () => {
       code: 'STORAGE_UNAVAILABLE',
       message: 'The staged artifact could not be removed.'
     });
+  });
+
+  it('inventories only stale, regular project stages and returns privacy-safe counts', async () => {
+    const root = await directory();
+    const uuid = '11111111-1111-4111-8111-111111111111';
+    const staleStage = join(root, stageName('report', uuid));
+    const freshStage = join(root, stageName('report', '22222222-2222-4222-8222-222222222222'));
+    const protectedOutput = join(root, stageName('report', '33333333-3333-4333-8333-333333333333'));
+    const symlinkStage = join(root, stageName('report', '44444444-4444-4444-8444-444444444444'));
+    const directoryStage = join(root, stageName('report', '55555555-5555-4555-8555-555555555555'));
+    const lookalike = join(root, '.report.not-a-uuid.staged.txt');
+    const source = join(root, 'source.txt');
+    await Promise.all([
+      writeFile(staleStage, 'stale'),
+      writeFile(freshStage, 'fresh'),
+      writeFile(protectedOutput, 'requested output'),
+      writeFile(lookalike, 'lookalike'),
+      writeFile(source, 'source'),
+      mkdir(directoryStage)
+    ]);
+    await symlink(source, symlinkStage);
+    await Promise.all([makeStale(staleStage), makeStale(protectedOutput)]);
+
+    const inventory = await inventoryTextStages({
+      outputPath: join(root, 'report.txt'),
+      minimumAgeMs: 60_000,
+      protectedPaths: [source, protectedOutput]
+    });
+
+    expect(inventory).toEqual({
+      scannedEntryCount: 7,
+      matchingStageFileCount: 3,
+      staleStageFileCount: 1,
+      freshStageFileCount: 1,
+      protectedEntryCount: 1,
+      skippedUnsafeEntryCount: 2,
+      capped: false
+    });
+    expect(await readFile(staleStage, 'utf8')).toBe('stale');
+    expect(await readFile(freshStage, 'utf8')).toBe('fresh');
+    expect(await readFile(protectedOutput, 'utf8')).toBe('requested output');
+    expect(await readFile(symlinkStage, 'utf8')).toBe('source');
+    expect((await stat(directoryStage)).isDirectory()).toBe(true);
+    expect(await readFile(lookalike, 'utf8')).toBe('lookalike');
+  });
+
+  it('caps explicit stale-stage cleanup and is idempotent without deleting protected files', async () => {
+    const root = await directory();
+    const first = join(root, stageName('cleanup', '66666666-6666-4666-8666-666666666666'));
+    const second = join(root, stageName('cleanup', '77777777-7777-4777-8777-777777777777'));
+    const input = join(root, stageName('cleanup', '88888888-8888-4888-8888-888888888888'));
+    await Promise.all([writeFile(first, 'first'), writeFile(second, 'second'), writeFile(input, 'input')]);
+    await Promise.all([makeStale(first), makeStale(second), makeStale(input)]);
+
+    const firstCleanup = await cleanupStaleTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      maximumDeletes: 1,
+      protectedPaths: [input]
+    });
+    expect(firstCleanup).toMatchObject({
+      staleStageFileCount: 2,
+      protectedEntryCount: 1,
+      deletedStageFileCount: 0,
+      deletionFailureCount: 0,
+      capped: true
+    });
+    expect((await readdir(root)).filter((name) => name.includes('.staged'))).toHaveLength(3);
+    expect(await readFile(input, 'utf8')).toBe('input');
+
+    const secondCleanup = await cleanupStaleTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      protectedPaths: [input]
+    });
+    expect(secondCleanup).toMatchObject({ deletedStageFileCount: 2, deletionFailureCount: 0, capped: false });
+    const idempotentCleanup = await cleanupStaleTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      protectedPaths: [input]
+    });
+    expect(idempotentCleanup).toMatchObject({
+      staleStageFileCount: 0,
+      protectedEntryCount: 1,
+      deletedStageFileCount: 0,
+      deletionFailureCount: 0,
+      capped: false
+    });
+    expect(await readFile(input, 'utf8')).toBe('input');
+  });
+
+  it('stops bounded enumeration and honors cancellation before deleting a stale stage', async () => {
+    const root = await directory();
+    const candidate = join(root, stageName('cleanup', '99999999-9999-4999-8999-999999999999'));
+    await Promise.all([writeFile(candidate, 'stale'), writeFile(join(root, 'unrelated.txt'), 'unrelated')]);
+    await makeStale(candidate);
+
+    const bounded = await inventoryTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      maximumEntries: 1
+    });
+    expect(bounded).toMatchObject({ scannedEntryCount: 1, capped: true });
+    const cappedCleanup = await cleanupStaleTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      maximumEntries: 1
+    });
+    expect(cappedCleanup).toMatchObject({ capped: true, deletedStageFileCount: 0 });
+    expect(await readFile(candidate, 'utf8')).toBe('stale');
+    await rm(join(root, 'unrelated.txt'));
+
+    let checks = 0;
+    const signal = {
+      get aborted(): boolean { return checks >= 6; },
+      throwIfAborted(): void {
+        checks += 1;
+        if (checks >= 6) throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+    } as unknown as AbortSignal;
+    await expect(cleanupStaleTextStages({
+      outputPath: join(root, 'cleanup.txt'),
+      minimumAgeMs: 60_000,
+      signal
+    })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await readFile(candidate, 'utf8')).toBe('stale');
   });
 
   it('rejects plans that were bound to a different source, writer, or action count', async () => {

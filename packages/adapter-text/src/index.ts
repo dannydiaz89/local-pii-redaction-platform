@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, lstat, open, readFile, realpath, stat, unlink } from 'node:fs/promises';
+import { link, lstat, open, opendir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 
 import { SafeError, parseSha256Digest, type Sha256Digest } from '@local-pii/domain';
@@ -76,6 +76,44 @@ export interface StagedTextArtifact extends WrittenTextArtifact {
 }
 
 /**
+ * Bounded, privacy-safe counts from an explicit staging-directory inventory.
+ * Candidate paths and filenames are deliberately never returned.
+ */
+export interface TextStageInventory {
+  readonly scannedEntryCount: number;
+  readonly matchingStageFileCount: number;
+  readonly staleStageFileCount: number;
+  readonly freshStageFileCount: number;
+  readonly protectedEntryCount: number;
+  readonly skippedUnsafeEntryCount: number;
+  readonly capped: boolean;
+}
+
+/** Options for explicitly inventorying or cleaning a selected staging parent. */
+export interface TextStageReconciliationOptions {
+  /** Exact intended output whose project-owned stages may be considered. */
+  readonly outputPath: string;
+  /** Files must be at least this old to be considered stale; defaults to one day. */
+  readonly minimumAgeMs?: number;
+  /** Maximum direct directory entries inspected; defaults to 1,000 and is capped at 10,000. */
+  readonly maximumEntries?: number;
+  /** Maximum stale files an explicit cleanup may remove; defaults to 100 and is capped at 1,000. */
+  readonly maximumDeletes?: number;
+  /** Explicit input/output paths in the selected directory that must never be removed. */
+  readonly protectedPaths?: readonly string[];
+  /** Injectable wall clock for deterministic callers and tests. */
+  readonly now?: number;
+  /** Cooperatively stops inventory or further deletions. */
+  readonly signal?: AbortSignal;
+}
+
+/** Privacy-safe outcome of an explicit stale-stage cleanup. */
+export interface TextStageCleanupResult extends TextStageInventory {
+  readonly deletedStageFileCount: number;
+  readonly deletionFailureCount: number;
+}
+
+/**
  * A deterministic, privacy-safe writer attestation for action reconciliation.
  * The verifier compares this receipt with the full immutable plan; neither
  * source text, replacement text, nor storage locations are reported here.
@@ -108,6 +146,243 @@ export interface TextArtifactSession extends TextInputSession {
 
 function digestBytes(bytes: Uint8Array): Sha256Digest {
   return parseSha256Digest(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+}
+
+const defaultStageMinimumAgeMs = 24 * 60 * 60 * 1000;
+const defaultStageMaximumEntries = 1_000;
+const defaultStageMaximumDeletes = 100;
+const absoluteStageMaximumEntries = 10_000;
+const absoluteStageMaximumDeletes = 1_000;
+const randomUuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+interface StaleTextStageCandidate {
+  readonly path: string;
+  readonly device: number;
+  readonly inode: number;
+  readonly size: number;
+  readonly modifiedAtMs: number;
+}
+
+interface TextStageInventoryInternal {
+  readonly report: TextStageInventory;
+  readonly staleCandidates: readonly StaleTextStageCandidate[];
+}
+
+function boundedStageOption(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+  name: string
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved < 1 || resolved > maximum) {
+    throw new TypeError(`${name} must be a bounded positive integer.`);
+  }
+  return resolved;
+}
+
+function stageReconciliationConfiguration(options: TextStageReconciliationOptions): Readonly<{
+  minimumAgeMs: number;
+  maximumEntries: number;
+  maximumDeletes: number;
+  now: number;
+}> {
+  const minimumAgeMs = options.minimumAgeMs ?? defaultStageMinimumAgeMs;
+  if (!Number.isSafeInteger(minimumAgeMs) || minimumAgeMs < 1 || minimumAgeMs > 31 * defaultStageMinimumAgeMs) {
+    throw new TypeError('minimumAgeMs must be a bounded positive integer.');
+  }
+  const now = options.now ?? Date.now();
+  if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('now must be a non-negative integer timestamp.');
+  return {
+    minimumAgeMs,
+    maximumEntries: boundedStageOption(options.maximumEntries, defaultStageMaximumEntries, absoluteStageMaximumEntries, 'maximumEntries'),
+    maximumDeletes: boundedStageOption(options.maximumDeletes, defaultStageMaximumDeletes, absoluteStageMaximumDeletes, 'maximumDeletes'),
+    now
+  };
+}
+
+async function selectedStageParent(parentDirectory: string): Promise<string> {
+  let selected;
+  try {
+    selected = await lstat(parentDirectory);
+  } catch {
+    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: true, correlationId: 'cor_text_adapter' });
+  }
+  if (selected.isSymbolicLink() || !selected.isDirectory()) {
+    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  let canonical: string;
+  let canonicalMetadata;
+  try {
+    canonical = await realpath(parentDirectory);
+    canonicalMetadata = await lstat(canonical);
+  } catch {
+    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: true, correlationId: 'cor_text_adapter' });
+  }
+  if (
+    canonicalMetadata.isSymbolicLink()
+    || !canonicalMetadata.isDirectory()
+    || canonicalMetadata.dev !== selected.dev
+    || canonicalMetadata.ino !== selected.ino
+  ) {
+    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  return canonical;
+}
+
+async function protectedStageNames(parentDirectory: string, protectedPaths: readonly string[] | undefined): Promise<ReadonlySet<string>> {
+  const names = new Set<string>();
+  for (const protectedPath of protectedPaths ?? []) {
+    const resolved = resolve(parentDirectory, protectedPath);
+    try {
+      if (await realpath(dirname(resolved)) === parentDirectory) names.add(basename(resolved));
+    } catch {
+      // A missing parent cannot contain a candidate in the selected existing directory.
+    }
+  }
+  return names;
+}
+
+function isStageForOutput(name: string, outputPath: string): boolean {
+  const extension = extname(outputPath);
+  const prefix = `.${basename(outputPath, extension)}.`;
+  const suffix = `.staged${extension}`;
+  if (!name.startsWith(prefix) || !name.endsWith(suffix)) return false;
+  const uuid = name.slice(prefix.length, name.length - suffix.length);
+  return randomUuidV4Pattern.test(uuid);
+}
+
+async function inventoryTextStagesInternal(options: TextStageReconciliationOptions): Promise<TextStageInventoryInternal> {
+  options.signal?.throwIfAborted();
+  const configuration = stageReconciliationConfiguration(options);
+  const outputPath = resolve(options.outputPath);
+  const parentDirectory = await selectedStageParent(dirname(outputPath));
+  const protectedNames = await protectedStageNames(parentDirectory, [outputPath, ...(options.protectedPaths ?? [])]);
+  const names: string[] = [];
+  let capped = false;
+  try {
+    const directory = await opendir(parentDirectory);
+    for await (const entry of directory) {
+      options.signal?.throwIfAborted();
+      if (names.length >= configuration.maximumEntries) {
+        capped = true;
+        break;
+      }
+      names.push(entry.name);
+    }
+    names.sort();
+  } catch {
+    options.signal?.throwIfAborted();
+    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: true, correlationId: 'cor_text_adapter' });
+  }
+
+  let matchingStageFileCount = 0;
+  let freshStageFileCount = 0;
+  let protectedEntryCount = 0;
+  let skippedUnsafeEntryCount = 0;
+  const staleCandidates: StaleTextStageCandidate[] = [];
+  const staleBefore = configuration.now - configuration.minimumAgeMs;
+
+  for (const name of names) {
+    options.signal?.throwIfAborted();
+    if (!isStageForOutput(name, outputPath)) continue;
+    const candidatePath = resolve(parentDirectory, name);
+    let metadata;
+    try {
+      metadata = await lstat(candidatePath);
+    } catch {
+      skippedUnsafeEntryCount += 1;
+      continue;
+    }
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      skippedUnsafeEntryCount += 1;
+      continue;
+    }
+    matchingStageFileCount += 1;
+    if (protectedNames.has(name)) {
+      protectedEntryCount += 1;
+      continue;
+    }
+    if (metadata.mtimeMs > staleBefore) {
+      freshStageFileCount += 1;
+      continue;
+    }
+    staleCandidates.push({
+      path: candidatePath,
+      device: metadata.dev,
+      inode: metadata.ino,
+      size: metadata.size,
+      modifiedAtMs: metadata.mtimeMs
+    });
+  }
+
+  options.signal?.throwIfAborted();
+  return {
+    report: Object.freeze({
+      scannedEntryCount: names.length,
+      matchingStageFileCount,
+      staleStageFileCount: staleCandidates.length,
+      freshStageFileCount,
+      protectedEntryCount,
+      skippedUnsafeEntryCount,
+      capped
+    }),
+    staleCandidates: Object.freeze(staleCandidates)
+  };
+}
+
+/**
+ * Lists bounded counts for project-owned stale stages without deleting anything.
+ * The selected parent must be explicit and non-symbolic; candidate names are never returned.
+ */
+export async function inventoryTextStages(options: TextStageReconciliationOptions): Promise<TextStageInventory> {
+  return (await inventoryTextStagesInternal(options)).report;
+}
+
+/**
+ * Explicitly removes only stale, regular files bearing the exact project stage convention.
+ * Inputs and requested outputs supplied through `protectedPaths` are excluded; this never recurses.
+ */
+export async function cleanupStaleTextStages(options: TextStageReconciliationOptions): Promise<TextStageCleanupResult> {
+  const configuration = stageReconciliationConfiguration(options);
+  const inventory = await inventoryTextStagesInternal(options);
+  let deletedStageFileCount = 0;
+  let deletionFailureCount = 0;
+  const exceedsDeleteLimit = inventory.staleCandidates.length > configuration.maximumDeletes;
+  const candidates = inventory.report.capped || exceedsDeleteLimit
+    ? []
+    : inventory.staleCandidates;
+
+  for (const candidate of candidates) {
+    options.signal?.throwIfAborted();
+    try {
+      const metadata = await lstat(candidate.path);
+      if (
+        metadata.isSymbolicLink()
+        || !metadata.isFile()
+        || metadata.dev !== candidate.device
+        || metadata.ino !== candidate.inode
+        || metadata.size !== candidate.size
+        || metadata.mtimeMs !== candidate.modifiedAtMs
+      ) {
+        deletionFailureCount += 1;
+        continue;
+      }
+      options.signal?.throwIfAborted();
+      await unlink(candidate.path);
+      deletedStageFileCount += 1;
+    } catch (error: unknown) {
+      options.signal?.throwIfAborted();
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') deletionFailureCount += 1;
+    }
+  }
+
+  return Object.freeze({
+    ...inventory.report,
+    capped: inventory.report.capped || exceedsDeleteLimit,
+    deletedStageFileCount,
+    deletionFailureCount
+  });
 }
 
 function actionIdIsSafe(id: string): boolean {
@@ -377,8 +652,10 @@ export async function stageTextArtifact(
 
 export async function publishStagedTextArtifact(
   source: TextArtifact,
-  staged: Pick<StagedTextArtifact, 'path' | 'targetPath' | 'byteLength' | 'digest'>
+  staged: Pick<StagedTextArtifact, 'path' | 'targetPath' | 'byteLength' | 'digest'>,
+  signal?: AbortSignal
 ): Promise<WrittenTextArtifact> {
+  signal?.throwIfAborted();
   const stagedBytes = await readFile(staged.path);
   if (digestBytes(stagedBytes) !== staged.digest) {
     throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged artifact changed before publication.', retryable: false, correlationId: 'cor_text_adapter' });
@@ -387,6 +664,8 @@ export async function publishStagedTextArtifact(
   if (digestBytes(inputBeforePublish) !== source.digest) {
     throw new SafeError({ code: 'JOB_CONFLICT', message: 'The input changed while it was being processed.', retryable: true, correlationId: 'cor_text_adapter' });
   }
+  // This is the final cancellation checkpoint. Linking is the irreversible publication commit.
+  signal?.throwIfAborted();
   try {
     await link(staged.path, staged.targetPath);
   } catch (error: unknown) {
@@ -483,7 +762,7 @@ export function createLocalTextArtifactSession(
     },
     async publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication> {
       signal?.throwIfAborted();
-      const published = await publishStagedTextArtifact(await input(signal), staged);
+      const published = await publishStagedTextArtifact(await input(signal), staged, signal);
       return { reference: published.path, byteLength: published.byteLength, digest: published.digest };
     },
     async discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void> {

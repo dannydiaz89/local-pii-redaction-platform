@@ -18,6 +18,8 @@ const capabilityManifestSchemaId = 'https://local-pii.dev/schemas/capabilities/c
 const detectRequestSchemaId = 'https://local-pii.dev/schemas/detection/detect-request/1.0.0';
 const detectResponseSchemaId = 'https://local-pii.dev/schemas/detection/detect-response/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
+const errorEnvelopeV2SchemaId = 'https://local-pii.dev/schemas/common/errors/2.0.0';
+const errorEnvelopeV3SchemaId = 'https://local-pii.dev/schemas/common/errors/3.0.0';
 const fallbackCorrelationId = 'cor_http_error_boundary';
 
 export const defaultHonoSpikeMaximumBodyBytes = 16_384;
@@ -96,6 +98,7 @@ function assertResponseContract(schemaId: string, value: unknown, correlationId:
 }
 
 function statusForError(error: SafeError): ContentfulStatusCode {
+  if (error.code === 'OPERATION_CANCELLED') return 408;
   if (error.code === 'SCHEMA_INVALID') return 400;
   if (error.code === 'INPUT_TOO_LARGE') return 413;
   if (error.code === 'FORMAT_UNSUPPORTED') return 415;
@@ -106,8 +109,18 @@ function statusForError(error: SafeError): ContentfulStatusCode {
 }
 
 function safeErrorEnvelope(error: SafeError): object {
+  const schemaVersion = error.code === 'OPERATION_CANCELLED'
+    ? '3.0.0'
+    : error.code === 'ARTIFACT_DIGEST_MISMATCH'
+      ? '2.0.0'
+      : '1.0.0';
+  const schemaId = schemaVersion === '3.0.0'
+    ? errorEnvelopeV3SchemaId
+    : schemaVersion === '2.0.0'
+      ? errorEnvelopeV2SchemaId
+      : errorEnvelopeSchemaId;
   const envelope = {
-    schemaVersion: '1.0.0',
+    schemaVersion,
     error: {
       code: error.code,
       message: error.message,
@@ -116,7 +129,7 @@ function safeErrorEnvelope(error: SafeError): object {
       ...(error.details === undefined ? {} : { details: error.details })
     }
   };
-  if (validateContract(errorEnvelopeSchemaId, envelope).valid) return envelope;
+  if (validateContract(schemaId, envelope).valid) return envelope;
   return {
     schemaVersion: '1.0.0',
     error: {

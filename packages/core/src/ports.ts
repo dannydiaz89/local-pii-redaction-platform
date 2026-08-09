@@ -90,7 +90,10 @@ export interface TextArtifactSession {
   /** Applies the immutable plan and returns private staged bytes plus an action receipt. */
   stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
-  /** Atomically publishes the exact staged digest/length or rejects without exposing other bytes. */
+  /**
+   * Irrevocable commit barrier: check cancellation before starting, then atomically publish the
+   * exact staged digest/length to a definitive result without reporting a post-commit cancellation.
+   */
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<PublishedTextArtifact>;
   discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
 }
