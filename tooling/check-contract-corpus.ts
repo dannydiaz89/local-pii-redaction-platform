@@ -16,6 +16,8 @@ interface CorpusManifest {
   readonly cases: readonly CorpusCase[];
 }
 
+const semanticVersionPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+
 const schemas = loadSchemas();
 const ids = new Set<string>();
 const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
@@ -29,7 +31,15 @@ ajv.addKeyword({ keyword: 'schemaVersion', schemaType: 'string', valid: true });
 for (const item of schemas) {
   const { $id, title, description, schemaVersion, examples } = item.schema;
   if (typeof $id !== 'string' || ids.has($id)) throw new Error(`Missing or duplicate $id: ${item.relativePath}`);
-  if (typeof title !== 'string' || typeof description !== 'string' || schemaVersion !== '1.0.0') throw new Error(`Incomplete schema metadata: ${item.relativePath}`);
+  if (
+    typeof title !== 'string'
+    || typeof description !== 'string'
+    || typeof schemaVersion !== 'string'
+    || !semanticVersionPattern.test(schemaVersion)
+    || !$id.endsWith(`/${schemaVersion}`)
+  ) {
+    throw new Error(`Incomplete schema metadata: ${item.relativePath}`);
+  }
   if (!Array.isArray(examples) || examples.length === 0) throw new Error(`Schema needs synthetic examples: ${item.relativePath}`);
   ids.add($id);
   ajv.addSchema(item.schema);

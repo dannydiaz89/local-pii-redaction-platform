@@ -318,6 +318,7 @@ describe('CLI TXT vertical slice', () => {
     expect(await readFile(input, 'utf8')).toBe(original);
     const report = JSON.parse(stream.stdout.join('')) as {
       readonly outcome: string;
+      readonly schemaVersion: string;
       readonly input: { readonly digest: string };
       readonly policy: { readonly id: string; readonly version: string; readonly digest: string };
       readonly plan: {
@@ -341,8 +342,31 @@ describe('CLI TXT vertical slice', () => {
         readonly appliedActionCount: number;
       };
       readonly output: { readonly digest: string };
+      readonly verification: {
+        readonly schemaVersion: string;
+        readonly input: { readonly digest: string };
+        readonly output: { readonly digest: string };
+        readonly plan: { readonly id: string; readonly digest: string };
+        readonly policy: { readonly id: string; readonly digest: string };
+        readonly capabilityDigest: string;
+        readonly writerReceiptDigest: string;
+        readonly profile: { readonly id: string; readonly version: string; readonly digest: string };
+        readonly verifier: { readonly id: string; readonly version: string; readonly digest: string };
+        readonly detectorBundle: { readonly id: string; readonly version: string; readonly digest: string };
+        readonly writer: { readonly id: string; readonly version: string; readonly digest: string };
+        readonly application: { readonly id: string; readonly version: string; readonly digest: string };
+        readonly outcome: string;
+        readonly reconciliation: {
+          readonly expectedActionCount: number;
+          readonly appliedActionCount: number;
+          readonly missingActionCount: number;
+          readonly unexpectedActionCount: number;
+          readonly duplicateActionCount: number;
+        };
+        readonly reportDigest: string;
+      };
     };
-    expect(report.outcome).toBe('VERIFIED');
+    expect(report).toMatchObject({ schemaVersion: '2.0.0', outcome: 'VERIFIED' });
     expect(report.policy).toMatchObject({ id: 'development-labels', version: '0.1.0' });
     expect(report.plan.policyDigest).toBe(report.policy.digest);
     expect(report.plan.inputDigest).toBe(report.input.digest);
@@ -361,7 +385,40 @@ describe('CLI TXT vertical slice', () => {
       appliedActionCount: 5
     });
     expect(report.writerReceipt.receiptDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(report.verification).toMatchObject({
+      schemaVersion: '2.0.0',
+      input: { digest: report.input.digest },
+      output: { digest: report.output.digest },
+      plan: { id: report.plan.id, digest: report.plan.digest },
+      policy: { id: report.policy.id, digest: report.policy.digest },
+      capabilityDigest: report.plan.capabilityDigest,
+      writerReceiptDigest: report.writerReceipt.receiptDigest,
+      profile: { id: 'text-rescan-v1', version: '0.1.0' },
+      verifier: { id: 'text-verifier', version: '0.1.0' },
+      detectorBundle: { id: 'deterministic-text', version: '0.1.0' },
+      writer: { id: 'text-adapter', version: '0.1.0' },
+      application: { id: 'local-pii-cli', version: '0.1.0' },
+      outcome: 'PASS',
+      reconciliation: {
+        expectedActionCount: 5,
+        appliedActionCount: 5,
+        missingActionCount: 0,
+        unexpectedActionCount: 0,
+        duplicateActionCount: 0
+      }
+    });
+    expect(report.verification.reportDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    for (const component of [
+      report.verification.profile,
+      report.verification.verifier,
+      report.verification.detectorBundle,
+      report.verification.writer,
+      report.verification.application
+    ]) {
+      expect(component.digest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    }
     expect(stream.stdout.join('')).not.toContain('appliedActionIds');
+    expect(stream.stdout.join('')).not.toContain('actionIds');
     expect(stream.stdout.join('')).not.toContain(input);
     expect(stream.stdout.join('')).not.toContain(output);
   });
@@ -391,5 +448,17 @@ describe('CLI TXT vertical slice', () => {
     const redact = capture();
     expect(await executeCli(['redact', input, '--output', output, '--json'], redact.io)).toBe(6);
     expect(await readFile(output, 'utf8')).toBe('existing');
+  });
+
+  it('does not expose a user-controlled filename in standalone residual-scan JSON', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-verify-name-'));
+    directories.push(root);
+    const filenameCanary = 'filename-canary-alpha@example.test.txt';
+    const input = join(root, filenameCanary);
+    await writeFile(input, 'Contact [EMAIL_1]');
+    const stream = capture();
+    expect(await executeCli(['verify', input, '--json'], stream.io)).toBe(0);
+    expect(stream.stdout.join('')).not.toContain(filenameCanary);
+    expect(stream.stdout.join('')).not.toContain(root);
   });
 });

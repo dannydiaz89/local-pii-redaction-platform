@@ -9,7 +9,8 @@ import Fastify, {
 import {
   validateContract,
   type CapabilitiesCapabilityManifestContract,
-  type CommonErrorsContract
+  type CommonErrorsContract,
+  type CommonErrorsV2Contract
 } from '../packages/contracts/src/index.js';
 import { SafeError } from '../packages/domain/src/index.js';
 import type { ApplicationContext } from '../packages/core/src/index.js';
@@ -17,7 +18,7 @@ import type { ApplicationContext } from '../packages/core/src/index.js';
 import { loadSchemas, type JsonObject } from './schema-utils.js';
 
 export type CapabilityManifest = CapabilitiesCapabilityManifestContract.CapabilityManifest;
-type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope;
+type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope | CommonErrorsV2Contract.TypedErrorEnvelopeV2;
 
 export interface CapabilityApplicationPort {
   getCapabilities(context: ApplicationContext): Promise<CapabilityManifest>;
@@ -109,6 +110,18 @@ function statusFor(error: SafeError): number {
 }
 
 function errorEnvelope(error: SafeError): ErrorEnvelope {
+  if (error.code === 'ARTIFACT_DIGEST_MISMATCH') {
+    return {
+      schemaVersion: '2.0.0',
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+        correlationId: error.correlationId,
+        ...(error.details === undefined ? {} : { details: error.details })
+      }
+    };
+  }
   return {
     schemaVersion: '1.0.0',
     error: {

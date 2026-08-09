@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "2.0.0",
+  "input": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 42 },
+  "output": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "byteLength": 38, "mediaType": "text/plain", "extractionRevision": "sha256:9999999999999999999999999999999999999999999999999999999999999999" },
+  "plan": {
+    "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "riskTier": "LOW"
+  },
+  "capabilityDigest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "writerReceiptDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "profile": { "id": "text-rescan-v1", "version": "0.1.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
+  "verifier": { "id": "text-verifier", "version": "0.1.0", "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414" },
+  "detectorBundle": { "id": "deterministic-text", "version": "0.1.0", "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515" },
+  "writer": { "id": "text-adapter", "version": "0.1.0", "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616" },
+  "application": { "id": "local-pii-cli", "version": "0.1.0", "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717" },
+  "outcome": "FAIL",
+  "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION", "ACTION_RECONCILIATION"],
+  "reconciliation": {
+    "expectedActionCount": 2,
+    "appliedActionCount": 1,
+    "missingActionCount": 1,
+    "unexpectedActionCount": 0,
+    "duplicateActionCount": 0,
+    "actionIds": ["act_01J4M8Z7QK2C5B6TFXDA9R4M3V"]
+  },
+  "findings": [{ "code": "ACTION_NOT_APPLIED", "severity": "ERROR", "blocking": true, "check": "ACTION_RECONCILIATION", "count": 1 }],
+  "startedAt": "2026-08-08T18:00:30Z",
+  "completedAt": "2026-08-08T18:01:00Z",
+  "reportDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

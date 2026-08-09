@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
-import { computeWriterReceiptDigest, type UnsignedWriterReceipt } from '@local-pii/contracts';
+import {
+  computeVerificationAttestationDigest,
+  computeWriterReceiptDigest,
+  type UnsignedWriterReceipt
+} from '@local-pii/contracts';
 
 import {
   SafeError,
@@ -16,12 +20,15 @@ import {
 import {
   createTextProcessingApplication,
   digestCapabilityManifest,
+  type BoundTextVerificationRequest,
   type CapabilityManifest,
   type CapabilityRequirement,
   type StagedTextArtifact,
   type TextArtifact,
   type TextProcessingApplicationDependencies,
   type TextProcessingSession,
+  type TextVerificationAttestation,
+  type TextVerificationPort,
   type TextVerificationReport
 } from '../src/index.js';
 import { compilePolicy, developmentLabelsPolicy, highRiskDisclosurePolicy } from '@local-pii/policy';
@@ -58,6 +65,64 @@ const passingVerification: TextVerificationReport = {
   detectorBundleVersion: 'test-verifier', checks: ['TEST'], findings: []
 };
 
+const attestationDescriptor = {
+  profile: { id: 'text-rescan-v1', version: '0.1.0', digest: digest('test-profile') },
+  verifier: { id: 'text-verifier', version: '0.1.0', digest: digest('test-verifier') },
+  detectorBundle: { id: 'test-detector-bundle', version: '0.1.0', digest: digest('test-detector') },
+  application: { id: 'test-application', version: '0.1.0', digest: digest('test-application') }
+} as const;
+
+function attestationFor(
+  request: BoundTextVerificationRequest,
+  changes: Partial<Omit<TextVerificationAttestation, 'reportDigest'>> = {}
+): TextVerificationAttestation {
+  const unsigned = {
+    schemaVersion: '2.0.0' as const,
+    input: { ...request.input },
+    output: { ...request.output },
+    plan: { id: request.plan.id, digest: request.plan.digest },
+    policy: { ...request.policy },
+    capabilityDigest: request.capabilityDigest,
+    writerReceiptDigest: request.writerReceipt.receiptDigest,
+    profile: { ...attestationDescriptor.profile },
+    verifier: { ...attestationDescriptor.verifier },
+    detectorBundle: { ...attestationDescriptor.detectorBundle },
+    writer: { ...request.writer },
+    application: { ...attestationDescriptor.application },
+    outcome: 'PASS' as const,
+    checks: [
+      'UTF8_REOPEN',
+      'DETERMINISTIC_RESCAN',
+      'SPAN_RESOLUTION',
+      'ACTION_RECONCILIATION'
+    ] as TextVerificationAttestation['checks'],
+    reconciliation: {
+      expectedActionCount: request.plan.expectedActionCount,
+      appliedActionCount: request.writerReceipt.appliedActionCount,
+      missingActionCount: 0,
+      unexpectedActionCount: 0,
+      duplicateActionCount: 0
+    },
+    findings: [],
+    startedAt: '2026-08-09T07:00:00Z',
+    completedAt: '2026-08-09T07:00:01Z',
+    ...changes
+  };
+  return {
+    ...unsigned,
+    reportDigest: computeVerificationAttestationDigest(unsigned)
+  };
+}
+
+function verifierPort(overrides: Partial<TextVerificationPort> = {}): TextVerificationPort {
+  return {
+    attestation: attestationDescriptor,
+    verify: () => Promise.resolve(passingVerification),
+    attest: (request) => Promise.resolve(attestationFor(request)),
+    ...overrides
+  };
+}
+
 function emailEvidence(text: string, extractionRevision: Sha256Digest): readonly DetectionEvidence[] {
   const start = text.indexOf('ada@example.test');
   if (start < 0) return [];
@@ -69,7 +134,9 @@ function emailEvidence(text: string, extractionRevision: Sha256Digest): readonly
 }
 
 class FakeSession implements TextProcessingSession {
-  readonly writer = { id: 'text-adapter', version: '0.1.0' } as const;
+  readonly writer = {
+    id: 'text-adapter', version: '0.1.0', digest: digest('test-writer')
+  } as const;
   readonly events: string[] = [];
   private stagedText: string | undefined;
   private readonly source: TextArtifact;
@@ -90,7 +157,7 @@ class FakeSession implements TextProcessingSession {
     const unsignedReceipt = {
       schemaVersion: '1.0.0' as const,
       planDigest: plan.digest,
-      writer: this.writer,
+      writer: { id: this.writer.id, version: this.writer.version },
       stagedDigest,
       stagedByteLength: byteLength,
       expectedActionCount: plan.expectedActionCount,
@@ -123,7 +190,7 @@ function dependencies(overrides: Partial<TextProcessingApplicationDependencies> 
   return {
     capabilityProvider: { getCapabilities: () => Promise.resolve(manifest()) },
     detector: { detectorBundleVersion: 'test-detector', detect: (text, extractionRevision) => Promise.resolve(emailEvidence(text, extractionRevision)) },
-    verifier: { verify: () => Promise.resolve(passingVerification) },
+    verifier: verifierPort(),
     ...overrides
   };
 }
@@ -154,7 +221,7 @@ describe('TextProcessingApplication', () => {
     expect(result.plan.capabilityDigest).toBe(
       digestCapabilityManifest(manifest(), 'cor_core_capability_digest')
     );
-    expect(result.plan.writer).toEqual(session.writer);
+    expect(result.plan.writer).toEqual({ id: session.writer.id, version: session.writer.version });
     expect(result.plan.expectedActionCount).toBe(result.plan.actions.length);
     expect(result.plan.actions[0]).toMatchObject({
       sourceSpanId: 'rsp_11111111111141118111111111111111',
@@ -227,7 +294,18 @@ describe('TextProcessingApplication', () => {
     const session = new FakeSession('ephemeral');
     const verifierCalls: string[] = [];
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: (text) => { verifierCalls.push(text); return Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [{ code: 'TEST', severity: 'ERROR', blocking: true }] }); } }
+      verifier: verifierPort({
+        attest: (request) => {
+          verifierCalls.push(request.reopenedText);
+          return Promise.resolve(attestationFor(request, {
+            outcome: 'FAIL',
+            findings: [{
+              code: 'RESIDUAL_ENTITY', severity: 'ERROR', blocking: true,
+              check: 'DETERMINISTIC_RESCAN', entityType: 'EMAIL', count: 1
+            }]
+          }));
+        }
+      })
     }));
     await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
     expect(verifierCalls).toEqual(['Email [EMAIL_1]']);
@@ -237,7 +315,11 @@ describe('TextProcessingApplication', () => {
   it('discards staging when the verifier does not run the policy-required profile', async () => {
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({ ...passingVerification, profile: 'wrong-profile' }) }
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          profile: { id: 'wrong-profile', version: '0.1.0', digest: digest('wrong-profile') }
+        }))
+      })
     }));
     await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
       code: 'VERIFICATION_INCOMPLETE'
@@ -245,16 +327,81 @@ describe('TextProcessingApplication', () => {
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
   });
 
-  it('honors policy warning blocking even when a verifier reports PASS', async () => {
+  it('rejects a tampered verification report digest before publication', async () => {
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({
-        ...passingVerification,
-        findings: [{ code: 'TEST_WARNING', severity: 'WARNING', blocking: false }]
-      }) }
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve({
+          ...attestationFor(request),
+          reportDigest: parseSha256Digest(`sha256:${'0'.repeat(64)}`)
+        })
+      })
     }));
     await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
-      code: 'VERIFICATION_RESIDUAL'
+      code: 'VERIFICATION_INCOMPLETE'
+    });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('rejects a validly digested attestation bound to different output bytes', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          output: { ...request.output, digest: digest('different-output-binding') }
+        }))
+      })
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE'
+    });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('rejects an incomplete-only finding mislabeled as a completed FAIL', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          outcome: 'FAIL',
+          findings: [{
+            code: 'VERIFIER_INCOMPLETE', severity: 'ERROR', blocking: true,
+            check: 'DETERMINISTIC_RESCAN', count: 1
+          }]
+        }))
+      })
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE'
+    });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
+  it('rejects a mandatory failure finding mislabeled as non-blocking PASS', async () => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: verifierPort({
+        attest: (request) => {
+          const { reportDigest: _digest, ...passing } = attestationFor(request);
+          void _digest;
+          const malicious = {
+            ...passing,
+            findings: [{
+              code: 'RESIDUAL_ENTITY', severity: 'INFO', blocking: false,
+              check: 'DETERMINISTIC_RESCAN', entityType: 'EMAIL', count: 1
+            }]
+          };
+          return Promise.resolve({
+            ...malicious,
+            reportDigest: computeVerificationAttestationDigest(
+              malicious as unknown as Omit<TextVerificationAttestation, 'reportDigest'>
+            )
+          } as unknown as TextVerificationAttestation);
+        }
+      })
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE'
     });
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
   });
@@ -362,7 +509,7 @@ describe('TextProcessingApplication', () => {
       session,
       requirement,
       policy
-    }, context)).rejects.toMatchObject({ code: 'STORAGE_UNAVAILABLE' });
+    }, context)).rejects.toMatchObject({ code: 'ARTIFACT_DIGEST_MISMATCH' });
     expect(session.events.map((event) => event.split(':')[0])).toEqual([
       'input', 'stage', 'reopen', 'publish', 'discard'
     ]);
@@ -372,7 +519,15 @@ describe('TextProcessingApplication', () => {
     const session = new FakeSession('ephemeral');
     session.discard = () => Promise.reject(new Error('private staging path'));
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          outcome: 'FAIL',
+          findings: [{
+            code: 'RESIDUAL_ENTITY', severity: 'ERROR', blocking: true,
+            check: 'DETERMINISTIC_RESCAN', entityType: 'EMAIL', count: 1
+          }]
+        }))
+      })
     }));
     const failure = await app.redact({ session, requirement, policy }, context).catch((error: unknown) => error);
     expect(failure).toMatchObject({
@@ -390,7 +545,12 @@ describe('TextProcessingApplication', () => {
     const app = createTextProcessingApplication(dependencies({
       capabilityProvider: { getCapabilities: (provided) => { if (provided !== undefined) seen.push(provided); return Promise.resolve(manifest()); } },
       detector: { detectorBundleVersion: 'test', detect: (text, extractionRevision, provided) => { if (provided !== undefined) seen.push(provided); return Promise.resolve(emailEvidence(text, extractionRevision)); } },
-      verifier: { verify: (_text, _revision, provided) => { if (provided !== undefined) seen.push(provided); return Promise.resolve(passingVerification); } }
+      verifier: verifierPort({
+        attest: (request, provided) => {
+          if (provided !== undefined) seen.push(provided);
+          return Promise.resolve(attestationFor(request));
+        }
+      })
     }));
     await app.redact({ session, requirement, policy, signal }, context);
     expect(seen).toEqual([signal, signal, signal]);
@@ -401,7 +561,15 @@ describe('TextProcessingApplication', () => {
     const signal = AbortSignal.abort();
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({
-      verifier: { verify: () => Promise.resolve({ schemaVersion: '1.0.0', profile: 'text-rescan-v1', outcome: 'FAIL', detectorBundleVersion: 'test', checks: ['TEST'], findings: [] }) }
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          outcome: 'FAIL',
+          findings: [{
+            code: 'RESIDUAL_ENTITY', severity: 'ERROR', blocking: true,
+            check: 'DETERMINISTIC_RESCAN', entityType: 'EMAIL', count: 1
+          }]
+        }))
+      })
     }));
     await expect(app.redact({ session, requirement, policy, signal }, context)).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
     expect(session.events).toEqual(['input:true', 'stage:true', 'reopen:true', 'discard:false']);

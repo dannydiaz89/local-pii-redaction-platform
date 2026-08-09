@@ -7,15 +7,17 @@
     { "file": "valid/error-privacy-safe-details.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
     { "file": "valid/error-policy-review-required.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
     { "file": "valid/error-policy-blocked.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": true },
+    { "file": "valid/error-artifact-digest-mismatch-v2.json", "schemaId": "https://local-pii.dev/schemas/common/errors/2.0.0", "valid": true },
     { "file": "valid/artifact-identifiers-digest.json", "schemaId": "https://local-pii.dev/schemas/artifacts/artifact/1.0.0", "valid": true },
     { "file": "valid/job-identifiers-digest.json", "schemaId": "https://local-pii.dev/schemas/jobs/job/1.0.0", "valid": true },
     { "file": "valid/detection-unicode-code-point-span.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": true },
     { "file": "valid/cli-scan-report.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": true },
-    { "file": "valid/cli-redact-policy-bound-report.json", "schemaId": "https://local-pii.dev/schemas/cli/cli-report/1.0.0", "valid": true },
+    { "file": "valid/cli-redact-policy-bound-report.json", "schemaId": "https://local-pii.dev/schemas/cli/redact-report/2.0.0", "valid": true },
     { "file": "valid/redaction-plan-provenance-bound.json", "schemaId": "https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0", "valid": true },
     { "file": "valid/writer-receipt-reconciled.json", "schemaId": "https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0", "valid": true },
     { "file": "valid/cli-policy-list-report.json", "schemaId": "https://local-pii.dev/schemas/cli/policy-report/1.0.0", "valid": true },
     { "file": "valid/capability-rules-only-text.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": true },
+    { "file": "valid/verification-attestation-v2-pass.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": true },
     { "file": "invalid/detection-unknown-field.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": false },
     { "file": "invalid/detect-request-confidence.json", "schemaId": "https://local-pii.dev/schemas/detection/detect-request/1.0.0", "valid": false },
     { "file": "invalid/error-unknown-code.json", "schemaId": "https://local-pii.dev/schemas/common/errors/1.0.0", "valid": false },
@@ -43,6 +45,11 @@
     { "file": "invalid/writer-receipt-clear-value.json", "schemaId": "https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0", "valid": false },
     { "file": "invalid/writer-receipt-duplicate-action-id.json", "schemaId": "https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0", "valid": false },
     { "file": "invalid/cli-policy-report-source-text.json", "schemaId": "https://local-pii.dev/schemas/cli/policy-report/1.0.0", "valid": false },
-    { "file": "invalid/capability-unknown-operation.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": false }
+    { "file": "invalid/capability-unknown-operation.json", "schemaId": "https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0", "valid": false },
+    { "file": "invalid/verification-attestation-v2-missing-action-reconciliation.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
+    { "file": "invalid/verification-attestation-v2-missing-capability-digest.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
+    { "file": "invalid/verification-attestation-v2-action-ids.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
+    { "file": "invalid/verification-attestation-v2-finding-path.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
+    { "file": "invalid/verification-attestation-v2-nonblocking-residual.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false }
   ]
 }

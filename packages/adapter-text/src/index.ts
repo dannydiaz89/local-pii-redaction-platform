@@ -12,7 +12,11 @@ import { assertTypedLabelPlanIntegrity, type TypedLabelPlan } from '@local-pii/r
 
 const utf8Bom = Uint8Array.from([0xef, 0xbb, 0xbf]);
 export const textAdapterVersion = '0.1.0';
-export const textWriterDescriptor = Object.freeze({ id: 'text-adapter', version: textAdapterVersion });
+export const textWriterDescriptor = Object.freeze({
+  id: 'text-adapter',
+  version: textAdapterVersion,
+  digest: parseSha256Digest('sha256:319fc7160f3540f36258b3853abcb4130516bdf4e1ea4242f7f89ef69ac7a70f')
+});
 export const defaultMaximumInputBytes = 100 * 1024 * 1024;
 export const textAdapterCapabilityDescriptor = {
   id: 'text',
@@ -95,7 +99,7 @@ export interface TextInputSession {
  * whose local implementation is the absolute output path.
  */
 export interface TextArtifactSession extends TextInputSession {
-  readonly writer: Readonly<{ readonly id: string; readonly version: string }>;
+  readonly writer: Readonly<{ readonly id: string; readonly version: string; readonly digest: Sha256Digest }>;
   stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact>;
   reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact>;
   publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication>;
@@ -377,7 +381,7 @@ export async function publishStagedTextArtifact(
 ): Promise<WrittenTextArtifact> {
   const stagedBytes = await readFile(staged.path);
   if (digestBytes(stagedBytes) !== staged.digest) {
-    throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The staged artifact changed before publication.', retryable: true, correlationId: 'cor_text_adapter' });
+    throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged artifact changed before publication.', retryable: false, correlationId: 'cor_text_adapter' });
   }
   const inputBeforePublish = await readFile(source.path);
   if (digestBytes(inputBeforePublish) !== source.digest) {
@@ -469,9 +473,9 @@ export function createLocalTextArtifactSession(
       signal?.throwIfAborted();
       if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
         throw new SafeError({
-          code: 'STORAGE_UNAVAILABLE',
+          code: 'ARTIFACT_DIGEST_MISMATCH',
           message: 'The staged artifact changed before it could be reopened.',
-          retryable: true,
+          retryable: false,
           correlationId: 'cor_text_adapter'
         });
       }

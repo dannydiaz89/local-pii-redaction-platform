@@ -29,7 +29,7 @@ function assertSame(label: string, domainValues: readonly string[], contractValu
 }
 
 const entitySchema = loadJson(resolve(schemaRoot, 'common/entity-type.schema.json'));
-const errorSchema = loadJson(resolve(schemaRoot, 'common/errors.schema.json'));
+const errorSchema = loadJson(resolve(schemaRoot, 'common/errors-v2.schema.json'));
 const jobSchema = loadJson(resolve(schemaRoot, 'jobs/job.schema.json'));
 const detectionSchema = loadJson(resolve(schemaRoot, 'detection/detection.schema.json'));
 

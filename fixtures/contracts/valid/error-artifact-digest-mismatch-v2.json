@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "2.0.0",
+  "error": {
+    "code": "ARTIFACT_DIGEST_MISMATCH",
+    "message": "The staged artifact changed before verification.",
+    "retryable": false,
+    "correlationId": "cor_artifact_integrity"
+  }
+}

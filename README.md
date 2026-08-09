@@ -53,7 +53,12 @@ values. Redaction reports also expose privacy-safe provenance digests binding th
 resolved detector evidence, capability snapshot, policy, detector bundle, and writer used by the
 plan. The text adapter now applies that immutable plan itself and returns a writer receipt. Core
 independently reconciles the receipt's exact action IDs and counts before verification and
-publication; the public JSON report exposes only its safe digests and bounded counts.
+publication. A canonical v2 verification attestation then binds the exact input and reopened
+output bytes, immutable plan, policy, capability snapshot, writer receipt, verification profile,
+verifier, checks, and reconciliation counts under a report digest. The public JSON report exposes
+only privacy-safe identities, digests, and bounded counts. The standalone `verify` command is a
+residual scan of the supplied artifact; it does not claim plan execution, policy compliance, or
+publication eligibility.
 
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
 the current rules-only text capability without opening a document or contacting Ollama. The

@@ -61,7 +61,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
-  verification: ['detectors', 'domain', 'span-resolution'],
+  verification: ['contracts', 'detectors', 'domain', 'span-resolution'],
   core: ['contracts', 'domain', 'policy', 'redaction', 'span-resolution']
 };
 

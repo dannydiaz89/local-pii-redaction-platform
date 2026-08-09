@@ -64,8 +64,10 @@ Experimental Ollama options:
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
+const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/2.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
+const errorEnvelopeV2SchemaId = 'https://local-pii.dev/schemas/common/errors/2.0.0';
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
@@ -148,7 +150,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 }
 
 function writeResult(io: CliIo, json: boolean, value: object, human: string): void {
-  assertContract(cliReportSchemaId, value);
+  const operation = (value as Readonly<{ readonly operation?: unknown }>).operation;
+  assertContract(operation === 'REDACT' ? cliRedactReportV2SchemaId : cliReportSchemaId, value);
   io.stdout(json ? `${JSON.stringify(value, null, 2)}\n` : `${human}\n`);
 }
 
@@ -331,7 +334,7 @@ async function runRedact(
     policy
   }, { correlationId: 'cor_cli_redact' });
   const report = {
-    schemaVersion: '1.0.0', operation: 'REDACT', outcome: 'VERIFIED',
+    schemaVersion: '2.0.0', operation: 'REDACT', outcome: 'VERIFIED',
     policy: policySummary(policy),
     input: { digest: result.input.digest, byteLength: result.input.byteLength },
     output: { digest: result.published.digest, byteLength: result.published.byteLength },
@@ -360,7 +363,7 @@ async function runRedact(
     },
     verification: result.verification
   };
-  writeResult(io, json, report, `Wrote verified output under ${policy.id} ${policy.version} with ${String(result.plan.actions.length)} replacement(s).`);
+  writeResult(io, json, report, `Wrote attested output under ${policy.id} ${policy.version} with ${String(result.plan.actions.length)} replacement(s).`);
   return 0;
 }
 
@@ -372,12 +375,12 @@ async function runVerify(input: string, json: boolean, io: CliIo): Promise<numbe
   const { artifact, verification } = result;
   const report = {
     schemaVersion: '1.0.0', operation: 'VERIFY', outcome: verification.outcome,
-    artifact: { displayName: artifact.displayName, digest: artifact.digest, byteLength: artifact.byteLength },
+    artifact: { digest: artifact.digest, byteLength: artifact.byteLength },
     verification
   };
   writeResult(io, json, report, verification.outcome === 'PASS'
-    ? 'Verification passed: no deterministic residuals were found.'
-    : `Verification failed with ${String(verification.findings.length)} blocking finding(s).`);
+    ? 'Residual scan passed: no deterministic residuals were found in the supplied artifact.'
+    : `Residual scan failed with ${String(verification.findings.length)} blocking finding(s).`);
   return verification.outcome === 'PASS' ? 0 : 4;
 }
 
@@ -404,17 +407,20 @@ async function runInspect(input: string, json: boolean, io: CliIo): Promise<numb
 }
 
 function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: number): number {
+  const artifactIntegrityFailure = error.code === 'ARTIFACT_DIGEST_MISMATCH';
   const envelope = {
-    schemaVersion: '1.0.0',
+    schemaVersion: artifactIntegrityFailure ? '2.0.0' : '1.0.0',
     error: { code: error.code, message: error.message, retryable: error.retryable, correlationId: error.correlationId, ...(error.details === undefined ? {} : { details: error.details }) }
   };
-  assertContract(errorEnvelopeSchemaId, envelope);
+  assertContract(artifactIntegrityFailure ? errorEnvelopeV2SchemaId : errorEnvelopeSchemaId, envelope);
   io.stderr(json ? `${JSON.stringify(envelope, null, 2)}\n` : `${error.code}: ${error.message}\n`);
   return exitCode ?? (error.code === 'OUTPUT_COLLISION'
     ? 6
     : error.code === 'POLICY_REVIEW_REQUIRED' || error.code === 'POLICY_BLOCKED'
       ? 5
-      : error.code.startsWith('VERIFICATION_') || error.code === 'REDACTION_COUNT_MISMATCH'
+      : error.code.startsWith('VERIFICATION_')
+        || error.code === 'REDACTION_COUNT_MISMATCH'
+        || error.code === 'ARTIFACT_DIGEST_MISMATCH'
         ? 4
         : 3);
 }

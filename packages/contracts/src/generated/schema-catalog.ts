@@ -1602,6 +1602,174 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/redact-report/2.0.0",
+    "title": "CLI redaction report v2",
+    "description": "Privacy-minimized redaction result bound to a canonical verification attestation v2.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "input",
+      "output",
+      "policy",
+      "plan",
+      "writerReceipt",
+      "verification"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "operation": {
+        "const": "REDACT"
+      },
+      "outcome": {
+        "const": "VERIFIED"
+      },
+      "input": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/artifactSummary"
+      },
+      "output": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/artifactSummary"
+      },
+      "policy": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/policySummary"
+      },
+      "plan": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/plan"
+      },
+      "writerReceipt": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/writerReceiptSummary"
+      },
+      "verification": {
+        "$ref": "https://local-pii.dev/schemas/verification/verification-report/2.0.0"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "operation": "REDACT",
+        "outcome": "VERIFIED",
+        "input": {
+          "byteLength": 18,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "output": {
+          "byteLength": 9,
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "riskTier": "LOW",
+          "example": true
+        },
+        "plan": {
+          "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+          "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "extractionRevision": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+          "resolutionDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "detectorBundleVersion": "0.1.0",
+          "writer": {
+            "id": "text-adapter",
+            "version": "0.1.0"
+          },
+          "strategy": "TYPED_LABEL",
+          "strategyVersion": "0.1.0",
+          "actionCount": 0,
+          "byEntity": {}
+        },
+        "writerReceipt": {
+          "receiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+          "planDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "writer": {
+            "id": "text-adapter",
+            "version": "0.1.0"
+          },
+          "expectedActionCount": 0,
+          "appliedActionCount": 0
+        },
+        "verification": {
+          "schemaVersion": "2.0.0",
+          "input": {
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 18
+          },
+          "output": {
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "byteLength": 9,
+            "mediaType": "text/plain",
+            "extractionRevision": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "plan": {
+            "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "policy": {
+            "id": "development-labels",
+            "version": "0.1.0",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "riskTier": "LOW"
+          },
+          "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "writerReceiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+          "profile": {
+            "id": "text-rescan-v1",
+            "version": "0.1.0",
+            "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313"
+          },
+          "verifier": {
+            "id": "text-verifier",
+            "version": "0.1.0",
+            "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+          },
+          "detectorBundle": {
+            "id": "deterministic-text",
+            "version": "0.1.0",
+            "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515"
+          },
+          "writer": {
+            "id": "text-adapter",
+            "version": "0.1.0",
+            "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616"
+          },
+          "application": {
+            "id": "local-pii-cli",
+            "version": "0.1.0",
+            "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+          },
+          "outcome": "PASS",
+          "checks": [
+            "UTF8_REOPEN",
+            "DETERMINISTIC_RESCAN",
+            "SPAN_RESOLUTION",
+            "ACTION_RECONCILIATION"
+          ],
+          "reconciliation": {
+            "expectedActionCount": 0,
+            "appliedActionCount": 0,
+            "missingActionCount": 0,
+            "unexpectedActionCount": 0,
+            "duplicateActionCount": 0
+          },
+          "findings": [],
+          "startedAt": "2026-08-09T07:00:00Z",
+          "completedAt": "2026-08-09T07:00:01Z",
+          "reportDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/entity-type/1.0.0",
     "title": "Entity type",
     "description": "Initial versioned PII and secret entity taxonomy proposed by the reference catalog.",
@@ -1635,6 +1803,139 @@ export const schemaCatalog = [
     ],
     "examples": [
       "EMAIL"
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/errors/2.0.0",
+    "title": "Typed error envelope v2",
+    "description": "Privacy-safe stable error envelope with explicit artifact-integrity failure classification.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "error"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "correlationId"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "CONTRACT_UNSUPPORTED",
+              "SCHEMA_INVALID",
+              "IDEMPOTENCY_CONFLICT",
+              "INPUT_TOO_LARGE",
+              "FORMAT_UNSUPPORTED",
+              "FORMAT_ENCRYPTED",
+              "FORMAT_CORRUPT",
+              "POLICY_UNSATISFIABLE",
+              "POLICY_REVIEW_REQUIRED",
+              "POLICY_BLOCKED",
+              "REQUIRED_DETECTOR_UNAVAILABLE",
+              "MODEL_UNAVAILABLE",
+              "DETECTOR_TIMEOUT",
+              "DETECTION_LIMIT_EXCEEDED",
+              "MODEL_OUTPUT_INVALID",
+              "SOURCE_MAP_INVALID",
+              "REDACTION_PLAN_CONFLICT",
+              "REDACTION_COUNT_MISMATCH",
+              "VERIFICATION_RESIDUAL",
+              "VERIFICATION_INCOMPLETE",
+              "FIDELITY_OUT_OF_RANGE",
+              "ARTIFACT_DIGEST_MISMATCH",
+              "STORAGE_UNAVAILABLE",
+              "JOB_CONFLICT",
+              "OUTPUT_COLLISION",
+              "RATE_LIMITED",
+              "SUPPLY_CHAIN_INVALID",
+              "AUTHORIZATION_DENIED",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "correlationId": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/CorrelationId"
+          },
+          "details": {
+            "type": "object",
+            "description": "Allow-listed safe scalar context; never paths, excerpts, or parser exceptions.",
+            "maxProperties": 16,
+            "propertyNames": {
+              "enum": [
+                "format",
+                "stage",
+                "attempt",
+                "recovered",
+                "reason",
+                "detectorId",
+                "deadlineExceeded",
+                "modelId",
+                "conflictCount",
+                "findingCount",
+                "contractVersionAvailable",
+                "engineModeAvailable",
+                "formatAvailable",
+                "operationAvailable",
+                "qualificationSufficient",
+                "missingDetectorCount",
+                "missingDetectorKindCount",
+                "missingTransformationCount",
+                "verificationProfileAvailable",
+                "inputLimitSufficient",
+                "maximumInputBytes",
+                "actualInputBytes"
+              ]
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "error": {
+          "code": "ARTIFACT_DIGEST_MISMATCH",
+          "message": "The staged artifact changed before verification.",
+          "retryable": false,
+          "correlationId": "cor_artifact_integrity"
+        }
+      }
     ]
   },
   {
@@ -3131,6 +3432,428 @@ export const schemaCatalog = [
           "act_01J4M8Z7QK2C5B6TFXDA9R4M3W"
         ],
         "receiptDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/verification/verification-report/2.0.0",
+    "title": "Verification attestation v2",
+    "description": "Privacy-safe independent verification attestation bound to the exact input, staged output, immutable plan, policy, writer receipt, and verifier provenance. Paths, clear values, and action identifiers are intentionally excluded.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "input",
+      "output",
+      "plan",
+      "policy",
+      "capabilityDigest",
+      "writerReceiptDigest",
+      "profile",
+      "verifier",
+      "detectorBundle",
+      "writer",
+      "application",
+      "outcome",
+      "checks",
+      "reconciliation",
+      "findings",
+      "startedAt",
+      "completedAt",
+      "reportDigest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "input": {
+        "type": "object",
+        "description": "Exact source bytes bound to the immutable plan.",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "byteLength"
+        ],
+        "properties": {
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1073741824
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "description": "Exact derived bytes independently reopened and verified before publication.",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "byteLength",
+          "mediaType",
+          "extractionRevision"
+        ],
+        "properties": {
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1073741824
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 127,
+            "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "plan": {
+        "type": "object",
+        "description": "Identity and digest of the immutable plan applied to the input.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "policy": {
+        "type": "object",
+        "description": "Exact policy provenance used to compile the immutable plan.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          }
+        }
+      },
+      "capabilityDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "writerReceiptDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "profile": {
+        "type": "object",
+        "description": "Versioned verification-profile identity.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "verifier": {
+        "type": "object",
+        "description": "Versioned verifier implementation identity.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "detectorBundle": {
+        "$ref": "#/$defs/component"
+      },
+      "writer": {
+        "$ref": "#/$defs/component"
+      },
+      "application": {
+        "$ref": "#/$defs/component"
+      },
+      "outcome": {
+        "enum": [
+          "PASS",
+          "FAIL",
+          "INCOMPLETE"
+        ]
+      },
+      "checks": {
+        "description": "Closed set of required checks completed by the profile. Action reconciliation is mandatory for every v2 attestation.",
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 7,
+        "uniqueItems": true,
+        "contains": {
+          "const": "ACTION_RECONCILIATION"
+        },
+        "items": {
+          "enum": [
+            "UTF8_REOPEN",
+            "DETERMINISTIC_RESCAN",
+            "SPAN_RESOLUTION",
+            "ACTION_RECONCILIATION",
+            "NATIVE_SURFACE",
+            "STRUCTURE",
+            "FIDELITY"
+          ]
+        }
+      },
+      "reconciliation": {
+        "description": "Bounded aggregate comparison of the immutable plan and writer receipt; no action identifiers are retained.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedActionCount",
+          "appliedActionCount",
+          "missingActionCount",
+          "unexpectedActionCount",
+          "duplicateActionCount"
+        ],
+        "properties": {
+          "expectedActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "appliedActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "missingActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "unexpectedActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "duplicateActionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        }
+      },
+      "findings": {
+        "description": "Privacy-safe bounded findings without values, paths, locations, or action identifiers.",
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "severity",
+            "blocking",
+            "check"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "RESIDUAL_ENTITY",
+                "ACTION_NOT_APPLIED",
+                "UNEXPECTED_ACTION",
+                "DUPLICATE_ACTION",
+                "HIDDEN_TEXT_PRESENT",
+                "METADATA_RESIDUAL",
+                "EMBEDDED_CONTENT_UNCHECKED",
+                "OVERLAY_WITH_UNDERLYING_TEXT",
+                "STRUCTURE_INVALID",
+                "FIDELITY_OUT_OF_RANGE",
+                "REOPEN_FAILED",
+                "OUTPUT_DIGEST_MISMATCH",
+                "VERIFIER_INCOMPLETE"
+              ]
+            },
+            "severity": {
+              "enum": [
+                "ERROR",
+                "CRITICAL"
+              ]
+            },
+            "blocking": {
+              "const": true
+            },
+            "check": {
+              "enum": [
+                "UTF8_REOPEN",
+                "DETERMINISTIC_RESCAN",
+                "SPAN_RESOLUTION",
+                "ACTION_RECONCILIATION",
+                "NATIVE_SURFACE",
+                "STRUCTURE",
+                "FIDELITY"
+              ]
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          }
+        }
+      },
+      "startedAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "completedAt": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+      },
+      "reportDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "$defs": {
+      "component": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "input": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "byteLength": 42
+        },
+        "output": {
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "byteLength": 38,
+          "mediaType": "text/plain",
+          "extractionRevision": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "plan": {
+          "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "riskTier": "LOW"
+        },
+        "capabilityDigest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+        "writerReceiptDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "profile": {
+          "id": "text-rescan-v1",
+          "version": "0.1.0",
+          "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313"
+        },
+        "verifier": {
+          "id": "text-verifier",
+          "version": "0.1.0",
+          "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+        },
+        "detectorBundle": {
+          "id": "deterministic-text",
+          "version": "0.1.0",
+          "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515"
+        },
+        "writer": {
+          "id": "text-adapter",
+          "version": "0.1.0",
+          "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616"
+        },
+        "application": {
+          "id": "local-pii-cli",
+          "version": "0.1.0",
+          "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+        },
+        "outcome": "PASS",
+        "checks": [
+          "UTF8_REOPEN",
+          "DETERMINISTIC_RESCAN",
+          "SPAN_RESOLUTION",
+          "ACTION_RECONCILIATION"
+        ],
+        "reconciliation": {
+          "expectedActionCount": 2,
+          "appliedActionCount": 2,
+          "missingActionCount": 0,
+          "unexpectedActionCount": 0,
+          "duplicateActionCount": 0
+        },
+        "findings": [],
+        "startedAt": "2026-08-08T18:00:30Z",
+        "completedAt": "2026-08-08T18:01:00Z",
+        "reportDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       }
     ]
   },

@@ -1,5 +1,6 @@
 import {
   createTextProcessingApplication,
+  type BoundTextVerificationRequest,
   type CapabilityOperation,
   type CapabilityRequirement
 } from '@local-pii/core';
@@ -10,12 +11,19 @@ import {
   deterministicDetectorCapabilities
 } from '@local-pii/detectors';
 import { defaultMaximumInputBytes } from '@local-pii/adapter-text';
+import { parseSha256Digest } from '@local-pii/domain';
 import {
   createOllamaTextDetectionProvider,
   ollamaExperimentalDefaultLimits,
   ollamaLocalDetectorId
 } from '@local-pii/provider-ollama';
-import { verifyCanonicalText } from '@local-pii/verification';
+import {
+  textVerificationProfile,
+  textVerificationDetectorBundle,
+  textVerificationVerifier,
+  verifyBoundCanonicalText,
+  verifyCanonicalText
+} from '@local-pii/verification';
 
 import {
   createCurrentCapabilityManifest,
@@ -58,9 +66,31 @@ const rulesDetector = {
 };
 
 const verifier = {
+  attestation: {
+    profile: textVerificationProfile,
+    verifier: textVerificationVerifier,
+    detectorBundle: textVerificationDetectorBundle,
+    application: {
+      id: 'local-pii-cli',
+      version: '0.1.0',
+      digest: parseSha256Digest('sha256:0fd4cd6f99992ecf8862956817e3e72d0548fb7cbf1ff7765601f51b67530cf0')
+    }
+  },
   verify(text: string, extractionRevision: Parameters<typeof verifyCanonicalText>[1], signal?: AbortSignal) {
     signal?.throwIfAborted();
     const report = verifyCanonicalText(text, extractionRevision);
+    signal?.throwIfAborted();
+    return Promise.resolve(report);
+  },
+  attest(request: BoundTextVerificationRequest, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const startedAt = new Date().toISOString();
+    const report = verifyBoundCanonicalText({
+      ...request,
+      application: verifier.attestation.application,
+      startedAt,
+      completedAt: new Date().toISOString()
+    });
     signal?.throwIfAborted();
     return Promise.resolve(report);
   }

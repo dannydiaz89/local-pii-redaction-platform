@@ -5,7 +5,11 @@ import {
   unicodeCodePointLength,
   type CorrelationId
 } from '@local-pii/domain';
-import { assertContract, computeWriterReceiptDigest } from '@local-pii/contracts';
+import {
+  assertContract,
+  computeVerificationAttestationDigest,
+  computeWriterReceiptDigest
+} from '@local-pii/contracts';
 import { compileTypedLabelPlan } from '@local-pii/redaction';
 import { resolveEvidence } from '@local-pii/span-resolution';
 import { compileCapabilityRequirement, evaluateAcceptedSpan } from '@local-pii/policy';
@@ -14,17 +18,20 @@ import { assertCapabilityManifest, assertCapabilities, digestCapabilityManifest 
 import type {
   ApplicationContext,
   CapabilityManifest,
+  BoundTextVerificationRequest,
   RedactTextCommand,
   TextCommand,
   TextProcessingApplication,
   TextProcessingApplicationDependencies,
   TextScanResult,
+  TextVerificationAttestation,
   WriterReceipt
 } from './ports.js';
 
 const fallbackCorrelationId = 'cor_core_application';
 const redactionPlanSchemaId = 'https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0';
 const writerReceiptSchemaId = 'https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0';
+const verificationAttestationSchemaId = 'https://local-pii.dev/schemas/verification/verification-report/2.0.0';
 
 function correlationId(context: ApplicationContext): CorrelationId {
   try {
@@ -212,11 +219,100 @@ function assertWriterMatchesCapability(
 
 function stagedBytesChanged(correlationId: CorrelationId): SafeError {
   return new SafeError({
-    code: 'STORAGE_UNAVAILABLE',
+    code: 'ARTIFACT_DIGEST_MISMATCH',
     message: 'The staged artifact changed before verification.',
-    retryable: true,
+    retryable: false,
     correlationId
   });
+}
+
+function assertVerificationAttestation(
+  report: TextVerificationAttestation,
+  request: BoundTextVerificationRequest,
+  dependencies: TextProcessingApplicationDependencies,
+  manifest: CapabilityManifest,
+  expectedProfileId: string,
+  correlationId: CorrelationId
+): void {
+  const capabilityProfile = manifest.verificationProfiles.find(({ id }) =>
+    id === expectedProfileId
+  );
+  try {
+    assertContract(verificationAttestationSchemaId, report);
+    const { reportDigest, ...unsigned } = report;
+    const expectedChecks = [...new Set([
+      ...(capabilityProfile?.checks ?? []),
+      'ACTION_RECONCILIATION'
+    ])];
+    const bindingsMatch = capabilityProfile !== undefined
+      && dependencies.verifier.attestation.profile.id === expectedProfileId
+      && dependencies.verifier.attestation.profile.version === capabilityProfile.version
+      && reportDigest === computeVerificationAttestationDigest(unsigned)
+      && report.input.digest === request.input.digest
+      && report.input.byteLength === request.input.byteLength
+      && report.output.digest === request.output.digest
+      && report.output.byteLength === request.output.byteLength
+      && report.output.mediaType === request.output.mediaType
+      && report.output.extractionRevision === request.output.extractionRevision
+      && report.plan.id === request.plan.id
+      && report.plan.digest === request.plan.digest
+      && report.policy.id === request.policy.id
+      && report.policy.version === request.policy.version
+      && report.policy.digest === request.policy.digest
+      && report.policy.riskTier === request.policy.riskTier
+      && report.capabilityDigest === request.capabilityDigest
+      && report.writerReceiptDigest === request.writerReceipt.receiptDigest
+      && report.profile.id === dependencies.verifier.attestation.profile.id
+      && report.profile.version === dependencies.verifier.attestation.profile.version
+      && report.profile.digest === dependencies.verifier.attestation.profile.digest
+      && report.verifier.id === dependencies.verifier.attestation.verifier.id
+      && report.verifier.version === dependencies.verifier.attestation.verifier.version
+      && report.verifier.digest === dependencies.verifier.attestation.verifier.digest
+      && report.detectorBundle.id === dependencies.verifier.attestation.detectorBundle.id
+      && report.detectorBundle.version === dependencies.verifier.attestation.detectorBundle.version
+      && report.detectorBundle.digest === dependencies.verifier.attestation.detectorBundle.digest
+      && report.writer.id === request.writer.id
+      && report.writer.version === request.writer.version
+      && report.writer.digest === request.writer.digest
+      && report.application.id === dependencies.verifier.attestation.application.id
+      && report.application.version === dependencies.verifier.attestation.application.version
+      && report.application.digest === dependencies.verifier.attestation.application.digest
+      && expectedChecks.length === report.checks.length
+      && expectedChecks.every((check, index) => report.checks[index] === check)
+      && Date.parse(report.completedAt) >= Date.parse(report.startedAt);
+    const incompleteFindingCodes = new Set([
+      'REOPEN_FAILED',
+      'OUTPUT_DIGEST_MISMATCH',
+      'VERIFIER_INCOMPLETE'
+    ]);
+    const hasIncompleteFinding = report.findings.some(({ code }) => incompleteFindingCodes.has(code));
+    const outcomeIsCoherent = report.outcome === 'PASS'
+      ? report.findings.length === 0
+      : report.outcome === 'INCOMPLETE'
+        ? report.findings.length > 0 && hasIncompleteFinding
+        : report.findings.length > 0 && !hasIncompleteFinding;
+    if (!bindingsMatch || !outcomeIsCoherent) {
+      throw new Error('verification attestation binding or outcome mismatch');
+    }
+  } catch {
+    throw verificationIncomplete(correlationId);
+  }
+
+  const reconciliation = report.reconciliation;
+  if (
+    reconciliation.expectedActionCount !== request.plan.expectedActionCount
+    || reconciliation.appliedActionCount !== request.writerReceipt.appliedActionCount
+    || reconciliation.missingActionCount !== 0
+    || reconciliation.unexpectedActionCount !== 0
+    || reconciliation.duplicateActionCount !== 0
+  ) {
+    throw redactionCountMismatch(correlationId);
+  }
+
+  if (report.outcome === 'INCOMPLETE') throw verificationIncomplete(correlationId);
+  if (report.outcome !== 'PASS') {
+    throw residualsBlocked(correlationId, report.findings.length);
+  }
 }
 
 async function discardAfterFailure(
@@ -351,26 +447,39 @@ export function createTextProcessingApplication(
           if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
             throw stagedBytesChanged(requestCorrelationId);
           }
-          const verification = await dependencies.verifier.verify(
-            reopened.text,
-            reopened.extractionRevision,
-            command.signal
-          );
-          if (
-            verification.schemaVersion !== '1.0.0'
-            || verification.profile !== command.policy.verification.profile
-            || verification.detectorBundleVersion.length === 0
-            || verification.checks.length === 0
-          ) {
+          const verificationRequest: BoundTextVerificationRequest = {
+            reopenedText: reopened.text,
+            input: {
+              digest: scanned.artifact.digest,
+              byteLength: scanned.artifact.byteLength
+            },
+            output: {
+              digest: reopened.digest,
+              byteLength: reopened.byteLength,
+              mediaType: reopened.mediaType,
+              extractionRevision: reopened.extractionRevision
+            },
+            capabilityDigest,
+            plan,
+            policy,
+            writerReceipt: staged.receipt,
+            writer: command.session.writer,
+            application: dependencies.verifier.attestation.application
+          };
+          let verification: TextVerificationAttestation;
+          try {
+            verification = await dependencies.verifier.attest(verificationRequest, command.signal);
+          } catch {
             throw verificationIncomplete(requestCorrelationId);
           }
-          const blockedFinding = verification.findings.some((finding) =>
-            finding.blocking
-            || (command.policy.verification.blockOnWarnings && finding.severity === 'WARNING')
+          assertVerificationAttestation(
+            verification,
+            verificationRequest,
+            dependencies,
+            manifest,
+            command.policy.verification.profile,
+            requestCorrelationId
           );
-          if (verification.outcome !== 'PASS' || blockedFinding) {
-            throw residualsBlocked(requestCorrelationId, verification.findings.length);
-          }
           const published = await command.session.publish(staged, command.signal);
           if (published.digest !== staged.digest || published.byteLength !== staged.byteLength) {
             throw stagedBytesChanged(requestCorrelationId);

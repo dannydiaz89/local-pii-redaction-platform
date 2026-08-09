@@ -7,6 +7,7 @@
   "exports": { ".": "./dist/index.js" },
   "scripts": { "build": "tsc -b", "typecheck": "tsc -b --pretty false" },
   "dependencies": {
+    "@local-pii/contracts": "workspace:*",
     "@local-pii/detectors": "workspace:*",
     "@local-pii/domain": "workspace:*",
     "@local-pii/span-resolution": "workspace:*"

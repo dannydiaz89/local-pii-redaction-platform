@@ -7,6 +7,7 @@ import type { TypedLabelPlan } from '@local-pii/redaction';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
 import type { RedactionWriterReceiptContract } from '@local-pii/contracts';
+import type { VerificationVerificationReportV2Contract } from '@local-pii/contracts';
 import type { EffectivePolicy, PolicyDecision } from '@local-pii/policy';
 
 export interface CapabilityRequirement {
@@ -70,6 +71,7 @@ export interface PublishedTextArtifact {
 export interface ArtifactWriterReference {
   readonly id: string;
   readonly version: string;
+  readonly digest: Sha256Digest;
 }
 
 export type WriterReceipt = RedactionWriterReceiptContract.WriterReceipt;
@@ -124,12 +126,48 @@ export interface TextVerificationReport {
 }
 
 export interface TextVerificationPort {
+  readonly attestation: {
+    readonly profile: ComponentReference;
+    readonly verifier: ComponentReference;
+    readonly detectorBundle: ComponentReference;
+    readonly application: ComponentReference;
+  };
   verify(
     text: string,
     extractionRevision: Sha256Digest,
     signal?: AbortSignal
   ): Promise<TextVerificationReport>;
+  attest(
+    request: BoundTextVerificationRequest,
+    signal?: AbortSignal
+  ): Promise<TextVerificationAttestation>;
 }
+
+export interface BoundTextVerificationRequest {
+  readonly reopenedText: string;
+  readonly input: { readonly digest: Sha256Digest; readonly byteLength: number };
+  readonly output: {
+    readonly digest: Sha256Digest;
+    readonly byteLength: number;
+    readonly mediaType: string;
+    readonly extractionRevision: Sha256Digest;
+  };
+  readonly capabilityDigest: Sha256Digest;
+  readonly plan: TypedLabelPlan;
+  readonly policy: PolicyBinding;
+  readonly writerReceipt: WriterReceipt;
+  readonly writer: ArtifactWriterReference;
+  readonly application: ComponentReference;
+}
+
+export interface ComponentReference {
+  readonly id: string;
+  readonly version: string;
+  readonly digest: Sha256Digest;
+}
+
+export type TextVerificationAttestation =
+  VerificationVerificationReportV2Contract.VerificationAttestationV2;
 
 export interface TextProcessingApplicationDependencies {
   readonly capabilityProvider: CapabilityProvider;
@@ -189,7 +227,7 @@ export interface TextRedactionResult {
   readonly resolution: ResolutionSet;
   readonly plan: TypedLabelPlan;
   readonly writerReceipt: WriterReceipt;
-  readonly verification: TextVerificationReport;
+  readonly verification: TextVerificationAttestation;
   readonly published: PublishedTextArtifact;
 }
 

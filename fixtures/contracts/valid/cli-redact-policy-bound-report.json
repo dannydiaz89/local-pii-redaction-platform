@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "operation": "REDACT",
   "outcome": "VERIFIED",
   "input": {
@@ -41,11 +41,24 @@
     "appliedActionCount": 0
   },
   "verification": {
-    "schemaVersion": "1.0.0",
-    "profile": "text-rescan-v1",
+    "schemaVersion": "2.0.0",
+    "input": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 18 },
+    "output": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "byteLength": 9, "mediaType": "text/plain", "extractionRevision": "sha256:8888888888888888888888888888888888888888888888888888888888888888" },
+    "plan": { "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V", "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+    "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW" },
+    "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "writerReceiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "profile": { "id": "text-rescan-v1", "version": "0.1.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
+    "verifier": { "id": "text-verifier", "version": "0.1.0", "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414" },
+    "detectorBundle": { "id": "deterministic-text", "version": "0.1.0", "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515" },
+    "writer": { "id": "text-adapter", "version": "0.1.0", "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616" },
+    "application": { "id": "local-pii-cli", "version": "0.1.0", "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717" },
     "outcome": "PASS",
-    "detectorBundleVersion": "0.1.0",
-    "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION"],
-    "findings": []
+    "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION", "ACTION_RECONCILIATION"],
+    "reconciliation": { "expectedActionCount": 0, "appliedActionCount": 0, "missingActionCount": 0, "unexpectedActionCount": 0, "duplicateActionCount": 0 },
+    "findings": [],
+    "startedAt": "2026-08-09T07:00:00Z",
+    "completedAt": "2026-08-09T07:00:01Z",
+    "reportDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
   }
 }

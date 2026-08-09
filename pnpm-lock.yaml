@@ -159,6 +159,9 @@ importers:
 
   packages/verification:
     dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@local-pii/detectors':
         specifier: workspace:*
         version: link:../detectors

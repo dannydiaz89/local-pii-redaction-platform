@@ -117,7 +117,8 @@ describe('text adapter', () => {
     await writeFile(input, 'scan-only@example.test');
 
     const session = createLocalTextArtifactSession(input);
-    expect(session.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
+    expect(session.writer).toMatchObject({ id: 'text-adapter', version: '0.1.0' });
+    expect(session.writer.digest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     const artifact = await session.input();
 
     expect(artifact.text).toBe('scan-only@example.test');
@@ -223,7 +224,23 @@ describe('text adapter', () => {
     const staged = await session.stage(typedLabelPlan(await session.input()));
     await writeFile(staged.path, 'tampered staged bytes');
 
-    await expect(session.publish(staged)).rejects.toMatchObject({ code: 'STORAGE_UNAVAILABLE' });
+    await expect(session.publish(staged)).rejects.toMatchObject({ code: 'ARTIFACT_DIGEST_MISMATCH' });
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await session.discard(staged);
+  });
+
+  it('rejects reopening when staged bytes change before verification', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    await writeFile(staged.path, 'tampered before reopen');
+
+    await expect(session.reopen(staged)).rejects.toMatchObject({
+      code: 'ARTIFACT_DIGEST_MISMATCH', retryable: false
+    });
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await session.discard(staged);
   });
