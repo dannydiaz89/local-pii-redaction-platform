@@ -1157,6 +1157,242 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/policy-report/1.0.0",
+    "title": "CLI policy inspection report",
+    "description": "Privacy-safe machine output for listing and explaining bundled example policies.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "enum": [
+          "POLICY_LIST",
+          "POLICY_EXPLAIN"
+        ]
+      },
+      "policies": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "$ref": "#/$defs/policySummary"
+        }
+      },
+      "policy": {
+        "$ref": "#/$defs/policySummary"
+      },
+      "capability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "engineMode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "engineMode": {
+            "enum": [
+              "RULES_ONLY",
+              "LOCAL_HYBRID",
+              "REMOTE"
+            ]
+          }
+        }
+      },
+      "satisfiable": {
+        "type": "boolean"
+      },
+      "decisions": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "available"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "CAPABILITY_MANIFEST_VALID",
+                "CONTRACT_VERSION_SUPPORTED",
+                "ENGINE_MODE_SUPPORTED",
+                "FORMAT_AVAILABLE",
+                "OPERATION_SUPPORTED",
+                "FORMAT_QUALIFICATION_SUFFICIENT",
+                "ENTITY_DETECTOR_REQUIREMENTS_SATISFIED",
+                "TRANSFORMATION_REQUIREMENTS_SATISFIED",
+                "VERIFICATION_PROFILE_AVAILABLE",
+                "INPUT_LIMIT_SUFFICIENT"
+              ]
+            },
+            "available": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "$defs": {
+      "policySummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier",
+          "example"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          },
+          "example": {
+            "const": true
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "POLICY_LIST"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "policies": true,
+            "policy": false,
+            "capability": false,
+            "satisfiable": false,
+            "decisions": false
+          },
+          "required": [
+            "policies"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "POLICY_EXPLAIN"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "policies": false,
+            "policy": true,
+            "capability": true,
+            "satisfiable": true,
+            "decisions": true
+          },
+          "required": [
+            "policy",
+            "capability",
+            "satisfiable",
+            "decisions"
+          ]
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "POLICY_LIST",
+        "policies": [
+          {
+            "id": "development-labels",
+            "version": "0.1.0",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "riskTier": "LOW",
+            "example": true
+          }
+        ]
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "POLICY_EXPLAIN",
+        "policy": {
+          "id": "high-risk-disclosure",
+          "version": "3.1.0",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "riskTier": "HIGH",
+          "example": true
+        },
+        "capability": {
+          "id": "local-rules-text",
+          "version": "0.1.0",
+          "engineMode": "RULES_ONLY"
+        },
+        "satisfiable": false,
+        "decisions": [
+          {
+            "code": "CAPABILITY_MANIFEST_VALID",
+            "available": true
+          },
+          {
+            "code": "FORMAT_QUALIFICATION_SUFFICIENT",
+            "available": false
+          },
+          {
+            "code": "ENTITY_DETECTOR_REQUIREMENTS_SATISFIED",
+            "available": false
+          },
+          {
+            "code": "TRANSFORMATION_REQUIREMENTS_SATISFIED",
+            "available": false
+          },
+          {
+            "code": "VERIFICATION_PROFILE_AVAILABLE",
+            "available": false
+          },
+          {
+            "code": "INPUT_LIMIT_SUFFICIENT",
+            "available": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/entity-type/1.0.0",
     "title": "Entity type",
     "description": "Initial versioned PII and secret entity taxonomy proposed by the reference catalog.",

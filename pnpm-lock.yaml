@@ -62,6 +62,9 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@local-pii/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:../../packages/provider-ollama
@@ -106,6 +109,15 @@ importers:
         version: link:../domain
 
   packages/domain: {}
+
+  packages/policy:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/provider-ollama:
     dependencies:

@@ -6,6 +6,12 @@ import {
 } from '@local-pii/adapter-text';
 import { assertContract } from '@local-pii/contracts';
 import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
+import {
+  bundledPolicies,
+  compilePolicy,
+  evaluateCapabilities,
+  type EffectivePolicy
+} from '@local-pii/policy';
 
 import {
   assertOllamaLoopbackEndpoint,
@@ -17,6 +23,7 @@ import {
   localTextApplication,
   textCapabilityRequirement
 } from './application.js';
+import { createCurrentCapabilityManifest } from './capabilities.js';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -26,8 +33,10 @@ export interface CliIo {
 interface ParsedArguments {
   readonly command: string | undefined;
   readonly input: string | undefined;
+  readonly policyName: string | undefined;
   readonly output: string | undefined;
   readonly engine: 'rules' | 'ollama';
+  readonly engineSpecified: boolean;
   readonly model: string | undefined;
   readonly ollamaUrl: string | undefined;
   readonly timeoutMs: number | undefined;
@@ -38,6 +47,8 @@ interface ParsedArguments {
 }
 
 const usage = `Usage:
+  pii-redact policies list [--json]
+  pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact scan <file.txt|file.md> [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md> [--output <path>] [--json]
@@ -52,12 +63,14 @@ Experimental Ollama options:
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
+const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
   let output: string | undefined;
   let engine: 'rules' | 'ollama' = 'rules';
+  let engineSpecified = false;
   let model: string | undefined;
   let ollamaUrl: string | undefined;
   let timeoutMs: number | undefined;
@@ -82,6 +95,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       output = valueAfter(index, '--output');
       index += 1;
     } else if (value === '--engine') {
+      engineSpecified = true;
       const selected = valueAfter(index, '--engine');
       if (selected !== 'rules' && selected !== 'ollama') throw new Error('unknown engine');
       engine = selected;
@@ -102,8 +116,22 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       throw new Error('unknown option');
     } else if (value !== undefined) positional.push(value);
   }
-  if (positional.length > 2) throw new Error('too many positional arguments');
-  return { command: positional[0], input: positional[1], output, engine, model, ollamaUrl, timeoutMs, allowExperimental, json, help, license };
+  if (positional.length > 3) throw new Error('too many positional arguments');
+  return {
+    command: positional[0],
+    input: positional[1],
+    policyName: positional[2],
+    output,
+    engine,
+    engineSpecified,
+    model,
+    ollamaUrl,
+    timeoutMs,
+    allowExperimental,
+    json,
+    help,
+    license
+  };
 }
 
 function writeResult(io: CliIo, json: boolean, value: object, human: string): void {
@@ -115,6 +143,62 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
   const counts: Partial<Record<EntityType, number>> = {};
   for (const entityType of entityTypes) counts[entityType] = (counts[entityType] ?? 0) + 1;
   return counts;
+}
+
+function policySummary(policy: EffectivePolicy) {
+  return {
+    id: policy.id,
+    version: policy.version,
+    digest: policy.digest,
+    riskTier: policy.riskTier,
+    example: true as const
+  };
+}
+
+function compiledBundledPolicies(): readonly EffectivePolicy[] {
+  return Object.keys(bundledPolicies).sort().map((name) =>
+    compilePolicy(bundledPolicies[name as keyof typeof bundledPolicies])
+  );
+}
+
+function runPolicyList(json: boolean, io: CliIo): number {
+  const policies = compiledBundledPolicies().map(policySummary);
+  const report = { schemaVersion: '1.0.0', operation: 'POLICY_LIST', policies };
+  assertContract(policyReportSchemaId, report);
+  io.stdout(json
+    ? `${JSON.stringify(report, null, 2)}\n`
+    : `${policies.map((policy) => `${policy.id} ${policy.version} (${policy.riskTier}, example)`).join('\n')}\n`);
+  return 0;
+}
+
+function runPolicyExplain(policyName: keyof typeof bundledPolicies, json: boolean, io: CliIo): number {
+  const policy = compilePolicy(bundledPolicies[policyName]);
+  const manifest = createCurrentCapabilityManifest();
+  const evaluation = evaluateCapabilities(policy, manifest, {
+    contractVersion: '1.0.0',
+    engineModes: ['RULES_ONLY'],
+    formatId: 'text',
+    operation: 'REDACT',
+    minimumQualification: policy.riskTier === 'HIGH' ? 'QUALIFIED' : 'DEVELOPMENT'
+  });
+  const report = {
+    schemaVersion: '1.0.0',
+    operation: 'POLICY_EXPLAIN',
+    policy: policySummary(policy),
+    capability: { id: manifest.id, version: manifest.version, engineMode: manifest.engineMode },
+    satisfiable: evaluation.available,
+    decisions: evaluation.decisions
+  };
+  assertContract(policyReportSchemaId, report);
+  io.stdout(json
+    ? `${JSON.stringify(report, null, 2)}\n`
+    : [
+        `Policy: ${policy.id} ${policy.version} (${policy.riskTier}, example)`,
+        `Capability: ${manifest.id} ${manifest.version} (${manifest.engineMode})`,
+        `Satisfiable: ${evaluation.available ? 'yes' : 'no'}`,
+        ...evaluation.decisions.map(({ code, available }) => `${code}: ${available ? 'available' : 'unavailable'}`)
+      ].join('\n') + '\n');
+  return 0;
 }
 
 async function runCapabilities(parsed: ParsedArguments, io: CliIo): Promise<number> {
@@ -198,8 +282,23 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
 }
 
 function validCommandOptions(parsed: ParsedArguments): boolean {
+  if (parsed.command === 'policies') {
+    const commonOptionsValid = !parsed.engineSpecified
+      && parsed.output === undefined
+      && parsed.model === undefined
+      && parsed.ollamaUrl === undefined
+      && parsed.timeoutMs === undefined
+      && !parsed.allowExperimental
+      && !parsed.help
+      && !parsed.license;
+    if (!commonOptionsValid) return false;
+    if (parsed.input === 'list') return parsed.policyName === undefined;
+    return parsed.input === 'explain'
+      && (parsed.policyName === 'development-labels' || parsed.policyName === 'high-risk-disclosure');
+  }
   if (!validEngineSelection(parsed)) return false;
   if (parsed.output !== undefined && parsed.command !== 'redact') return false;
+  if (parsed.policyName !== undefined) return false;
   return true;
 }
 
@@ -290,6 +389,9 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
   }
 
   try {
+    if (parsed.command === 'policies' && !validCommandOptions(parsed)) {
+      return writeUsageError(parsed.json, io);
+    }
     if (parsed.license) {
       const licensePath = resolve(import.meta.dirname, '../../../LICENSE');
       io.stdout(await readFile(licensePath, 'utf8'));
@@ -305,8 +407,12 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
     }
     if (parsed.command === undefined) return writeUsageError(parsed.json, io);
     if (!validCommandOptions(parsed)) return writeUsageError(parsed.json, io);
+    if (parsed.command === 'policies') {
+      if (parsed.input === 'list') return runPolicyList(parsed.json, io);
+      return runPolicyExplain(parsed.policyName as keyof typeof bundledPolicies, parsed.json, io);
+    }
     if (parsed.command === 'capabilities') {
-      if (parsed.input !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
+      if (parsed.input !== undefined || parsed.policyName !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
       return await runCapabilities(parsed, io);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {

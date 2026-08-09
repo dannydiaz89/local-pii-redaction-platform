@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { executeCli, type CliIo } from '../src/commands.js';
 
@@ -36,6 +36,94 @@ function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly st
 }
 
 describe('CLI TXT vertical slice', () => {
+  it('lists and explains bundled policies without accessing artifacts or Ollama', async () => {
+    const fetchImplementation = vi.fn(() => {
+      throw new Error('Policy inspection must not make network requests.');
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+    try {
+      const listed = capture();
+      expect(await executeCli(['policies', 'list', '--json'], listed.io)).toBe(0);
+      const listReport = JSON.parse(listed.stdout.join('')) as {
+        readonly schemaVersion: string;
+        readonly operation: string;
+        readonly policies: readonly { readonly id: string; readonly riskTier: string; readonly example: boolean }[];
+      };
+      expect(listReport).toMatchObject({ schemaVersion: '1.0.0', operation: 'POLICY_LIST' });
+      expect(listReport.policies).toEqual([
+        expect.objectContaining({ id: 'development-labels', riskTier: 'LOW', example: true }),
+        expect.objectContaining({ id: 'high-risk-disclosure', riskTier: 'HIGH', example: true })
+      ]);
+      expect(listed.stderr).toHaveLength(0);
+
+      const development = capture();
+      expect(await executeCli(['policies', 'explain', 'development-labels', '--json'], development.io)).toBe(0);
+      const developmentReport = JSON.parse(development.stdout.join('')) as {
+        readonly operation: string;
+        readonly satisfiable: boolean;
+        readonly capability: { readonly id: string; readonly engineMode: string };
+        readonly decisions: readonly { readonly code: string; readonly available: boolean }[];
+      };
+      expect(developmentReport).toMatchObject({
+        operation: 'POLICY_EXPLAIN',
+        satisfiable: true,
+        capability: { id: 'local-rules-text', engineMode: 'RULES_ONLY' }
+      });
+      expect(developmentReport.decisions.every(({ available }) => available)).toBe(true);
+
+      const repeated = capture();
+      expect(await executeCli(['policies', 'explain', 'development-labels', '--json'], repeated.io)).toBe(0);
+      expect(repeated.stdout.join('')).toBe(development.stdout.join(''));
+
+      const highRisk = capture();
+      expect(await executeCli(['policies', 'explain', 'high-risk-disclosure', '--json'], highRisk.io)).toBe(0);
+      const highRiskReport = JSON.parse(highRisk.stdout.join('')) as {
+        readonly satisfiable: boolean;
+        readonly decisions: readonly { readonly code: string; readonly available: boolean }[];
+      };
+      expect(highRiskReport.satisfiable).toBe(false);
+      expect(highRiskReport.decisions).toContainEqual({
+        code: 'FORMAT_QUALIFICATION_SUFFICIENT',
+        available: false
+      });
+      expect(highRiskReport.decisions).toContainEqual({
+        code: 'ENTITY_DETECTOR_REQUIREMENTS_SATISFIED',
+        available: false
+      });
+
+      for (const output of [listed.stdout.join(''), development.stdout.join(''), highRisk.stdout.join('')]) {
+        expect(output).not.toContain('/Users/');
+        expect(output).not.toContain('/tmp/');
+      }
+      expect(fetchImplementation).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('rejects malformed or inapplicable policy inspection arguments with the canonical usage error', async () => {
+    const invalidArguments = [
+      ['policies'],
+      ['policies', 'list', 'development-labels'],
+      ['policies', 'explain'],
+      ['policies', 'explain', 'unknown-policy'],
+      ['policies', 'list', '--engine', 'rules'],
+      ['policies', 'list', '--output', 'report.json'],
+      ['policies', 'list', '--allow-experimental'],
+      ['policies', 'list', '--help'],
+      ['policies', 'list', '--license']
+    ];
+    for (const argv of invalidArguments) {
+      const stream = capture();
+      expect(await executeCli([...argv, '--json'], stream.io), argv.join(' ')).toBe(2);
+      expect(stream.stdout).toHaveLength(0);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({
+        schemaVersion: '1.0.0',
+        error: { code: 'SCHEMA_INVALID', correlationId: 'cor_cli_usage' }
+      });
+    }
+  });
+
   it('publishes a canonical rules-only capability manifest', async () => {
     const stream = capture();
     expect(await executeCli(['capabilities', '--json'], stream.io)).toBe(0);

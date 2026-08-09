@@ -82,6 +82,12 @@ describe('capability manifest and preflight', () => {
     expect(() => { assertCapabilityManifest(manifest, 'cor_synthetic_manifest_004'); }).toThrow(SafeError);
   });
 
+  it('rejects duplicate format feature identifiers', () => {
+    const manifest = capabilityManifest();
+    manifest.formats[0].features.push({ ...manifest.formats[0].features[0] });
+    expect(() => { assertCapabilityManifest(manifest, 'cor_synthetic_manifest_feature'); }).toThrow(SafeError);
+  });
+
   it('rejects a per-format byte limit above the deployment limit', () => {
     const manifest = capabilityManifest();
     manifest.formats[0].limits.maximumInputBytes = manifest.limits.maximumInputBytes + 1;

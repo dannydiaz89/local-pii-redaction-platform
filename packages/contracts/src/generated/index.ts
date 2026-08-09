@@ -4,6 +4,7 @@ export * as ArtifactsArtifactContract from './artifacts-artifact.js';
 export * as AuditAuditSummaryContract from './audit-audit-summary.js';
 export * as CapabilitiesCapabilityManifestContract from './capabilities-capability-manifest.js';
 export * as CliCliReportContract from './cli-cli-report.js';
+export * as CliPolicyReportContract from './cli-policy-report.js';
 export * as CommonEntityTypeContract from './common-entity-type.js';
 export * as CommonErrorsContract from './common-errors.js';
 export * as CommonIdentifiersContract from './common-identifiers.js';

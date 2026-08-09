@@ -10,6 +10,7 @@
     { "path": "../../packages/domain" },
     { "path": "../../packages/core" },
     { "path": "../../packages/detectors" },
+    { "path": "../../packages/policy" },
     { "path": "../../packages/provider-ollama" },
     { "path": "../../packages/span-resolution" },
     { "path": "../../packages/redaction" },

@@ -33,6 +33,9 @@ The project currently runs as a local CLI, not a background HTTP service.
 
 ```sh
 pnpm build
+pnpm --silent pii-redact policies list --json
+pnpm --silent pii-redact policies explain development-labels --json
+pnpm --silent pii-redact policies explain high-risk-disclosure --json
 pnpm --silent pii-redact capabilities --json
 pnpm pii-redact inspect ./sample.txt
 pnpm --silent pii-redact scan ./sample.txt --json
@@ -44,6 +47,14 @@ pnpm --silent pii-redact verify ./sample.redacted.txt --json
 reopens the staged UTF-8 artifact, rescans it, and publishes the requested path only when the
 `text-rescan-v1` profile passes. Machine reports contain entity types and offsets, not matched
 values.
+
+`policies explain` is read-only: it compiles a bundled example and compares its requirements with
+the current rules-only text capability without opening a document or contacting Ollama. The
+`development-labels` example is currently satisfiable. `high-risk-disclosure` is deliberately
+reported as unsatisfiable because the available components are not qualified for high-risk use and
+the required detector, transformation, and verification assurances are incomplete. Policy
+inspection does not yet select processing behavior; `--policy` will be added only after core plans
+retain and enforce the policy digest and per-entity evidence requirements.
 
 To compare the rules with an already-installed local Ollama model, run an experimental hybrid scan:
 
@@ -80,6 +91,7 @@ verification, `5` for unresolved scan conflicts, and `6` for output collisions.
 
 - `packages/contracts`: canonical schemas, OpenAPI, generated TypeScript, runtime validation
 - `packages/domain`: pure identifiers, errors, spans, and job state transitions
+- `packages/policy`: immutable bundled policy validation, compilation, and capability explanations
 - `packages/detectors`: bounded deterministic evidence providers
 - `packages/span-resolution`: deterministic overlap handling and explicit conflicts
 - `packages/redaction`: immutable typed-label plans and application

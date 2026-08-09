@@ -1,4 +1,7 @@
-import { validateContract } from '@local-pii/contracts';
+import {
+  isCapabilityManifestSemanticallyValid,
+  validateContract
+} from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
 
 import type { CapabilityManifest, CapabilityQualification, CapabilityRequirement } from './ports.js';
@@ -14,10 +17,6 @@ function isQualified(actual: CapabilityQualification, required: CapabilityQualif
   return qualificationRank[actual] >= qualificationRank[required];
 }
 
-function hasDuplicate(values: readonly string[]): boolean {
-  return new Set(values).size !== values.length;
-}
-
 function invalidManifest(correlationId: string): never {
   throw new SafeError({
     code: 'SCHEMA_INVALID',
@@ -28,33 +27,9 @@ function invalidManifest(correlationId: string): never {
 }
 
 export function assertCapabilityManifest(manifest: CapabilityManifest, correlationId: string): void {
-  if (!validateContract(capabilityManifestSchemaId, manifest).valid) invalidManifest(correlationId);
-
   if (
-    hasDuplicate(manifest.formats.map(({ id }) => id))
-    || hasDuplicate(manifest.detectors.map(({ id }) => id))
-    || hasDuplicate(manifest.transformations.map(({ id }) => id))
-    || hasDuplicate(manifest.verificationProfiles.map(({ id }) => id))
-  ) invalidManifest(correlationId);
-
-  const profileById = new Map(manifest.verificationProfiles.map((profile) => [profile.id, profile]));
-  for (const format of manifest.formats) {
-    if (format.limits.maximumInputBytes > manifest.limits.maximumInputBytes) invalidManifest(correlationId);
-    if (hasDuplicate(format.features.map(({ id }) => id))) invalidManifest(correlationId);
-    for (const profileId of format.verificationProfiles) {
-      const profile = profileById.get(profileId);
-      if (profile === undefined || !profile.formats.includes(format.id)) invalidManifest(correlationId);
-    }
-  }
-  for (const profile of manifest.verificationProfiles) {
-    for (const formatId of profile.formats) {
-      const format = manifest.formats.find(({ id }) => id === formatId);
-      if (format === undefined || !format.verificationProfiles.includes(profile.id)) invalidManifest(correlationId);
-    }
-  }
-  if (
-    manifest.engineMode === 'RULES_ONLY'
-    && manifest.detectors.some((detector) => detector.availability === 'AVAILABLE' && detector.kinds.includes('MODEL'))
+    !validateContract(capabilityManifestSchemaId, manifest).valid
+    || !isCapabilityManifestSemanticallyValid(manifest)
   ) invalidManifest(correlationId);
 }
 
