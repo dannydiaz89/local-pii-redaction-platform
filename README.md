@@ -133,6 +133,10 @@ output collisions.
   filesystem failures. Orphan-stage unlinking is not secure erasure and does not remove copies from
   filesystem journals, snapshots, backups, swap, or provider logs. Recovery is an explicit
   operator action in a trusted directory because stage-like filenames are not ownership proofs.
+- The verified hard link is the publication commit. If removing its private staging link cannot be
+  confirmed afterward, the command returns a non-retryable storage error and the verified output may
+  already exist at the output path you selected. Inspect that path before retrying, then use the
+  dry-run recovery command. The adapter does not claim directory-entry durability across power loss.
 - There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.

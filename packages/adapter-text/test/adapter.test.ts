@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { link as hardLink, mkdir, mkdtemp, readFile, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,13 +13,16 @@ import {
   createLocalTextArtifactSession,
   createTextWriterReceipt,
   cleanupStaleTextStages,
+  defaultTextArtifactFileSystem,
   discardStagedTextArtifact,
   inventoryTextStages,
   readTextArtifact,
+  stageTextArtifact,
   writeTextArtifact,
   assertTextWriterReceiptIntegrity,
   type StagedTextArtifact,
-  type TextArtifact
+  type TextArtifact,
+  type TextArtifactFileSystem
 } from '../src/index.js';
 
 const directories: string[] = [];
@@ -86,6 +89,18 @@ function typedLabelPlan(source: TextArtifact, actions: readonly TestAction[] = [
   });
 }
 
+function filesystemFailure(code = 'EIO'): NodeJS.ErrnoException {
+  return Object.assign(new Error('sensitive native filesystem detail'), { code });
+}
+
+function faultFileSystem(overrides: Partial<TextArtifactFileSystem>): TextArtifactFileSystem {
+  return { ...defaultTextArtifactFileSystem, ...overrides };
+}
+
+async function stageEntries(root: string): Promise<string[]> {
+  return (await readdir(root)).filter((entry) => entry.includes('.staged')).sort();
+}
+
 describe('text adapter', () => {
   it('matches fixed SHA-256 vectors for artifact bytes and canonical extraction revisions', async () => {
     const root = await directory();
@@ -107,6 +122,346 @@ describe('text adapter', () => {
     await writeTextArtifact(artifact, output, '[EMAIL_1]');
     expect(await readFile(input)).toEqual(original);
     expect(await readFile(output)).toEqual(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('[EMAIL_1]')]));
+  });
+
+  it('normalizes an injected stage-open failure without creating a stage', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const source = await readTextArtifact(input);
+    const fileSystem = faultFileSystem({ open: () => Promise.reject(filesystemFailure()) });
+
+    await expect(stageTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be created.'
+    });
+    expect(await stageEntries(root)).toEqual([]);
+    expect(await readFile(input, 'utf8')).toBe('alice@example.test');
+  });
+
+  it('does not unlink an unowned pathname after an ambiguous stage-open failure', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const source = await readTextArtifact(input);
+    let ambiguousPath = '';
+    const fileSystem = faultFileSystem({
+      open: async (path) => {
+        ambiguousPath = path;
+        await writeFile(path, 'concurrently-owned bytes');
+        throw filesystemFailure();
+      }
+    });
+
+    await expect(stageTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be created.'
+    });
+    expect(await readFile(ambiguousPath, 'utf8')).toBe('concurrently-owned bytes');
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each(['writeFile', 'sync', 'close'] as const)(
+    'removes the temporary stage and normalizes an injected stage-%s failure',
+    async (phase) => {
+      const root = await directory();
+      const input = join(root, 'input.txt');
+      const output = join(root, 'output.txt');
+      await writeFile(input, 'alice@example.test');
+      const source = await readTextArtifact(input);
+      const fileSystem = faultFileSystem({
+        open: async (...arguments_) => {
+          const handle = await defaultTextArtifactFileSystem.open(...arguments_);
+          return {
+            writeFile: async (bytes) => {
+              if (phase === 'writeFile') throw filesystemFailure();
+              await handle.writeFile(bytes);
+            },
+            sync: async () => {
+              if (phase === 'sync') throw filesystemFailure();
+              await handle.sync();
+            },
+            close: async () => {
+              await handle.close();
+              if (phase === 'close') throw filesystemFailure();
+            }
+          };
+        }
+      });
+
+      await expect(stageTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+        code: 'STORAGE_UNAVAILABLE',
+        message: 'The staged artifact could not be written.'
+      });
+      expect(await stageEntries(root)).toEqual([]);
+      expect(await readFile(input, 'utf8')).toBe('alice@example.test');
+    }
+  );
+
+  it('does not claim failed-stage cleanup when the injected unlink cannot be confirmed', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const source = await readTextArtifact(input);
+    const fileSystem = faultFileSystem({
+      open: async (...arguments_) => {
+        const handle = await defaultTextArtifactFileSystem.open(...arguments_);
+        return {
+          writeFile: () => Promise.reject(filesystemFailure()),
+          sync: () => handle.sync(),
+          close: () => handle.close()
+        };
+      },
+      unlink: () => Promise.reject(filesystemFailure())
+    });
+
+    await expect(stageTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact cleanup could not be confirmed.',
+      details: { reason: 'stage_cleanup_failed' }
+    });
+    expect(await stageEntries(root)).toHaveLength(1);
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('removes the temporary stage and normalizes an injected stage-readback failure', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const source = await readTextArtifact(input);
+    const fileSystem = faultFileSystem({
+      readFile: async (path) => {
+        if (path.includes('.staged')) throw filesystemFailure();
+        return defaultTextArtifactFileSystem.readFile(path);
+      }
+    });
+
+    await expect(stageTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be verified.'
+    });
+    expect(await stageEntries(root)).toEqual([]);
+    expect(await readFile(input, 'utf8')).toBe('alice@example.test');
+  });
+
+  it('normalizes an injected reopen read failure and leaves its existing stage untouched', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const writer = createLocalTextArtifactSession(input, output);
+    const staged = await writer.stage(typedLabelPlan(await writer.input()));
+    const reader = createLocalTextArtifactSession(input, output, undefined, faultFileSystem({
+      readFile: async (path) => {
+        if (path.includes('.staged')) throw filesystemFailure();
+        return defaultTextArtifactFileSystem.readFile(path);
+      }
+    }));
+
+    await expect(reader.reopen(staged)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The input could not be read.'
+    });
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+    expect(await readFile(staged.path, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('normalizes an injected publication-link failure and leaves the stage recoverable', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const fileSystem = faultFileSystem({ link: () => Promise.reject(filesystemFailure()) });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+
+    await expect(session.publish(staged)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The staged artifact could not be published.'
+    });
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('treats an identical but independently created output as a collision after a link error', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const fileSystem = faultFileSystem({
+      link: () => Promise.reject(filesystemFailure('EEXIST'))
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    await writeFile(output, '[EMAIL_1]');
+
+    await expect(session.publish(staged)).rejects.toMatchObject({
+      code: 'OUTPUT_COLLISION',
+      message: 'The output path already exists.'
+    });
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+  });
+
+  it('keeps the verified output when post-publication stage cleanup fails', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    let stagedPath = '';
+    const fileSystem = faultFileSystem({
+      unlink: async (path) => {
+        if (path === stagedPath) throw filesystemFailure();
+        await defaultTextArtifactFileSystem.unlink(path);
+      }
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    stagedPath = staged.path;
+
+    await expect(session.publish(staged)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'A verified output was published, but staged artifact cleanup could not be confirmed.',
+      details: { reason: 'stage_cleanup_failed_after_publication' },
+      retryable: false
+    });
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('returns publication success after a transient post-commit cleanup failure', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    let stagedPath = '';
+    let stageUnlinkAttempts = 0;
+    const fileSystem = faultFileSystem({
+      unlink: async (path) => {
+        if (path === stagedPath && stageUnlinkAttempts++ === 0) throw filesystemFailure();
+        await defaultTextArtifactFileSystem.unlink(path);
+      }
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    stagedPath = staged.path;
+
+    await expect(session.publish(staged)).resolves.toMatchObject({ reference: output });
+    expect(stageUnlinkAttempts).toBe(2);
+    expect(await stageEntries(root)).toEqual([]);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('preserves post-publication cleanup status through the one-shot writer', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const source = await readTextArtifact(input);
+    const fileSystem = faultFileSystem({
+      unlink: async (path) => {
+        if (path.includes('.staged')) throw filesystemFailure();
+        await defaultTextArtifactFileSystem.unlink(path);
+      }
+    });
+
+    await expect(writeTextArtifact(source, output, '[EMAIL_1]', fileSystem)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      details: { reason: 'stage_cleanup_failed_after_publication' },
+      retryable: false
+    });
+    expect(await stageEntries(root)).toHaveLength(1);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('reconciles a link error after its side effect without deleting the verified output', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const fileSystem = faultFileSystem({
+      link: async (existingPath, targetPath) => {
+        await defaultTextArtifactFileSystem.link(existingPath, targetPath);
+        throw filesystemFailure();
+      }
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+
+    await expect(session.publish(staged)).resolves.toMatchObject({ reference: output });
+    expect(await stageEntries(root)).toEqual([]);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('reconciles an unlink error after its side effect as successful publication', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    let stagedPath = '';
+    const fileSystem = faultFileSystem({
+      unlink: async (path) => {
+        await defaultTextArtifactFileSystem.unlink(path);
+        if (path === stagedPath) throw filesystemFailure();
+      }
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+    stagedPath = staged.path;
+
+    await expect(session.publish(staged)).resolves.toMatchObject({ reference: output });
+    expect(await stageEntries(root)).toEqual([]);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
+  });
+
+  it('does not report success when link returns without creating the output', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const fileSystem = faultFileSystem({ link: () => Promise.resolve() });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+
+    await expect(session.publish(staged)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      details: { reason: 'publication_state_unknown' },
+      retryable: false
+    });
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports an unconfirmed link outcome without retrying or deleting either artifact', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'output.txt');
+    await writeFile(input, 'alice@example.test');
+    const fileSystem = faultFileSystem({
+      link: async (existingPath, targetPath) => {
+        await defaultTextArtifactFileSystem.link(existingPath, targetPath);
+        throw filesystemFailure();
+      },
+      lstat: async (path) => {
+        if (path === output) throw filesystemFailure();
+        return defaultTextArtifactFileSystem.lstat(path);
+      }
+    });
+    const session = createLocalTextArtifactSession(input, output, undefined, fileSystem);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+
+    await expect(session.publish(staged)).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The publication state could not be confirmed.',
+      details: { reason: 'publication_state_unknown' },
+      retryable: false
+    });
+    expect(await stageEntries(root)).toEqual([staged.path.split('/').at(-1)]);
+    expect(await readFile(output, 'utf8')).toBe('[EMAIL_1]');
   });
 
   it('refuses output collisions and symbolic-link inputs', async () => {
@@ -236,6 +591,21 @@ describe('text adapter', () => {
     await writeFile(staged.path, 'tampered staged bytes');
 
     await expect(session.publish(staged)).rejects.toMatchObject({ code: 'ARTIFACT_DIGEST_MISMATCH' });
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await session.discard(staged);
+  });
+
+  it('rejects publication when the declared staged byte length is not exact', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    const output = join(root, 'redacted.txt');
+    await writeFile(input, 'alice@example.test');
+    const session = createLocalTextArtifactSession(input, output);
+    const staged = await session.stage(typedLabelPlan(await session.input()));
+
+    await expect(session.publish({ ...staged, byteLength: staged.byteLength + 1 })).rejects.toMatchObject({
+      code: 'ARTIFACT_DIGEST_MISMATCH'
+    });
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await session.discard(staged);
   });
@@ -423,6 +793,71 @@ describe('text adapter', () => {
     expect(await readFile(symlinkStage, 'utf8')).toBe('source');
     expect((await stat(directoryStage)).isDirectory()).toBe(true);
     expect(await readFile(lookalike, 'utf8')).toBe('lookalike');
+  });
+
+  it('skips a hard-linked lookalike unless its other link is the exact selected output', async () => {
+    const root = await directory();
+    const output = join(root, 'report.txt');
+    const unrelated = join(root, 'unrelated.txt');
+    const stage = join(root, stageName('report', '66666666-6666-4666-8666-666666666666'));
+    await writeFile(unrelated, 'user-owned bytes');
+    await hardLink(unrelated, stage);
+    await makeStale(stage);
+
+    const result = await cleanupStaleTextStages({ outputPath: output, minimumAgeMs: 60_000 });
+
+    expect(result).toMatchObject({
+      matchingStageFileCount: 1,
+      staleStageFileCount: 0,
+      skippedUnsafeEntryCount: 1,
+      deletedStageFileCount: 0
+    });
+    expect(await readFile(stage, 'utf8')).toBe('user-owned bytes');
+    expect(await readFile(unrelated, 'utf8')).toBe('user-owned bytes');
+  });
+
+  it('cleans an old post-publication hard link only when bound to the selected output', async () => {
+    const root = await directory();
+    const output = join(root, 'report.txt');
+    const stage = join(root, stageName('report', '77777777-7777-4777-8777-777777777777'));
+    await writeFile(output, 'verified output');
+    await hardLink(output, stage);
+    await makeStale(stage);
+
+    const result = await cleanupStaleTextStages({ outputPath: output, minimumAgeMs: 60_000 });
+
+    expect(result).toMatchObject({ staleStageFileCount: 1, deletedStageFileCount: 1 });
+    expect(await readFile(output, 'utf8')).toBe('verified output');
+    await expect(readFile(stage)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('uses the fault seam for bounded recovery inventory and deletion', async () => {
+    const root = await directory();
+    const output = join(root, 'report.txt');
+    const stage = join(root, stageName('report', '88888888-8888-4888-8888-888888888888'));
+    await writeFile(stage, 'private stage');
+    await makeStale(stage);
+
+    await expect(inventoryTextStages({
+      outputPath: output,
+      minimumAgeMs: 60_000,
+      fileSystem: faultFileSystem({ opendir: () => Promise.reject(filesystemFailure()) })
+    })).rejects.toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The selected staging directory is unavailable.'
+    });
+
+    const cleanup = await cleanupStaleTextStages({
+      outputPath: output,
+      minimumAgeMs: 60_000,
+      fileSystem: faultFileSystem({ unlink: () => Promise.reject(filesystemFailure()) })
+    });
+    expect(cleanup).toMatchObject({
+      staleStageFileCount: 1,
+      deletedStageFileCount: 0,
+      deletionFailureCount: 1
+    });
+    expect(await readFile(stage, 'utf8')).toBe('private stage');
   });
 
   it('caps explicit stale-stage cleanup and is idempotent without deleting protected files', async () => {

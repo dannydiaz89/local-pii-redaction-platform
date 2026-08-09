@@ -538,6 +538,38 @@ describe('TextProcessingApplication', () => {
     expect((failure as Error).message).not.toContain('private staging path');
   });
 
+  it('preserves a post-publication cleanup status when the cleanup retry also fails', async () => {
+    const session = new FakeSession('ephemeral');
+    const publishedCleanupFailure = new SafeError({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'A verified output was published, but staged artifact cleanup could not be confirmed.',
+      retryable: false,
+      correlationId: context.correlationId,
+      details: { reason: 'stage_cleanup_failed_after_publication' }
+    });
+    session.publish = () => Promise.reject(publishedCleanupFailure);
+    let discardCalled = false;
+    session.discard = () => {
+      discardCalled = true;
+      return Promise.reject(new Error('private staging path'));
+    };
+
+    const failure = await createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy
+    }, context).catch((error: unknown) => error);
+
+    expect(failure).toBe(publishedCleanupFailure);
+    expect(failure).toMatchObject({
+      code: 'STORAGE_UNAVAILABLE',
+      retryable: false,
+      details: { reason: 'stage_cleanup_failed_after_publication' }
+    });
+    expect((failure as Error).message).not.toContain('private staging path');
+    expect(discardCalled).toBe(false);
+  });
+
   it('forwards cancellation to every participating port', async () => {
     const signal = AbortSignal.abort();
     const session = new FakeSession('ephemeral');

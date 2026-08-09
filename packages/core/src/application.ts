@@ -330,6 +330,15 @@ async function discardAfterFailure(
   processingError: unknown,
   correlationId: CorrelationId
 ): Promise<void> {
+  if (
+    processingError instanceof SafeError
+    && processingError.code === 'STORAGE_UNAVAILABLE'
+    && processingError.details?.reason === 'stage_cleanup_failed_after_publication'
+  ) {
+    // The adapter already exhausted ownership-aware cleanup after the commit
+    // barrier. A blind second unlink could remove a concurrently replaced path.
+    throw processingError;
+  }
   try {
     // Cleanup must remain possible after a caller has cancelled the work itself.
     await command.session.discard(staged);

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, type Dir, type Stats } from 'node:fs';
 import { link, lstat, open, opendir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 
@@ -57,6 +57,40 @@ export interface WrittenTextArtifact {
   readonly digest: Sha256Digest;
 }
 
+/** The narrow local-filesystem surface used by text artifact read/write operations. */
+export interface TextArtifactFileHandle {
+  writeFile(bytes: Uint8Array): Promise<void>;
+  sync(): Promise<void>;
+  close(): Promise<void>;
+}
+
+/**
+ * Injectable filesystem boundary for deterministic fault and recovery tests. Production
+ * callers use {@link defaultTextArtifactFileSystem}; no injection is required.
+ */
+export interface TextArtifactFileSystem {
+  lstat(path: string): Promise<Stats>;
+  realpath(path: string): Promise<string>;
+  stat(path: string): Promise<Stats>;
+  open(path: string, flags: number, mode: number): Promise<TextArtifactFileHandle>;
+  opendir(path: string): Promise<Dir>;
+  readFile(path: string): Promise<Buffer>;
+  link(existingPath: string, newPath: string): Promise<void>;
+  unlink(path: string): Promise<void>;
+}
+
+/** The real local filesystem implementation used unless a deterministic test seam is supplied. */
+export const defaultTextArtifactFileSystem: TextArtifactFileSystem = Object.freeze({
+  lstat,
+  realpath,
+  stat,
+  open,
+  opendir,
+  readFile,
+  link,
+  unlink
+});
+
 /** A storage-neutral handle to a successfully published artifact. */
 export interface TextArtifactPublication {
   readonly reference: string;
@@ -91,7 +125,7 @@ export interface TextStageInventory {
 
 /** Options for explicitly inventorying or cleaning a selected staging parent. */
 export interface TextStageReconciliationOptions {
-  /** Exact intended output whose project-owned stages may be considered. */
+  /** Exact intended output whose convention-matching stage candidates may be considered. */
   readonly outputPath: string;
   /** Files must be at least this old to be considered stale; defaults to one day. */
   readonly minimumAgeMs?: number;
@@ -105,6 +139,8 @@ export interface TextStageReconciliationOptions {
   readonly now?: number;
   /** Cooperatively stops inventory or further deletions. */
   readonly signal?: AbortSignal;
+  /** Injectable filesystem used by deterministic fault tests. */
+  readonly fileSystem?: TextArtifactFileSystem;
 }
 
 /** Privacy-safe outcome of an explicit stale-stage cleanup. */
@@ -161,6 +197,7 @@ interface StaleTextStageCandidate {
   readonly inode: number;
   readonly size: number;
   readonly modifiedAtMs: number;
+  readonly linkCount: number;
 }
 
 interface TextStageInventoryInternal {
@@ -201,10 +238,10 @@ function stageReconciliationConfiguration(options: TextStageReconciliationOption
   };
 }
 
-async function selectedStageParent(parentDirectory: string): Promise<string> {
+async function selectedStageParent(parentDirectory: string, fileSystem: TextArtifactFileSystem): Promise<string> {
   let selected;
   try {
-    selected = await lstat(parentDirectory);
+    selected = await fileSystem.lstat(parentDirectory);
   } catch {
     throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: true, correlationId: 'cor_text_adapter' });
   }
@@ -214,8 +251,8 @@ async function selectedStageParent(parentDirectory: string): Promise<string> {
   let canonical: string;
   let canonicalMetadata;
   try {
-    canonical = await realpath(parentDirectory);
-    canonicalMetadata = await lstat(canonical);
+    canonical = await fileSystem.realpath(parentDirectory);
+    canonicalMetadata = await fileSystem.lstat(canonical);
   } catch {
     throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The selected staging directory is unavailable.', retryable: true, correlationId: 'cor_text_adapter' });
   }
@@ -230,12 +267,16 @@ async function selectedStageParent(parentDirectory: string): Promise<string> {
   return canonical;
 }
 
-async function protectedStageNames(parentDirectory: string, protectedPaths: readonly string[] | undefined): Promise<ReadonlySet<string>> {
+async function protectedStageNames(
+  parentDirectory: string,
+  protectedPaths: readonly string[] | undefined,
+  fileSystem: TextArtifactFileSystem
+): Promise<ReadonlySet<string>> {
   const names = new Set<string>();
   for (const protectedPath of protectedPaths ?? []) {
     const resolved = resolve(parentDirectory, protectedPath);
     try {
-      if (await realpath(dirname(resolved)) === parentDirectory) names.add(basename(resolved));
+      if (await fileSystem.realpath(dirname(resolved)) === parentDirectory) names.add(basename(resolved));
     } catch {
       // A missing parent cannot contain a candidate in the selected existing directory.
     }
@@ -252,16 +293,34 @@ function isStageForOutput(name: string, outputPath: string): boolean {
   return randomUuidV4Pattern.test(uuid);
 }
 
+async function hasSafeStageLinkage(
+  metadata: Stats,
+  outputPath: string,
+  fileSystem: TextArtifactFileSystem
+): Promise<boolean> {
+  if (metadata.nlink === 1) return true;
+  if (metadata.nlink !== 2) return false;
+  try {
+    const outputMetadata = await fileSystem.lstat(outputPath);
+    return outputMetadata.isFile()
+      && outputMetadata.dev === metadata.dev
+      && outputMetadata.ino === metadata.ino;
+  } catch {
+    return false;
+  }
+}
+
 async function inventoryTextStagesInternal(options: TextStageReconciliationOptions): Promise<TextStageInventoryInternal> {
   options.signal?.throwIfAborted();
+  const fileSystem = options.fileSystem ?? defaultTextArtifactFileSystem;
   const configuration = stageReconciliationConfiguration(options);
   const outputPath = resolve(options.outputPath);
-  const parentDirectory = await selectedStageParent(dirname(outputPath));
-  const protectedNames = await protectedStageNames(parentDirectory, [outputPath, ...(options.protectedPaths ?? [])]);
+  const parentDirectory = await selectedStageParent(dirname(outputPath), fileSystem);
+  const protectedNames = await protectedStageNames(parentDirectory, [outputPath, ...(options.protectedPaths ?? [])], fileSystem);
   const names: string[] = [];
   let capped = false;
   try {
-    const directory = await opendir(parentDirectory);
+    const directory = await fileSystem.opendir(parentDirectory);
     for await (const entry of directory) {
       options.signal?.throwIfAborted();
       if (names.length >= configuration.maximumEntries) {
@@ -289,7 +348,7 @@ async function inventoryTextStagesInternal(options: TextStageReconciliationOptio
     const candidatePath = resolve(parentDirectory, name);
     let metadata;
     try {
-      metadata = await lstat(candidatePath);
+      metadata = await fileSystem.lstat(candidatePath);
     } catch {
       skippedUnsafeEntryCount += 1;
       continue;
@@ -307,12 +366,17 @@ async function inventoryTextStagesInternal(options: TextStageReconciliationOptio
       freshStageFileCount += 1;
       continue;
     }
+    if (!await hasSafeStageLinkage(metadata, outputPath, fileSystem)) {
+      skippedUnsafeEntryCount += 1;
+      continue;
+    }
     staleCandidates.push({
       path: candidatePath,
       device: metadata.dev,
       inode: metadata.ino,
       size: metadata.size,
-      modifiedAtMs: metadata.mtimeMs
+      modifiedAtMs: metadata.mtimeMs,
+      linkCount: metadata.nlink
     });
   }
 
@@ -332,7 +396,7 @@ async function inventoryTextStagesInternal(options: TextStageReconciliationOptio
 }
 
 /**
- * Lists bounded counts for project-owned stale stages without deleting anything.
+ * Lists bounded counts for convention-matching stale stage candidates without deleting anything.
  * The selected parent must be explicit and non-symbolic; candidate names are never returned.
  */
 export async function inventoryTextStages(options: TextStageReconciliationOptions): Promise<TextStageInventory> {
@@ -344,6 +408,7 @@ export async function inventoryTextStages(options: TextStageReconciliationOption
  * Inputs and requested outputs supplied through `protectedPaths` are excluded; this never recurses.
  */
 export async function cleanupStaleTextStages(options: TextStageReconciliationOptions): Promise<TextStageCleanupResult> {
+  const fileSystem = options.fileSystem ?? defaultTextArtifactFileSystem;
   const configuration = stageReconciliationConfiguration(options);
   const inventory = await inventoryTextStagesInternal(options);
   let deletedStageFileCount = 0;
@@ -356,7 +421,7 @@ export async function cleanupStaleTextStages(options: TextStageReconciliationOpt
   for (const candidate of candidates) {
     options.signal?.throwIfAborted();
     try {
-      const metadata = await lstat(candidate.path);
+      const metadata = await fileSystem.lstat(candidate.path);
       if (
         metadata.isSymbolicLink()
         || !metadata.isFile()
@@ -364,12 +429,14 @@ export async function cleanupStaleTextStages(options: TextStageReconciliationOpt
         || metadata.ino !== candidate.inode
         || metadata.size !== candidate.size
         || metadata.mtimeMs !== candidate.modifiedAtMs
+        || metadata.nlink !== candidate.linkCount
+        || !await hasSafeStageLinkage(metadata, resolve(options.outputPath), fileSystem)
       ) {
         deletionFailureCount += 1;
         continue;
       }
       options.signal?.throwIfAborted();
-      await unlink(candidate.path);
+      await fileSystem.unlink(candidate.path);
       deletedStageFileCount += 1;
     } catch (error: unknown) {
       options.signal?.throwIfAborted();
@@ -551,20 +618,99 @@ function supportedMediaType(path: string): 'text/plain' | 'text/markdown' {
   });
 }
 
-export async function readTextArtifact(inputPath: string, maximumBytes = defaultMaximumInputBytes): Promise<TextArtifact> {
-  const requestedMetadata = await lstat(inputPath);
+function storageUnavailable(message: string, reason?: string, retryable = true): SafeError {
+  const options = {
+    code: 'STORAGE_UNAVAILABLE' as const,
+    message,
+    retryable,
+    correlationId: 'cor_text_adapter'
+  };
+  if (reason === undefined) return new SafeError(options);
+  return new SafeError({
+    ...options,
+    details: { reason }
+  });
+}
+
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+type PublicationIdentity = 'SAME_FILE' | 'TARGET_MISSING' | 'DIFFERENT_FILE' | 'UNKNOWN';
+
+async function publicationIdentity(
+  fileSystem: TextArtifactFileSystem,
+  stagedPath: string,
+  targetPath: string
+): Promise<PublicationIdentity> {
+  const [targetResult, stageResult] = await Promise.allSettled([
+    fileSystem.lstat(targetPath),
+    fileSystem.lstat(stagedPath)
+  ]);
+  if (targetResult.status === 'rejected') {
+    return isMissing(targetResult.reason) && stageResult.status === 'fulfilled'
+      ? 'TARGET_MISSING'
+      : 'UNKNOWN';
+  }
+  if (stageResult.status === 'rejected') return 'UNKNOWN';
+  const target = targetResult.value;
+  const stage = stageResult.value;
+  if (
+    target.isFile()
+    && stage.isFile()
+    && target.dev === stage.dev
+    && target.ino === stage.ino
+  ) return 'SAME_FILE';
+  return 'DIFFERENT_FILE';
+}
+
+async function removeStageAfterFailure(
+  fileSystem: TextArtifactFileSystem,
+  temporary: string
+): Promise<void> {
+  try {
+    await fileSystem.unlink(temporary);
+  } catch (error: unknown) {
+    if (!isMissing(error)) {
+      throw storageUnavailable('The staged artifact cleanup could not be confirmed.', 'stage_cleanup_failed');
+    }
+  }
+}
+
+export async function readTextArtifact(
+  inputPath: string,
+  maximumBytes = defaultMaximumInputBytes,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
+): Promise<TextArtifact> {
+  let requestedMetadata: Stats;
+  try {
+    requestedMetadata = await fileSystem.lstat(inputPath);
+  } catch {
+    throw storageUnavailable('The input could not be read.');
+  }
   if (requestedMetadata.isSymbolicLink()) {
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'Symbolic-link inputs are not supported.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  const path = await realpath(inputPath);
-  const metadata = await lstat(path);
+  let path: string;
+  let metadata: Stats;
+  try {
+    path = await fileSystem.realpath(inputPath);
+    metadata = await fileSystem.lstat(path);
+  } catch {
+    throw storageUnavailable('The input could not be read.');
+  }
   if (!metadata.isFile()) {
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'The input must be a regular file.', retryable: false, correlationId: 'cor_text_adapter' });
   }
   if (metadata.size > maximumBytes) {
     throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  const bytes = await readFile(path);
+  let bytes: Buffer;
+  try {
+    bytes = await fileSystem.readFile(path);
+  } catch {
+    throw storageUnavailable('The input could not be read.');
+  }
   if (bytes.byteLength > maximumBytes) {
     throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
   }
@@ -600,18 +746,19 @@ export function deriveRedactedOutputPath(inputPath: string): string {
 export async function stageTextArtifact(
   source: TextArtifact,
   outputPath: string,
-  text: string
+  text: string,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): Promise<Omit<StagedTextArtifact, 'receipt'>> {
   const target = resolve(outputPath);
   if (target === source.path) {
     throw new SafeError({ code: 'OUTPUT_COLLISION', message: 'The output path must be different from the input path.', retryable: false, correlationId: 'cor_text_adapter' });
   }
   try {
-    await stat(target);
+    await fileSystem.stat(target);
     throw new SafeError({ code: 'OUTPUT_COLLISION', message: 'The output path already exists.', retryable: false, correlationId: 'cor_text_adapter' });
   } catch (error: unknown) {
     if (error instanceof SafeError) throw error;
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if (!isMissing(error)) throw storageUnavailable('The output location could not be checked.');
   }
 
   const content = new TextEncoder().encode(text);
@@ -624,26 +771,41 @@ export async function stageTextArtifact(
     `.${basename(target, extension)}.${randomUUID()}.staged${extension}`
   );
 
+  let handle: TextArtifactFileHandle;
   try {
-    const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    try {
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  } catch (error: unknown) {
-    await unlink(temporary).catch(() => undefined);
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-      throw new SafeError({ code: 'OUTPUT_COLLISION', message: 'The output path already exists.', retryable: false, correlationId: 'cor_text_adapter' });
-    }
-    throw error;
+    handle = await fileSystem.open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  } catch {
+    // A rejected open does not prove ownership of this pathname. Never unlink
+    // a file that may have been created concurrently by another process.
+    throw storageUnavailable('The staged artifact could not be created.');
+  }
+  let writeFailed = false;
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch {
+    writeFailed = true;
+  }
+  try {
+    await handle.close();
+  } catch {
+    writeFailed = true;
+  }
+  if (writeFailed) {
+    await removeStageAfterFailure(fileSystem, temporary);
+    throw storageUnavailable('The staged artifact could not be written.');
   }
 
-  const written = await readFile(temporary);
+  let written: Buffer;
+  try {
+    written = await fileSystem.readFile(temporary);
+  } catch {
+    await removeStageAfterFailure(fileSystem, temporary);
+    throw storageUnavailable('The staged artifact could not be verified.');
+  }
   const digest = digestBytes(written);
   if (!written.equals(bytes)) {
-    await unlink(temporary).catch(() => undefined);
+    await removeStageAfterFailure(fileSystem, temporary);
     throw new SafeError({ code: 'STORAGE_UNAVAILABLE', message: 'The derived artifact failed digest verification.', retryable: true, correlationId: 'cor_text_adapter' });
   }
 
@@ -653,44 +815,85 @@ export async function stageTextArtifact(
 export async function publishStagedTextArtifact(
   source: TextArtifact,
   staged: Pick<StagedTextArtifact, 'path' | 'targetPath' | 'byteLength' | 'digest'>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): Promise<WrittenTextArtifact> {
   signal?.throwIfAborted();
-  const stagedBytes = await readFile(staged.path);
-  if (digestBytes(stagedBytes) !== staged.digest) {
+  let stagedBytes: Buffer;
+  let stagedMetadata: Stats;
+  try {
+    [stagedBytes, stagedMetadata] = await Promise.all([
+      fileSystem.readFile(staged.path),
+      fileSystem.lstat(staged.path)
+    ]);
+  } catch {
+    throw storageUnavailable('The staged artifact could not be read before publication.');
+  }
+  if (
+    !stagedMetadata.isFile()
+    || stagedMetadata.size !== staged.byteLength
+    || stagedBytes.byteLength !== staged.byteLength
+    || digestBytes(stagedBytes) !== staged.digest
+  ) {
     throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged artifact changed before publication.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  const inputBeforePublish = await readFile(source.path);
+  let inputBeforePublish: Buffer;
+  try {
+    inputBeforePublish = await fileSystem.readFile(source.path);
+  } catch {
+    throw storageUnavailable('The input could not be read before publication.');
+  }
   if (digestBytes(inputBeforePublish) !== source.digest) {
     throw new SafeError({ code: 'JOB_CONFLICT', message: 'The input changed while it was being processed.', retryable: true, correlationId: 'cor_text_adapter' });
   }
   // This is the final cancellation checkpoint. Linking is the irreversible publication commit.
   signal?.throwIfAborted();
   try {
-    await link(staged.path, staged.targetPath);
+    await fileSystem.link(staged.path, staged.targetPath);
+    if (await publicationIdentity(fileSystem, staged.path, staged.targetPath) !== 'SAME_FILE') {
+      throw storageUnavailable('The publication state could not be confirmed.', 'publication_state_unknown', false);
+    }
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+    if (error instanceof SafeError && error.details?.reason === 'publication_state_unknown') throw error;
+    const identity = await publicationIdentity(fileSystem, staged.path, staged.targetPath);
+    if (identity === 'UNKNOWN') {
+      throw storageUnavailable('The publication state could not be confirmed.', 'publication_state_unknown', false);
+    }
+    if (identity === 'DIFFERENT_FILE' || (identity === 'TARGET_MISSING' && (error as NodeJS.ErrnoException).code === 'EEXIST')) {
       throw new SafeError({ code: 'OUTPUT_COLLISION', message: 'The output path already exists.', retryable: false, correlationId: 'cor_text_adapter' });
     }
-    throw error;
+    if (identity === 'TARGET_MISSING') throw storageUnavailable('The staged artifact could not be published.');
   }
 
-  try {
-    const currentInput = await readFile(source.path);
-    if (digestBytes(currentInput) !== source.digest) {
-      throw new SafeError({ code: 'JOB_CONFLICT', message: 'The input changed while it was being processed.', retryable: true, correlationId: 'cor_text_adapter' });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await fileSystem.unlink(staged.path);
+    } catch {
+      // Reconcile below: unlink may have completed before reporting an error.
     }
-    await unlink(staged.path);
-    return { path: staged.targetPath, byteLength: staged.byteLength, digest: staged.digest };
-  } catch (error: unknown) {
-    await unlink(staged.targetPath).catch(() => undefined);
-    throw error;
+    try {
+      const remaining = await fileSystem.lstat(staged.path);
+      if (remaining.dev !== stagedMetadata.dev || remaining.ino !== stagedMetadata.ino) break;
+    } catch (error: unknown) {
+      if (isMissing(error)) {
+        return { path: staged.targetPath, byteLength: staged.byteLength, digest: staged.digest };
+      }
+      break;
+    }
   }
+  throw storageUnavailable(
+    'A verified output was published, but staged artifact cleanup could not be confirmed.',
+    'stage_cleanup_failed_after_publication',
+    false
+  );
 }
 
-export async function discardStagedTextArtifact(staged: Pick<StagedTextArtifact, 'path'>): Promise<void> {
+export async function discardStagedTextArtifact(
+  staged: Pick<StagedTextArtifact, 'path'>,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
+): Promise<void> {
   try {
-    await unlink(staged.path);
+    await fileSystem.unlink(staged.path);
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw new SafeError({
@@ -711,13 +914,14 @@ export async function discardStagedTextArtifact(staged: Pick<StagedTextArtifact,
 export function createLocalTextArtifactSession(
   inputPath: string,
   outputPath?: string,
-  maximumInputBytes = defaultMaximumInputBytes
+  maximumInputBytes = defaultMaximumInputBytes,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): TextArtifactSession {
   let sourcePromise: Promise<TextArtifact> | undefined;
 
   const input = async (signal?: AbortSignal): Promise<TextArtifact> => {
     signal?.throwIfAborted();
-    sourcePromise ??= readTextArtifact(inputPath, maximumInputBytes);
+    sourcePromise ??= readTextArtifact(inputPath, maximumInputBytes, fileSystem);
     const source = await sourcePromise;
     signal?.throwIfAborted();
     return source;
@@ -733,7 +937,7 @@ export function createLocalTextArtifactSession(
       assertWriterPlanCanApply(plan, source);
       const text = applyWriterPlan(source.text, plan);
       const target = outputPath === undefined ? deriveRedactedOutputPath(source.path) : resolve(outputPath);
-      const stagedArtifact = await stageTextArtifact(source, target, text);
+      const stagedArtifact = await stageTextArtifact(source, target, text, fileSystem);
       const staged = Object.freeze({
         ...stagedArtifact,
         receipt: createTextWriterReceipt(plan, stagedArtifact)
@@ -741,14 +945,14 @@ export function createLocalTextArtifactSession(
       try {
         signal?.throwIfAborted();
       } catch (error: unknown) {
-        await discardStagedTextArtifact(staged);
+        await discardStagedTextArtifact(staged, fileSystem);
         throw error;
       }
       return staged;
     },
     async reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifact> {
       signal?.throwIfAborted();
-      const reopened = await readTextArtifact(staged.path);
+      const reopened = await readTextArtifact(staged.path, defaultMaximumInputBytes, fileSystem);
       signal?.throwIfAborted();
       if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
         throw new SafeError({
@@ -762,12 +966,12 @@ export function createLocalTextArtifactSession(
     },
     async publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication> {
       signal?.throwIfAborted();
-      const published = await publishStagedTextArtifact(await input(signal), staged, signal);
+      const published = await publishStagedTextArtifact(await input(signal), staged, signal, fileSystem);
       return { reference: published.path, byteLength: published.byteLength, digest: published.digest };
     },
     async discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void> {
       signal?.throwIfAborted();
-      await discardStagedTextArtifact(staged);
+      await discardStagedTextArtifact(staged, fileSystem);
     }
   };
 }
@@ -775,13 +979,20 @@ export function createLocalTextArtifactSession(
 export async function writeTextArtifact(
   source: TextArtifact,
   outputPath: string,
-  text: string
+  text: string,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): Promise<WrittenTextArtifact> {
-  const staged = await stageTextArtifact(source, outputPath, text);
+  const staged = await stageTextArtifact(source, outputPath, text, fileSystem);
   try {
-    return await publishStagedTextArtifact(source, staged);
+    return await publishStagedTextArtifact(source, staged, undefined, fileSystem);
   } catch (error: unknown) {
-    await discardStagedTextArtifact(staged);
+    if (
+      error instanceof SafeError
+      && error.details?.reason === 'stage_cleanup_failed_after_publication'
+    ) {
+      throw error;
+    }
+    await discardStagedTextArtifact(staged, fileSystem);
     throw error;
   }
 }
