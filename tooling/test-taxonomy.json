@@ -26,6 +26,7 @@
     "packages/domain/test/identifiers.test.ts": ["unit", "contract"],
     "packages/domain/test/job-state.test.ts": ["unit"],
     "packages/domain/test/span.test.ts": ["unit", "contract"],
+    "packages/provider-ollama/test/provider-ollama.test.ts": ["unit", "integration", "security-privacy"],
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
     "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
     "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],

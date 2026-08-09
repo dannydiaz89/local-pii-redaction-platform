@@ -3,12 +3,16 @@ import { isIP } from 'node:net';
 
 import {
   SafeError,
+  assertValidSpan,
+  entityTypes,
   parseDetectionId,
+  unicodeCodePointLength,
   type DetectionEvidence,
   type DetectionId,
   type DetectorSource,
   type EntityType,
-  type Sha256Digest
+  type Sha256Digest,
+  type UnicodeSpan
 } from '@local-pii/domain';
 
 export const deterministicDetectorBundleVersion = '0.1.0';
@@ -42,6 +46,59 @@ export const defaultDetectorLimits: DetectorLimits = {
   maximumDetections: 10_000,
   maximumCandidateLength: 256
 };
+
+/**
+ * Structural equivalent of the application's detection port. It is declared
+ * here so this lower-level package stays independent of the application layer.
+ */
+export interface ContextualTextDetectionProvider {
+  readonly detectorBundleVersion: string;
+  detect(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<readonly DetectionEvidence[]>;
+}
+
+export type ContextualDetectionStatus =
+  | { readonly state: 'NOT_CONFIGURED' }
+  | {
+    readonly state: 'COMPLETED';
+    readonly detectorBundleVersion: string;
+    readonly evidenceCount: number;
+  };
+
+export interface CompositeDetectionResult {
+  readonly detectorBundleVersion: string;
+  readonly evidence: readonly DetectionEvidence[];
+  /**
+   * A completed contextual invocation with zero evidence is intentionally
+   * different from no contextual provider being configured.
+   */
+  readonly contextual: ContextualDetectionStatus;
+}
+
+/** A TextDetectionPort-compatible detector with optional invocation metadata. */
+export interface CompositeTextDetector {
+  readonly detectorBundleVersion: string;
+  detect(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<readonly DetectionEvidence[]>;
+  detectWithResult(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<CompositeDetectionResult>;
+}
+
+export interface CompositeTextDetectorOptions {
+  readonly contextual?: ContextualTextDetectionProvider;
+  readonly limits?: DetectorLimits;
+  /** Used only when rejecting malformed contextual evidence. */
+  readonly correlationId?: string;
+}
 
 interface Candidate {
   readonly entityType: EntityType;
@@ -144,6 +201,7 @@ function collectCandidates(text: string): Candidate[] {
   }) : undefined);
 
   addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, (match) => {
+    if (/^\d{4}-\d{2}-\d{2}$/u.test(match[0])) return undefined;
     const digits = match[0].replaceAll(/\D/gu, '');
     return digits.length >= 7 && digits.length <= 15
       ? { entityType: 'PHONE', confidence: 0.86, source: 'REGEX', detectorId: detectorIds.phone, ruleId: 'phone-general-v1' }
@@ -201,4 +259,247 @@ export function detectDeterministic(
       detector: { id: candidate.detectorId, version: deterministicDetectorBundleVersion, ruleId: candidate.ruleId }
     } satisfies DetectionEvidence;
   }).sort((left, right) => left.span.start - right.span.start || right.span.end - left.span.end || left.entityType.localeCompare(right.entityType));
+}
+
+const compositionVersionPrefix = 'composite-v1-';
+const defaultCompositionCorrelationId = 'cor_detector_composition';
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * The version is derived solely from configured detector bundle versions. It
+ * never incorporates a document value, path, or invocation-specific data.
+ */
+export function compositeDetectorBundleVersion(
+  contextual?: Pick<ContextualTextDetectionProvider, 'detectorBundleVersion'>
+): string {
+  const contextualVersion = contextual?.detectorBundleVersion ?? 'none';
+  if (typeof contextualVersion !== 'string' || contextualVersion.length === 0) {
+    throw new TypeError('Contextual detector bundle version must be a non-empty string');
+  }
+  const digest = createHash('sha256')
+    .update(`deterministic=${deterministicDetectorBundleVersion}\u001fcontextual=${contextualVersion}`, 'utf8')
+    .digest('hex')
+    .slice(0, 16);
+  return `${compositionVersionPrefix}${digest}`;
+}
+
+function invalidContextualEvidence(correlationId: string, reason: string): SafeError {
+  return new SafeError({
+    code: 'MODEL_OUTPUT_INVALID',
+    message: 'The contextual detector returned invalid evidence.',
+    retryable: false,
+    correlationId,
+    details: { reason }
+  });
+}
+
+function contextualLimitExceeded(correlationId: string): SafeError {
+  return new SafeError({
+    code: 'DETECTION_LIMIT_EXCEEDED',
+    message: 'Contextual detector evidence exceeds the configured safety limit.',
+    retryable: false,
+    correlationId
+  });
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isEntityType(value: unknown): value is EntityType {
+  return typeof value === 'string' && (entityTypes as readonly string[]).includes(value);
+}
+
+function hasOnlyKeys(record: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
+  const actual = Object.keys(record).sort(compareText);
+  const expected = [...keys].sort(compareText);
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function validIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && unicodeCodePointLength(value) <= 128;
+}
+
+function isCanonicalSemVer(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value);
+}
+
+function validateContextualEvidence(
+  evidence: unknown,
+  extractionRevision: Sha256Digest,
+  textCodePointLength: number,
+  limits: DetectorLimits,
+  correlationId: string
+): readonly DetectionEvidence[] {
+  if (!Array.isArray(evidence)) throw invalidContextualEvidence(correlationId, 'evidence_not_an_array');
+  if (evidence.length > limits.maximumDetections) throw contextualLimitExceeded(correlationId);
+
+  const evidenceIds = new Set<string>();
+  const semanticEvidence = new Set<string>();
+  return evidence.map((candidate): DetectionEvidence => {
+    if (!isRecord(candidate)) throw invalidContextualEvidence(correlationId, 'evidence_not_an_object');
+    if (!hasOnlyKeys(candidate, ['id', 'entityType', 'span', 'confidence', 'source', 'detector'])) {
+      throw invalidContextualEvidence(correlationId, 'unexpected_evidence_field');
+    }
+    if (typeof candidate.id !== 'string') throw invalidContextualEvidence(correlationId, 'invalid_detection_id');
+    if (!isEntityType(candidate.entityType)) throw invalidContextualEvidence(correlationId, 'invalid_entity_type');
+    if (candidate.source !== 'MODEL') throw invalidContextualEvidence(correlationId, 'invalid_detector_source');
+    if (typeof candidate.confidence !== 'number' || !Number.isFinite(candidate.confidence)
+      || candidate.confidence < 0 || candidate.confidence > 1) {
+      throw invalidContextualEvidence(correlationId, 'invalid_confidence');
+    }
+    if (!isRecord(candidate.detector)
+      || !hasOnlyKeys(candidate.detector, candidate.detector.ruleId === undefined ? ['id', 'version'] : ['id', 'version', 'ruleId'])
+      || !validIdentifier(candidate.detector.id)
+      || !isCanonicalSemVer(candidate.detector.version)
+      || (candidate.detector.ruleId !== undefined && !validIdentifier(candidate.detector.ruleId))) {
+      throw invalidContextualEvidence(correlationId, 'invalid_detector_reference');
+    }
+    if (!isRecord(candidate.span) || candidate.span.extractionRevision !== extractionRevision) {
+      throw invalidContextualEvidence(correlationId, 'span_revision_mismatch');
+    }
+    if (!hasOnlyKeys(candidate.span, ['start', 'end', 'offsetUnit', 'extractionRevision'])) {
+      throw invalidContextualEvidence(correlationId, 'unexpected_span_field');
+    }
+
+    const span = {
+      start: candidate.span.start,
+      end: candidate.span.end,
+      offsetUnit: candidate.span.offsetUnit,
+      extractionRevision: candidate.span.extractionRevision
+    };
+    const validatedSpan = span as UnicodeSpan;
+    try {
+      assertValidSpan(validatedSpan, textCodePointLength);
+    } catch {
+      throw invalidContextualEvidence(correlationId, 'invalid_span');
+    }
+    if (validatedSpan.end - validatedSpan.start > limits.maximumCandidateLength) {
+      throw contextualLimitExceeded(correlationId);
+    }
+
+    let id: DetectionId;
+    try {
+      id = parseDetectionId(candidate.id);
+    } catch {
+      throw invalidContextualEvidence(correlationId, 'invalid_detection_id');
+    }
+    if (evidenceIds.has(id)) throw invalidContextualEvidence(correlationId, 'duplicate_detection_id');
+    evidenceIds.add(id);
+
+    const duplicateKey = [
+      candidate.entityType,
+      validatedSpan.start,
+      validatedSpan.end,
+      candidate.confidence,
+      candidate.source,
+      candidate.detector.id,
+      candidate.detector.version,
+      candidate.detector.ruleId ?? ''
+    ].join('\u001f');
+    if (semanticEvidence.has(duplicateKey)) throw invalidContextualEvidence(correlationId, 'duplicate_contextual_evidence');
+    semanticEvidence.add(duplicateKey);
+
+    return {
+      id,
+      entityType: candidate.entityType,
+      span: validatedSpan,
+      confidence: candidate.confidence,
+      source: candidate.source,
+      detector: {
+        id: candidate.detector.id,
+        version: candidate.detector.version,
+        ...(candidate.detector.ruleId === undefined ? {} : { ruleId: candidate.detector.ruleId })
+      }
+    };
+  });
+}
+
+function compareEvidence(left: DetectionEvidence, right: DetectionEvidence): number {
+  return left.span.start - right.span.start
+    || right.span.end - left.span.end
+    || compareText(left.entityType, right.entityType)
+    || compareText(left.source, right.source)
+    || compareText(left.detector.id, right.detector.id)
+    || compareText(left.detector.version, right.detector.version)
+    || compareText(left.detector.ruleId ?? '', right.detector.ruleId ?? '')
+    || compareText(left.id, right.id);
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted !== true) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw new Error('Detection aborted');
+}
+
+/**
+ * Composes rules with an optional contextual provider. Contextual provider
+ * failures deliberately reject the operation: an explicitly configured model
+ * must never be silently treated as though it found zero evidence.
+ */
+export function createCompositeTextDetector(
+  options: CompositeTextDetectorOptions = {}
+): CompositeTextDetector {
+  const limits = options.limits ?? defaultDetectorLimits;
+  const contextual = options.contextual;
+  const correlationId = options.correlationId ?? defaultCompositionCorrelationId;
+
+  async function detectWithResult(
+    text: string,
+    extractionRevision: Sha256Digest,
+    signal?: AbortSignal
+  ): Promise<CompositeDetectionResult> {
+    throwIfAborted(signal);
+    const deterministic = detectDeterministic(text, extractionRevision, limits, correlationId);
+    throwIfAborted(signal);
+    if (contextual === undefined) {
+      return {
+        detectorBundleVersion: compositeDetectorBundleVersion(),
+        evidence: deterministic.slice().sort(compareEvidence),
+        contextual: { state: 'NOT_CONFIGURED' }
+      };
+    }
+
+    // Preserve the exact caller-provided text, revision, and cancellation signal.
+    // Do not catch: an explicitly requested contextual provider must fail closed.
+    throwIfAborted(signal);
+    const untrusted = await contextual.detect(text, extractionRevision, signal);
+    throwIfAborted(signal);
+    const contextualEvidence = validateContextualEvidence(
+      untrusted,
+      extractionRevision,
+      unicodeCodePointLength(text),
+      limits,
+      correlationId
+    );
+    const contextualBundleVersion = contextual.detectorBundleVersion;
+    return {
+      // Some providers discover a model digest during preparation. Bind this
+      // invocation to the post-detection version rather than a stale base ID.
+      detectorBundleVersion: compositeDetectorBundleVersion({ detectorBundleVersion: contextualBundleVersion }),
+      evidence: [...deterministic, ...contextualEvidence].sort(compareEvidence),
+      contextual: {
+        state: 'COMPLETED',
+        detectorBundleVersion: contextualBundleVersion,
+        evidenceCount: contextualEvidence.length
+      }
+    };
+  }
+
+  const detector: CompositeTextDetector = {
+    get detectorBundleVersion(): string {
+      return compositeDetectorBundleVersion(contextual);
+    },
+    async detect(text: string, extractionRevision: Sha256Digest, signal?: AbortSignal): Promise<readonly DetectionEvidence[]> {
+      return (await detectWithResult(text, extractionRevision, signal)).evidence;
+    },
+    detectWithResult
+  };
+  return Object.freeze(detector);
 }

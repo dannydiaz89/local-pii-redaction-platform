@@ -257,12 +257,16 @@ export async function discardStagedTextArtifact(staged: StagedTextArtifact): Pro
  * staging and publication are bound to the exact source the caller processed.
  * The default redacted path is intentionally calculated only by `stage`.
  */
-export function createLocalTextArtifactSession(inputPath: string, outputPath?: string): TextArtifactSession {
+export function createLocalTextArtifactSession(
+  inputPath: string,
+  outputPath?: string,
+  maximumInputBytes = defaultMaximumInputBytes
+): TextArtifactSession {
   let sourcePromise: Promise<TextArtifact> | undefined;
 
   const input = async (signal?: AbortSignal): Promise<TextArtifact> => {
     signal?.throwIfAborted();
-    sourcePromise ??= readTextArtifact(inputPath);
+    sourcePromise ??= readTextArtifact(inputPath, maximumInputBytes);
     const source = await sourcePromise;
     signal?.throwIfAborted();
     return source;

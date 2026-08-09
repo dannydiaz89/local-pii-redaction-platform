@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/domain" },
     { "path": "packages/detectors" },
+    { "path": "packages/provider-ollama" },
     { "path": "packages/span-resolution" },
     { "path": "packages/redaction" },
     { "path": "packages/adapter-text" },

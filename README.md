@@ -2,7 +2,7 @@
 
 This repository contains a local-first PII redaction platform. It includes the contract foundation
 and an initial development TXT/Markdown CLI slice with deterministic scanning, typed-label
-replacement, and reopen/rescan verification.
+replacement, reopen/rescan verification, and an explicitly experimental local Ollama scan path.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
@@ -24,7 +24,8 @@ pnpm check
 pnpm build
 ```
 
-No runtime component in this milestone makes a network request or accepts real PII fixtures.
+The default runtime makes no network request and the repository accepts only synthetic fixtures.
+The opt-in Ollama path talks only to a numeric loopback address on the same machine.
 
 ## Try the CLI
 
@@ -32,11 +33,11 @@ The project currently runs as a local CLI, not a background HTTP service.
 
 ```sh
 pnpm build
-pnpm pii-redact capabilities --json
+pnpm --silent pii-redact capabilities --json
 pnpm pii-redact inspect ./sample.txt
-pnpm pii-redact scan ./sample.txt --json
+pnpm --silent pii-redact scan ./sample.txt --json
 pnpm pii-redact redact ./sample.txt --output ./sample.redacted.txt
-pnpm pii-redact verify ./sample.redacted.txt --json
+pnpm --silent pii-redact verify ./sample.redacted.txt --json
 ```
 
 `redact` never overwrites its input or an existing output. It writes to a private staging file,
@@ -44,17 +45,34 @@ reopens the staged UTF-8 artifact, rescans it, and publishes the requested path 
 `text-rescan-v1` profile passes. Machine reports contain entity types and offsets, not matched
 values.
 
+To compare the rules with an already-installed local Ollama model, run an experimental hybrid scan:
+
+```sh
+ollama pull phi4-mini:3.8b
+pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-development-positive.txt \
+  --engine ollama --model phi4-mini:3.8b --allow-experimental --json
+```
+
+The application never pulls a model itself. Ollama must already be running, and the requested model
+must be installed with a digest reported by Ollama. The provider accepts only unauthenticated numeric
+loopback URLs; `--ollama-url http://127.0.0.1:11434` and `--timeout-ms 60000` may be supplied
+explicitly. This path is scan-only, bounded to 80,000 input bytes/20,000 Unicode code points, and
+fails closed rather than silently falling back to rules-only behavior.
+
 Exit codes are `0` for success, `2` for usage, `3` for processing errors, `4` for failed
 verification, `5` for unresolved scan conflicts, and `6` for output collisions.
 
 ## Current limitations
 
 - Only UTF-8 `.txt`, `.md`, and `.markdown` regular files are accepted; symbolic links are rejected.
-- Detection is rules-only. It currently covers email, general phone shapes, structurally valid US
-  SSNs, Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
+- Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
+  Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
+- The opt-in Ollama hybrid scan is experimental and unqualified. Its contextual results can be
+  incomplete or have incorrect spans; `phi4-mini` previously produced zero exact matches on the
+  small frozen harness. It is useful for testing integration, not for making safety claims.
 - The verification profile is a deterministic residual rescan, not a claim that all PII classes or
   contextual entities were detected.
-- There is no durable job store, contextual model, HTTP API, or review UI yet.
+- There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.
 

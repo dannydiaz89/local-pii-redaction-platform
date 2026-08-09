@@ -4,6 +4,10 @@ import {
 } from '@local-pii/adapter-text';
 import { deterministicDetectorCapabilities, defaultDetectorLimits } from '@local-pii/detectors';
 import { assertCapabilityManifest, type CapabilityManifest } from '@local-pii/core';
+import {
+  ollamaExperimentalDefaultLimits,
+  ollamaLocalCapabilityDescriptor
+} from '@local-pii/provider-ollama';
 import { typedLabelTransformationCapabilityDescriptor } from '@local-pii/redaction';
 import { textVerificationCapabilityDescriptor } from '@local-pii/verification';
 
@@ -56,5 +60,38 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     }
   };
   assertCapabilityManifest(manifest, 'cor_cli_capabilities');
+  return manifest;
+}
+
+export function createOllamaHybridCapabilityManifest(
+  detectorVersion: string = ollamaLocalCapabilityDescriptor.detector.version
+): CapabilityManifest {
+  const rules = createCurrentCapabilityManifest();
+  const maximumInputBytes = ollamaExperimentalDefaultLimits.maximumInputBytes;
+  const manifest: CapabilityManifest = {
+    ...rules,
+    id: 'local-hybrid-text',
+    engineMode: 'LOCAL_HYBRID',
+    formats: rules.formats.map((format) => ({
+      ...format,
+      limits: { maximumInputBytes }
+    })) as CapabilityManifest['formats'],
+    detectors: [
+      ...rules.detectors,
+      {
+        ...ollamaLocalCapabilityDescriptor.detector,
+        version: detectorVersion,
+        kinds: [...ollamaLocalCapabilityDescriptor.detector.kinds],
+        entityTypes: [...ollamaLocalCapabilityDescriptor.detector.entityTypes],
+        languages: [...ollamaLocalCapabilityDescriptor.detector.languages]
+      }
+    ],
+    limits: {
+      maximumInputBytes,
+      maximumCanonicalCodePoints: ollamaExperimentalDefaultLimits.maximumInputCodePoints,
+      maximumDetections: ollamaExperimentalDefaultLimits.maximumDetections
+    }
+  };
+  assertCapabilityManifest(manifest, 'cor_cli_hybrid_capabilities');
   return manifest;
 }

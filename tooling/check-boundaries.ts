@@ -11,6 +11,7 @@ type WorkspacePackage =
   | 'contracts'
   | 'detectors'
   | 'domain'
+  | 'provider-ollama'
   | 'redaction'
   | 'span-resolution'
   | 'verification'
@@ -37,6 +38,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'contracts',
   'detectors',
   'domain',
+  'provider-ollama',
   'redaction',
   'span-resolution',
   'verification',
@@ -53,6 +55,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   contracts: [],
   detectors: ['domain'],
   domain: [],
+  'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
   verification: ['detectors', 'domain', 'span-resolution'],
@@ -64,6 +67,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   contracts: [],
   detectors: [],
   domain: [],
+  'provider-ollama': [],
   redaction: ['detectors'],
   'span-resolution': ['detectors'],
   verification: [],
@@ -76,6 +80,7 @@ const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
   'core',
   'detectors',
   'domain',
+  'provider-ollama',
   'redaction',
   'verification'
 ];

@@ -1,4 +1,6 @@
 import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -71,6 +73,110 @@ describe('CLI TXT vertical slice', () => {
       schemaVersion: '1.0.0',
       error: { code: 'SCHEMA_INVALID', message: 'The command arguments are invalid.' }
     });
+
+    const experimental = capture();
+    expect(await executeCli(['scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--json'], experimental.io)).toBe(2);
+    expect(JSON.parse(experimental.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+
+    const remoteEndpoint = capture();
+    expect(await executeCli([
+      'scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini',
+      '--allow-experimental', '--ollama-url', 'http://example.test:11434', '--json'
+    ], remoteEndpoint.io)).toBe(2);
+    expect(JSON.parse(remoteEndpoint.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+  });
+
+  it('runs an explicitly experimental hybrid scan against a pinned local Ollama model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-hybrid-'));
+    directories.push(root);
+    const input = join(root, 'context.txt');
+    const text = '😀 Synthetic record. The birth date is 1991-07-14.';
+    const value = '1991-07-14';
+    const start = Array.from(text.slice(0, text.indexOf(value))).length;
+    const end = start + Array.from(value).length;
+    await writeFile(input, text);
+
+    let requests = 0;
+    const server = createServer((request, response) => {
+      requests += 1;
+      response.setHeader('content-type', 'application/json');
+      if (request.url === '/api/tags') {
+        response.end(JSON.stringify({ models: [{ name: 'phi4-mini:latest', digest: 'a'.repeat(64) }] }));
+        return;
+      }
+      request.resume();
+      request.once('end', () => {
+        response.end(JSON.stringify({
+          model: 'phi4-mini:latest',
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({ detections: [{ entityType: 'DATE_OF_BIRTH', start, end, confidence: 0.9 }] })
+          },
+          done: true
+        }));
+      });
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected local test server address.');
+    const endpoint = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const rules = capture();
+      expect(await executeCli(['scan', input, '--json'], rules.io)).toBe(0);
+      expect(rules.stdout.join('')).not.toContain('DATE_OF_BIRTH');
+      expect(rules.stdout.join('')).not.toContain('PHONE');
+      expect(requests).toBe(0);
+
+      const hybrid = capture();
+      const hybridExit = await executeCli([
+        'scan', input, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental',
+        '--ollama-url', endpoint, '--timeout-ms', '5000', '--json'
+      ], hybrid.io);
+      expect(hybridExit, hybrid.stderr.join('')).toBe(0);
+      const report = JSON.parse(hybrid.stdout.join('')) as {
+        readonly detectorBundleVersion: string;
+        readonly counts: { readonly byEntity: Readonly<Record<string, number>> };
+      };
+      expect(report.counts.byEntity.DATE_OF_BIRTH).toBe(1);
+      expect(report.detectorBundleVersion).toMatch(/^composite-v1-/u);
+      expect(hybrid.stderr.join('')).toContain('EXPERIMENTAL');
+      expect(requests).toBe(3);
+
+      const capabilities = capture();
+      expect(await executeCli([
+        'capabilities', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental',
+        '--ollama-url', endpoint, '--json'
+      ], capabilities.io)).toBe(0);
+      const capabilityReport = JSON.parse(capabilities.stdout.join('')) as {
+        readonly engineMode: string;
+        readonly detectors: readonly { readonly id: string; readonly version: string; readonly availability: string; readonly qualification: string }[];
+      };
+      expect(capabilityReport.engineMode).toBe('LOCAL_HYBRID');
+      expect(capabilityReport.detectors).toContainEqual(
+        expect.objectContaining({
+          id: 'ollama-local-model',
+          version: `0.1.0-ollama-experimental.1.sha256-${'a'.repeat(64)}`,
+          availability: 'AVAILABLE',
+          qualification: 'EXPERIMENTAL'
+        })
+      );
+      expect(requests).toBe(4);
+
+      const humanCapabilities = capture();
+      expect(await executeCli([
+        'capabilities', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental',
+        '--ollama-url', endpoint
+      ], humanCapabilities.io)).toBe(0);
+      expect(humanCapabilities.stdout.join('')).toContain('Engine mode: LOCAL_HYBRID');
+      expect(humanCapabilities.stderr.join('')).toContain('EXPERIMENTAL');
+      expect(requests).toBe(5);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
+    }
   });
 
   it('matches the tracked sample-data golden output', async () => {

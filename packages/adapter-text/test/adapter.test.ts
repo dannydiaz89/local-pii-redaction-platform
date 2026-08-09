@@ -76,6 +76,17 @@ describe('text adapter', () => {
     expect(await readdir(root)).toEqual(['input.txt']);
   });
 
+  it('enforces a session-specific input limit before creating derived files', async () => {
+    const root = await directory();
+    const input = join(root, 'input.txt');
+    await writeFile(input, '12345');
+
+    const session = createLocalTextArtifactSession(input, undefined, 4);
+
+    await expect(session.input()).rejects.toMatchObject({ code: 'INPUT_TOO_LARGE' });
+    expect(await readdir(root)).toEqual(['input.txt']);
+  });
+
   it('stages restrictive bytes, reopens the exact staged artifact, and publishes without clobbering', async () => {
     const root = await directory();
     const input = join(root, 'input.txt');

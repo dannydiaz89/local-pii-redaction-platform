@@ -7,7 +7,16 @@ import {
 import { assertContract } from '@local-pii/contracts';
 import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
 
-import { localTextApplication, textCapabilityRequirement } from './application.js';
+import {
+  assertOllamaLoopbackEndpoint,
+  ollamaExperimentalDefaultLimits
+} from '@local-pii/provider-ollama';
+
+import {
+  createExperimentalOllamaTextApplication,
+  localTextApplication,
+  textCapabilityRequirement
+} from './application.js';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -18,19 +27,28 @@ interface ParsedArguments {
   readonly command: string | undefined;
   readonly input: string | undefined;
   readonly output: string | undefined;
+  readonly engine: 'rules' | 'ollama';
+  readonly model: string | undefined;
+  readonly ollamaUrl: string | undefined;
+  readonly timeoutMs: number | undefined;
+  readonly allowExperimental: boolean;
   readonly json: boolean;
   readonly help: boolean;
   readonly license: boolean;
 }
 
 const usage = `Usage:
-  pii-redact capabilities [--json]
-  pii-redact scan <file.txt|file.md> [--json]
+  pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact scan <file.txt|file.md> [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md> [--output <path>] [--json]
   pii-redact verify <file.txt|file.md> [--json]
   pii-redact inspect <file.txt|file.md> [--json]
   pii-redact --version
   pii-redact --license
+
+Experimental Ollama options:
+  --engine ollama --model <local-model> --allow-experimental
+  [--ollama-url http://127.0.0.1:11434] [--timeout-ms <1000-300000>]
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
@@ -39,21 +57,53 @@ const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
   let output: string | undefined;
+  let engine: 'rules' | 'ollama' = 'rules';
+  let model: string | undefined;
+  let ollamaUrl: string | undefined;
+  let timeoutMs: number | undefined;
+  let allowExperimental = false;
   let json = false;
   let help = false;
   let license = false;
+  const valueAfter = (index: number, option: string): string => {
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith('-')) throw new Error(`${option} requires a value`);
+    return value;
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === '--json') json = true;
+    if (value === '--') continue;
+    if (value === '--version') positional.push(value);
+    else if (value === '--json') json = true;
     else if (value === '--help' || value === '-h') help = true;
     else if (value === '--license') license = true;
+    else if (value === '--allow-experimental') allowExperimental = true;
     else if (value === '--output' || value === '-o') {
-      output = argv[index + 1];
-      if (output === undefined || output.startsWith('-')) throw new Error('--output requires a path');
+      output = valueAfter(index, '--output');
       index += 1;
+    } else if (value === '--engine') {
+      const selected = valueAfter(index, '--engine');
+      if (selected !== 'rules' && selected !== 'ollama') throw new Error('unknown engine');
+      engine = selected;
+      index += 1;
+    } else if (value === '--model') {
+      model = valueAfter(index, '--model');
+      if (model.length > 200) throw new Error('model name is too long');
+      index += 1;
+    } else if (value === '--ollama-url') {
+      ollamaUrl = valueAfter(index, '--ollama-url');
+      index += 1;
+    } else if (value === '--timeout-ms') {
+      const parsed = Number(valueAfter(index, '--timeout-ms'));
+      if (!Number.isSafeInteger(parsed) || parsed < 1_000 || parsed > 300_000) throw new Error('invalid timeout');
+      timeoutMs = parsed;
+      index += 1;
+    } else if (value?.startsWith('-') === true) {
+      throw new Error('unknown option');
     } else if (value !== undefined) positional.push(value);
   }
-  return { command: positional[0], input: positional[1], output, json, help, license };
+  if (positional.length > 2) throw new Error('too many positional arguments');
+  return { command: positional[0], input: positional[1], output, engine, model, ollamaUrl, timeoutMs, allowExperimental, json, help, license };
 }
 
 function writeResult(io: CliIo, json: boolean, value: object, human: string): void {
@@ -67,15 +117,18 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
   return counts;
 }
 
-async function runCapabilities(json: boolean, io: CliIo): Promise<number> {
-  const manifest = await localTextApplication.getCapabilities({ correlationId: 'cor_cli_capabilities' });
-  if (json) {
+async function runCapabilities(parsed: ParsedArguments, io: CliIo): Promise<number> {
+  const selected = await selectedApplication(parsed);
+  const manifest = await selected.getCapabilities({ correlationId: 'cor_cli_capabilities' });
+  if (parsed.engine === 'ollama') experimentalWarning(io);
+  if (parsed.json) {
     io.stdout(`${JSON.stringify(manifest, null, 2)}\n`);
   } else {
     const availableDetectors = manifest.detectors.filter(({ availability }) => availability === 'AVAILABLE');
     io.stdout([
       `Engine mode: ${manifest.engineMode}`,
-      `Qualification: ${manifest.formats[0].qualification}`,
+      `Format qualification: ${manifest.formats[0].qualification}`,
+      `Detector qualifications: ${[...new Set(availableDetectors.map(({ qualification }) => qualification))].join(', ')}`,
       `Formats: ${manifest.formats.map(({ id }) => id).join(', ')}`,
       `Detectors: ${String(availableDetectors.length)}`,
       `Verification profiles: ${manifest.verificationProfiles.map(({ id }) => id).join(', ')}`
@@ -84,10 +137,27 @@ async function runCapabilities(json: boolean, io: CliIo): Promise<number> {
   return 0;
 }
 
-async function runScan(input: string, json: boolean, io: CliIo): Promise<number> {
-  const result = await localTextApplication.scan({
-    session: createLocalTextArtifactSession(input),
-    requirement: textCapabilityRequirement('SCAN')
+function experimentalWarning(io: CliIo): void {
+  io.stderr('EXPERIMENTAL: Ollama hybrid detection is unqualified; results, spans, and confidence values may be wrong.\n');
+}
+
+async function selectedApplication(parsed: ParsedArguments) {
+  if (parsed.engine === 'rules') return localTextApplication;
+  return createExperimentalOllamaTextApplication({
+    model: parsed.model ?? '',
+    ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
+    ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs })
+  });
+}
+
+async function runScan(input: string, parsed: ParsedArguments, io: CliIo): Promise<number> {
+  const selected = await selectedApplication(parsed);
+  const maximumInputBytes = parsed.engine === 'ollama'
+    ? ollamaExperimentalDefaultLimits.maximumInputBytes
+    : undefined;
+  const result = await selected.scan({
+    session: createLocalTextArtifactSession(input, undefined, maximumInputBytes),
+    requirement: textCapabilityRequirement('SCAN', parsed.engine)
   }, { correlationId: 'cor_cli_scan' });
   const { artifact, resolution } = result;
   const report = {
@@ -100,8 +170,37 @@ async function runScan(input: string, json: boolean, io: CliIo): Promise<number>
     detections: resolution.spans.map((span) => ({ id: span.id, entityType: span.entityType, start: span.start, end: span.end, confidence: span.confidence, evidenceIds: span.evidenceIds })),
     conflicts: resolution.conflicts
   };
-  writeResult(io, json, report, `Found ${String(resolution.spans.length)} resolved detection(s) and ${String(resolution.conflicts.length)} conflict(s).`);
+  if (parsed.engine === 'ollama') experimentalWarning(io);
+  writeResult(io, parsed.json, report, `Found ${String(resolution.spans.length)} resolved detection(s) and ${String(resolution.conflicts.length)} conflict(s).`);
   return resolution.conflicts.length === 0 ? 0 : 5;
+}
+
+function validEngineSelection(parsed: ParsedArguments): boolean {
+  const modelOptionsSelected = parsed.model !== undefined
+    || parsed.ollamaUrl !== undefined
+    || parsed.timeoutMs !== undefined
+    || parsed.allowExperimental;
+  if (parsed.engine === 'rules') return !modelOptionsSelected;
+  const modelIsValid = parsed.model !== undefined
+    && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(parsed.model);
+  let endpointIsValid = true;
+  if (parsed.ollamaUrl !== undefined) {
+    try {
+      assertOllamaLoopbackEndpoint(parsed.ollamaUrl);
+    } catch {
+      endpointIsValid = false;
+    }
+  }
+  return parsed.allowExperimental
+    && modelIsValid
+    && endpointIsValid
+    && (parsed.command === 'scan' || parsed.command === 'capabilities');
+}
+
+function validCommandOptions(parsed: ParsedArguments): boolean {
+  if (!validEngineSelection(parsed)) return false;
+  if (parsed.output !== undefined && parsed.command !== 'redact') return false;
+  return true;
 }
 
 async function runRedact(input: string, output: string | undefined, json: boolean, io: CliIo): Promise<number> {
@@ -205,14 +304,15 @@ export async function executeCli(argv: readonly string[], io: CliIo): Promise<nu
       return 0;
     }
     if (parsed.command === undefined) return writeUsageError(parsed.json, io);
+    if (!validCommandOptions(parsed)) return writeUsageError(parsed.json, io);
     if (parsed.command === 'capabilities') {
       if (parsed.input !== undefined || parsed.output !== undefined) return writeUsageError(parsed.json, io);
-      return await runCapabilities(parsed.json, io);
+      return await runCapabilities(parsed, io);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
       return writeUsageError(parsed.json, io);
     }
-    if (parsed.command === 'scan') return await runScan(parsed.input, parsed.json, io);
+    if (parsed.command === 'scan') return await runScan(parsed.input, parsed, io);
     if (parsed.command === 'redact') return await runRedact(parsed.input, parsed.output, parsed.json, io);
     if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io);
     return await runInspect(parsed.input, parsed.json, io);

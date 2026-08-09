@@ -28,9 +28,20 @@ Try it with:
 
 ```sh
 pnpm build
-pnpm pii-redact scan ./sample-data/input/sample.txt --json
-pnpm pii-redact verify ./sample-data/expected/sample.redacted.txt --json
+pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
+pnpm --silent pii-redact verify ./sample-data/expected/sample.redacted.txt --json
 ```
+
+Run the opt-in experimental hybrid scan against an already-installed Ollama model with:
+
+```sh
+pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-development-positive.txt \
+  --engine ollama --model phi4-mini:3.8b --allow-experimental --json
+```
+
+This is a test surface, not a qualification result. The application never downloads models, never
+falls back silently when the requested model fails, and currently exposes Ollama only for `scan`.
+Run the same command without the engine/model flags to compare the unchanged rules-only default.
 
 Because expected outputs are tracked, write manual redaction results to a temporary or differently
 named path to avoid the intentional output-collision protection.
