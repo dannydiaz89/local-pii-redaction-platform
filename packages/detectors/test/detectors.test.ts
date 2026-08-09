@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   parseDetectionId,
@@ -71,6 +71,76 @@ describe('deterministic detectors', () => {
     const text = 'alpha@example.test';
     expect(detectDeterministic(text, revision)).toEqual(detectDeterministic(text, revision));
     expect(JSON.stringify(detectDeterministic(text, revision))).not.toContain(text);
+  });
+
+  it('checks the code-point limit before allocating the UTF-16 source map', () => {
+    const original = globalThis.Int32Array;
+    let mapAllocations = 0;
+    class TrackedInt32Array extends original {
+      public constructor(length: number) {
+        mapAllocations += 1;
+        super(length);
+      }
+    }
+    vi.stubGlobal('Int32Array', TrackedInt32Array);
+    try {
+      const limits = { ...defaultDetectorLimits, maximumCodePoints: 3 };
+      expect(() => detectDeterministic('A😀B', revision, limits)).not.toThrow();
+      expect(mapAllocations).toBe(1);
+      mapAllocations = 0;
+      expect(() => detectDeterministic('A😀BC', revision, limits)).toThrow('Canonical text exceeds the detector limit.');
+      expect(mapAllocations).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('stops candidate collection immediately after observing maximum detections plus one', () => {
+    const matchAll = vi.spyOn(RegExp.prototype, Symbol.matchAll);
+    const original = globalThis.Int32Array;
+    let mapAllocations = 0;
+    class TrackedInt32Array extends original {
+      public constructor(length: number) {
+        mapAllocations += 1;
+        super(length);
+      }
+    }
+    vi.stubGlobal('Int32Array', TrackedInt32Array);
+    try {
+      const limits = { ...defaultDetectorLimits, maximumDetections: 1 };
+      expect(() => detectDeterministic(
+        'first@example.test second@example.test 123-45-6789 192.0.2.1',
+        revision,
+        limits
+      )).toThrow('Detection count exceeds the configured safety limit.');
+      expect(matchAll).toHaveBeenCalledTimes(1);
+      expect(mapAllocations).toBe(0);
+    } finally {
+      matchAll.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('rejects an oversized candidate before allocating the UTF-16 source map', () => {
+    const original = globalThis.Int32Array;
+    let mapAllocations = 0;
+    class TrackedInt32Array extends original {
+      public constructor(length: number) {
+        mapAllocations += 1;
+        super(length);
+      }
+    }
+    vi.stubGlobal('Int32Array', TrackedInt32Array);
+    try {
+      const limits = { ...defaultDetectorLimits, maximumCandidateLength: 5 };
+      expect(() => detectDeterministic('alpha@example.test', revision, limits))
+        .toThrow('A detector candidate exceeds the span-length limit.');
+      expect(() => detectDeterministic('123456789012345678901234567890', revision, limits))
+        .toThrow('A detector candidate exceeds the span-length limit.');
+      expect(mapAllocations).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

@@ -25,6 +25,7 @@ pnpm build
 pnpm ephemeral:check
 pnpm ephemeral:syscall:check
 pnpm ephemeral:filesystem-failure:check
+pnpm ephemeral:resource:check
 ```
 
 The default runtime makes no network request and the repository accepts only synthetic fixtures.
@@ -44,6 +45,14 @@ target check, stage creation/write/readback/reopen, publication, and cleanup fai
 canonical privacy-safe errors, documented exit 3, unchanged synthetic inputs and existing outputs,
 no partial publication, and cleanup whenever permissions permit it. The file-limit case observes
 actual `RLIMIT_FSIZE`/`EFBIG`; it is not an `ENOSPC`, disk-full, quota, or device-failure claim.
+A third Linux-only subprocess gate uses GNU `time` numeric high-water measurements across three
+cold processes per profile. It enforces conservative absolute peak-RSS ceilings for startup,
+oversize rejection, 1 MiB ASCII, 8 MiB ASCII, and 25 MiB Unicode rules-only workloads. A
+timing-only checkpoint also measures the exact private-stage logical and allocated blocks and proves
+that hard-link publication adds a second pathname for the same inode rather than a second content
+allocation. These are Linux CI regression measurements of the current bounded whole-file TXT
+implementation, not streaming, controlled reference-hardware, swap, journal, snapshot, or
+cross-platform evidence.
 
 ## Try the CLI
 
@@ -152,6 +161,11 @@ output collisions.
 - Real Linux permission-denied and `RLIMIT_FSIZE`/`EFBIG` subprocess evidence complements the
   deterministic adapter fault seam. Real `ENOSPC`, `EDQUOT`, inode exhaustion, device/I/O failure,
   hostile filesystem races, and equivalent macOS/Windows behavior remain unproven.
+- TXT/Markdown processing currently materializes bounded whole files and is not a streaming
+  implementation. Linux peak-RSS and private-stage byte profiles are regression evidence, not a
+  hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
+  shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
+  qualification remain open.
 - There is no durable job store, qualified contextual model, HTTP API, or review UI yet.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.

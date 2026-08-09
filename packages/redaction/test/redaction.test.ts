@@ -47,6 +47,35 @@ describe('typed-label redaction', () => {
     expect(plan.actions.every((action) => Object.isFrozen(action) && Object.isFrozen(action.evidenceIds))).toBe(true);
   });
 
+  it('applies a dense plan in one forward pass while preserving Unicode code-point offsets', () => {
+    const actionCount = 1_024;
+    const text = `😀 ${'x '.repeat(actionCount)}`;
+    const spans = Array.from({ length: actionCount }, (_, index) => {
+      const suffix = String(index + 1).padStart(12, '0');
+      const evidenceId = `00000000-0000-4000-8000-${suffix}`;
+      return {
+        id: `rsp_${evidenceId.replaceAll('-', '')}`,
+        entityType: 'EMAIL' as const,
+        start: 2 + index * 2,
+        end: 3 + index * 2,
+        confidence: 1,
+        evidenceIds: [evidenceId]
+      };
+    });
+    const plan = compileTypedLabelPlan({
+      extractionRevision: revision,
+      algorithmVersion: '0.1.0',
+      digest: parseSha256Digest(`sha256:${'e'.repeat(64)}`),
+      spans,
+      conflicts: [],
+      suppressedEvidenceIds: []
+    }, planBinding);
+
+    expect(applyTypedLabelPlan(text, plan)).toBe(
+      `😀 ${Array.from({ length: actionCount }, (_, index) => `[EMAIL_${String(index + 1)}] `).join('')}`
+    );
+  });
+
   it('binds the policy and supporting evidence into the plan digest', () => {
     const text = 'Contact alpha@example.test.';
     const resolution = resolveEvidence(detectDeterministic(text, revision), revision, unicodeCodePointLength(text));

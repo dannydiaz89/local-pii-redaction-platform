@@ -6,7 +6,7 @@ const output = '/tmp/local-pii-syscall/verified-output.txt';
 const stage = '/tmp/local-pii-syscall/.verified-output.11111111-1111-4111-8111-111111111111.staged.txt';
 
 describe('Linux syscall evidence parser', () => {
-  it('allows only the exact private-stage creation, link publication, and cleanup sequence', () => {
+  it('classifies only the private-stage creation, link publication, and cleanup mutations', () => {
     expect(syscallMutations([
       `openat(AT_FDCWD, "${stage}", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0600) = 18`,
       `link("${stage}", "${output}") = 0`,

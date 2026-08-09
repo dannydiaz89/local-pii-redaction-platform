@@ -236,13 +236,41 @@ export function assertTypedLabelPlanIntegrity(plan: TypedLabelPlan): void {
 
 export function applyTypedLabelPlan(text: string, plan: TypedLabelPlan): string {
   assertTypedLabelPlanIntegrity(plan);
-  const codePoints = Array.from(text);
-  let output = codePoints;
-  for (const action of [...plan.actions].sort((left, right) => right.start - left.start || right.end - left.end)) {
-    if (action.start < 0 || action.start >= action.end || action.end > codePoints.length) {
+  const output: string[] = [];
+  const actionsByStart = new Map<number, TypedLabelAction>();
+  for (const action of plan.actions) {
+    if (actionsByStart.has(action.start) || action.start < 0 || action.start >= action.end) {
       throw new RangeError('Redaction action is outside canonical text bounds');
     }
-    output = [...output.slice(0, action.start), action.replacement, ...output.slice(action.end)];
+    actionsByStart.set(action.start, action);
   }
+  let codePointIndex = 0;
+  let utf16Index = 0;
+  let unchangedStart = 0;
+  let appliedActionCount = 0;
+  while (utf16Index < text.length) {
+    const action = actionsByStart.get(codePointIndex);
+    if (action === undefined) {
+      const value = text.codePointAt(utf16Index);
+      utf16Index += value !== undefined && value > 0xffff ? 2 : 1;
+      codePointIndex += 1;
+      continue;
+    }
+    output.push(text.slice(unchangedStart, utf16Index), action.replacement);
+    while (codePointIndex < action.end && utf16Index < text.length) {
+      const value = text.codePointAt(utf16Index);
+      utf16Index += value !== undefined && value > 0xffff ? 2 : 1;
+      codePointIndex += 1;
+    }
+    if (codePointIndex !== action.end) {
+      throw new RangeError('Redaction action is outside canonical text bounds');
+    }
+    unchangedStart = utf16Index;
+    appliedActionCount += 1;
+  }
+  if (appliedActionCount !== plan.actions.length) {
+    throw new RangeError('Redaction action is outside canonical text bounds');
+  }
+  output.push(text.slice(unchangedStart));
   return output.join('');
 }

@@ -3,12 +3,12 @@ import { constants, type Dir, type Stats } from 'node:fs';
 import { link, lstat, open, opendir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 
-import { SafeError, parseSha256Digest, type Sha256Digest } from '@local-pii/domain';
+import { SafeError, parseSha256Digest, unicodeCodePointLength, type Sha256Digest } from '@local-pii/domain';
 import {
   computeWriterReceiptDigest,
   type RedactionWriterReceiptContract
 } from '@local-pii/contracts';
-import { assertTypedLabelPlanIntegrity, type TypedLabelPlan } from '@local-pii/redaction';
+import { applyTypedLabelPlan, assertTypedLabelPlanIntegrity, type TypedLabelPlan } from '@local-pii/redaction';
 
 const utf8Bom = Uint8Array.from([0xef, 0xbb, 0xbf]);
 export const textAdapterVersion = '0.1.0';
@@ -64,6 +64,12 @@ export interface TextArtifactFileHandle {
   close(): Promise<void>;
 }
 
+export interface TextArtifactReadHandle {
+  stat(): Promise<Stats>;
+  read(buffer: Buffer, offset: number, length: number, position: number): Promise<{ readonly bytesRead: number }>;
+  close(): Promise<void>;
+}
+
 /**
  * Injectable filesystem boundary for deterministic fault and recovery tests. Production
  * callers use {@link defaultTextArtifactFileSystem}; no injection is required.
@@ -73,6 +79,7 @@ export interface TextArtifactFileSystem {
   realpath(path: string): Promise<string>;
   stat(path: string): Promise<Stats>;
   open(path: string, flags: number, mode: number): Promise<TextArtifactFileHandle>;
+  openRead(path: string): Promise<TextArtifactReadHandle>;
   opendir(path: string): Promise<Dir>;
   readFile(path: string): Promise<Buffer>;
   link(existingPath: string, newPath: string): Promise<void>;
@@ -85,6 +92,14 @@ export const defaultTextArtifactFileSystem: TextArtifactFileSystem = Object.free
   realpath,
   stat,
   open,
+  async openRead(path: string): Promise<TextArtifactReadHandle> {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    return {
+      stat: () => handle.stat(),
+      read: async (buffer, offset, length, position) => await handle.read(buffer, offset, length, position),
+      close: () => handle.close()
+    };
+  },
   opendir,
   readFile,
   link,
@@ -499,7 +514,7 @@ function assertWriterPlanCanApply(plan: TypedLabelPlan, source: TextArtifact): v
       correlationId: 'cor_text_adapter'
     });
   }
-  const sourceLength = Array.from(source.text).length;
+  const sourceLength = unicodeCodePointLength(source.text);
   const actionIds = new Set<string>();
   const intervals: Array<readonly [number, number]> = [];
   for (const action of plan.actions) {
@@ -512,7 +527,7 @@ function assertWriterPlanCanApply(plan: TypedLabelPlan, source: TextArtifact): v
       || action.start >= action.end
       || action.end > sourceLength
       || typeof action.replacement !== 'string'
-      || Array.from(action.replacement).length > 500
+      || unicodeCodePointLength(action.replacement) > 500
     ) {
       throw new SafeError({
         code: 'REDACTION_PLAN_CONFLICT',
@@ -535,15 +550,6 @@ function assertWriterPlanCanApply(plan: TypedLabelPlan, source: TextArtifact): v
       });
     }
   }
-}
-
-function applyWriterPlan(text: string, plan: TypedLabelPlan): string {
-  const codePoints = Array.from(text);
-  let output = codePoints;
-  for (const action of [...plan.actions].sort((left, right) => right.start - left.start || right.end - left.end)) {
-    output = [...output.slice(0, action.start), action.replacement, ...output.slice(action.end)];
-  }
-  return output.join('');
 }
 
 function receiptWithoutDigest(
@@ -636,6 +642,48 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
+interface BoundedFileRead {
+  readonly bytes: Buffer;
+  readonly metadata: Stats;
+  readonly exceeded: boolean;
+}
+
+const boundedReadChunkBytes = 64 * 1024;
+
+async function readBoundedFile(
+  path: string,
+  maximumBytes: number,
+  fileSystem: TextArtifactFileSystem
+): Promise<BoundedFileRead> {
+  const handle = await fileSystem.openRead(path);
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile()) {
+      return { bytes: Buffer.alloc(0), metadata, exceeded: false };
+    }
+    if (metadata.size > maximumBytes) {
+      return { bytes: Buffer.alloc(0), metadata, exceeded: true };
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (total <= maximumBytes) {
+      const remaining = maximumBytes + 1 - total;
+      if (remaining === 0) break;
+      const buffer = Buffer.allocUnsafe(Math.min(boundedReadChunkBytes, remaining));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, total);
+      if (!Number.isSafeInteger(bytesRead) || bytesRead < 0 || bytesRead > buffer.byteLength) {
+        throw new Error('Invalid bounded filesystem read result.');
+      }
+      if (bytesRead === 0) break;
+      chunks.push(bytesRead === buffer.byteLength ? buffer : buffer.subarray(0, bytesRead));
+      total += bytesRead;
+    }
+    return { bytes: Buffer.concat(chunks, total), metadata, exceeded: total > maximumBytes };
+  } finally {
+    await handle.close();
+  }
+}
+
 type PublicationIdentity = 'SAME_FILE' | 'TARGET_MISSING' | 'DIFFERENT_FILE' | 'UNKNOWN';
 
 async function publicationIdentity(
@@ -682,6 +730,9 @@ export async function readTextArtifact(
   maximumBytes = defaultMaximumInputBytes,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): Promise<TextArtifact> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > defaultMaximumInputBytes) {
+    throw new TypeError('Maximum input bytes must be a nonnegative safe integer within the adapter limit.');
+  }
   let requestedMetadata: Stats;
   try {
     requestedMetadata = await fileSystem.lstat(inputPath);
@@ -691,29 +742,28 @@ export async function readTextArtifact(
   if (requestedMetadata.isSymbolicLink()) {
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'Symbolic-link inputs are not supported.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  let path: string;
-  let metadata: Stats;
-  try {
-    path = await fileSystem.realpath(inputPath);
-    metadata = await fileSystem.lstat(path);
-  } catch {
-    throw storageUnavailable('The input could not be read.');
-  }
-  if (!metadata.isFile()) {
+  if (!requestedMetadata.isFile()) {
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'The input must be a regular file.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  if (metadata.size > maximumBytes) {
-    throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
-  }
-  let bytes: Buffer;
+  let path: string;
   try {
-    bytes = await fileSystem.readFile(path);
+    path = await fileSystem.realpath(inputPath);
   } catch {
     throw storageUnavailable('The input could not be read.');
   }
-  if (bytes.byteLength > maximumBytes) {
+  let bounded: BoundedFileRead;
+  try {
+    bounded = await readBoundedFile(path, maximumBytes, fileSystem);
+  } catch {
+    throw storageUnavailable('The input could not be read.');
+  }
+  if (!bounded.metadata.isFile()) {
+    throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'The input must be a regular file.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  if (bounded.exceeded) {
     throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
   }
+  const bytes = bounded.bytes;
   const hasUtf8Bom = bytes.length >= 3 && bytes[0] === utf8Bom[0] && bytes[1] === utf8Bom[1] && bytes[2] === utf8Bom[2];
   const content = hasUtf8Bom ? bytes.subarray(3) : bytes;
   let text: string;
@@ -839,8 +889,13 @@ export async function publishStagedTextArtifact(
   }
   let inputBeforePublish: Buffer;
   try {
-    inputBeforePublish = await fileSystem.readFile(source.path);
-  } catch {
+    const bounded = await readBoundedFile(source.path, source.byteLength, fileSystem);
+    if (bounded.exceeded || !bounded.metadata.isFile()) {
+      throw new SafeError({ code: 'JOB_CONFLICT', message: 'The input changed while it was being processed.', retryable: true, correlationId: 'cor_text_adapter' });
+    }
+    inputBeforePublish = bounded.bytes;
+  } catch (error: unknown) {
+    if (error instanceof SafeError) throw error;
     throw storageUnavailable('The input could not be read before publication.');
   }
   if (digestBytes(inputBeforePublish) !== source.digest) {
@@ -935,7 +990,7 @@ export function createLocalTextArtifactSession(
       const source = await input(signal);
       signal?.throwIfAborted();
       assertWriterPlanCanApply(plan, source);
-      const text = applyWriterPlan(source.text, plan);
+      const text = applyTypedLabelPlan(source.text, plan);
       const target = outputPath === undefined ? deriveRedactedOutputPath(source.path) : resolve(outputPath);
       const stagedArtifact = await stageTextArtifact(source, target, text, fileSystem);
       const staged = Object.freeze({

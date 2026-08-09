@@ -1,4 +1,5 @@
-import { link as hardLink, mkdir, mkdtemp, readFile, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { appendFile, link as hardLink, mkdir, mkdtemp, readFile, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -256,9 +257,9 @@ describe('text adapter', () => {
     const writer = createLocalTextArtifactSession(input, output);
     const staged = await writer.stage(typedLabelPlan(await writer.input()));
     const reader = createLocalTextArtifactSession(input, output, undefined, faultFileSystem({
-      readFile: async (path) => {
+      openRead: async (path) => {
         if (path.includes('.staged')) throw filesystemFailure();
-        return defaultTextArtifactFileSystem.readFile(path);
+        return defaultTextArtifactFileSystem.openRead(path);
       }
     }));
 
@@ -477,6 +478,39 @@ describe('text adapter', () => {
     await expect(readTextArtifact(link)).rejects.toMatchObject({ code: 'FORMAT_UNSUPPORTED' });
   });
 
+  it.skipIf(process.platform === 'win32')('rejects a FIFO replacement without waiting for a writer', async () => {
+    const root = await directory();
+    const regular = join(root, 'regular.txt');
+    const fifo = join(root, 'replacement.txt');
+    await writeFile(regular, 'synthetic input');
+    await new Promise<void>((resolveResult, reject) => {
+      execFile('/usr/bin/mkfifo', [fifo], (error) => {
+        if (error === null) resolveResult();
+        else reject(new Error('FIFO fixture could not be created.'));
+      });
+    });
+    const regularMetadata = await stat(regular);
+    const fileSystem = faultFileSystem({
+      lstat: () => Promise.resolve(regularMetadata),
+      realpath: () => Promise.resolve(fifo)
+    });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error('FIFO read exceeded its bounded outcome.'));
+      }, 1_000);
+    });
+
+    try {
+      await expect(Promise.race([readTextArtifact(regular, undefined, fileSystem), deadline])).rejects.toMatchObject({
+        code: 'FORMAT_UNSUPPORTED',
+        message: 'The input must be a regular file.'
+      });
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  });
+
   it('uses no staging or output files for input-only scan and verify flows', async () => {
     const root = await directory();
     const input = join(root, 'input.txt');
@@ -500,6 +534,80 @@ describe('text adapter', () => {
 
     await expect(session.input()).rejects.toMatchObject({ code: 'INPUT_TOO_LARGE' });
     expect(await readdir(root)).toEqual(['input.txt']);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, Number.MAX_SAFE_INTEGER])(
+    'rejects an invalid byte limit before touching the filesystem: %s',
+    async (maximumBytes) => {
+      let filesystemCalls = 0;
+      const fileSystem = faultFileSystem({
+        lstat: () => {
+          filesystemCalls += 1;
+          return Promise.reject(filesystemFailure());
+        }
+      });
+
+      await expect(readTextArtifact('synthetic.txt', maximumBytes, fileSystem)).rejects.toThrow(TypeError);
+      expect(filesystemCalls).toBe(0);
+    }
+  );
+
+  it('accepts an input at the exact byte limit and rejects limit plus one before reading file content', async () => {
+    const root = await directory();
+    const exact = join(root, 'exact.txt');
+    const over = join(root, 'over.txt');
+    await Promise.all([writeFile(exact, '1234'), writeFile(over, '12345')]);
+
+    await expect(readTextArtifact(exact, 4)).resolves.toMatchObject({ byteLength: 4, text: '1234' });
+
+    let readCalls = 0;
+    const fileSystem = faultFileSystem({
+      openRead: async (path) => {
+        const handle = await defaultTextArtifactFileSystem.openRead(path);
+        return {
+          stat: () => handle.stat(),
+          read: async (...arguments_) => {
+            readCalls += 1;
+            return await handle.read(...arguments_);
+          },
+          close: () => handle.close()
+        };
+      }
+    });
+    await expect(readTextArtifact(over, 4, fileSystem)).rejects.toMatchObject({ code: 'INPUT_TOO_LARGE' });
+    expect(readCalls).toBe(0);
+  });
+
+  it('reads at most limit plus one bytes when an opened input grows after metadata validation', async () => {
+    const root = await directory();
+    const input = join(root, 'growing.txt');
+    await writeFile(input, '1234');
+    let grew = false;
+    const requestedLengths: number[] = [];
+    const fileSystem = faultFileSystem({
+      openRead: async (path) => {
+        const handle = await defaultTextArtifactFileSystem.openRead(path);
+        return {
+          stat: async () => {
+            const initial = await handle.stat();
+            if (!grew) {
+              grew = true;
+              await appendFile(path, '56');
+            }
+            return initial;
+          },
+          read: async (buffer, offset, length, position) => {
+            requestedLengths.push(length);
+            return await handle.read(buffer, offset, length, position);
+          },
+          close: () => handle.close()
+        };
+      }
+    });
+
+    await expect(readTextArtifact(input, 4, fileSystem)).rejects.toMatchObject({ code: 'INPUT_TOO_LARGE' });
+    expect(requestedLengths).toEqual([5]);
+    expect(await readFile(input, 'utf8')).toBe('123456');
   });
 
   it('stages restrictive bytes, reopens the exact staged artifact, and publishes without clobbering', async () => {
@@ -544,7 +652,7 @@ describe('text adapter', () => {
     await session.discard(staged);
   });
 
-  it('applies multiple Unicode code-point actions in reverse without changing canonical receipt order', async () => {
+  it('applies multiple Unicode code-point actions in one forward pass without changing canonical receipt order', async () => {
     const root = await directory();
     const input = join(root, 'unicode.txt');
     const text = '😀 alpha@example.test و beta@example.test';

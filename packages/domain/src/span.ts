@@ -9,8 +9,12 @@ export interface UnicodeSpan {
 
 export function unicodeCodePointLength(text: string): number {
   // Intentional: portable offsets are Unicode code points, not grapheme clusters.
-  // eslint-disable-next-line @typescript-eslint/no-misused-spread
-  return [...text].length;
+  let length = 0;
+  for (let index = 0; index < text.length; length += 1) {
+    const value = text.codePointAt(index);
+    index += value !== undefined && value > 0xffff ? 2 : 1;
+  }
+  return length;
 }
 
 export function assertValidSpan(span: UnicodeSpan, textLength: number): void {

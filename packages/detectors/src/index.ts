@@ -138,6 +138,8 @@ function addMatches(
   candidates: Candidate[],
   text: string,
   pattern: RegExp,
+  maximumCandidates: number,
+  maximumCandidateLength: number,
   create: (match: RegExpExecArray) => Omit<Candidate, 'startUtf16' | 'endUtf16'> | undefined,
   selectSpan: (match: RegExpExecArray) => { readonly start: number; readonly end: number } = (match) => ({
     start: match.index,
@@ -145,12 +147,17 @@ function addMatches(
   })
 ): void {
   for (const match of text.matchAll(pattern)) {
+    const span = selectSpan(match);
+    if (span.end - span.start > maximumCandidateLength) throw candidateLengthReached;
     const definition = create(match);
     if (definition === undefined) continue;
-    const span = selectSpan(match);
     candidates.push({ ...definition, startUtf16: span.start, endUtf16: span.end });
+    if (candidates.length > maximumCandidates) throw detectionLimitReached;
   }
 }
+
+const detectionLimitReached = new Error('Internal detection limit reached.');
+const candidateLengthReached = new Error('Internal candidate-length limit reached.');
 
 function validSsn(value: string): boolean {
   const [area, group, serial] = value.split('-');
@@ -176,31 +183,31 @@ function validLuhn(value: string): boolean {
   return sum % 10 === 0;
 }
 
-function collectCandidates(text: string): Candidate[] {
+function collectCandidates(text: string, maximumCandidates: number, maximumCandidateLength: number): Candidate[] {
   const candidates: Candidate[] = [];
 
-  addMatches(candidates, text, /(?<![\w.+-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+(?![\w-])/giu, () => ({
+  addMatches(candidates, text, /(?<![\w.+-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+(?![\w-])/giu, maximumCandidates, maximumCandidateLength, () => ({
     entityType: 'EMAIL', confidence: 0.99, source: 'REGEX', detectorId: detectorIds.email, ruleId: 'email-v1'
   }));
 
-  addMatches(candidates, text, /(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)/gu, (match) => validSsn(match[0]) ? ({
+  addMatches(candidates, text, /(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)/gu, maximumCandidates, maximumCandidateLength, (match) => validSsn(match[0]) ? ({
     entityType: 'SSN', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ssn, ruleId: 'us-ssn-v1'
   }) : undefined);
 
-  addMatches(candidates, text, /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/gu, (match) => validLuhn(match[0]) ? ({
+  addMatches(candidates, text, /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/gu, maximumCandidates, maximumCandidateLength, (match) => validLuhn(match[0]) ? ({
     entityType: 'CREDIT_CARD', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.paymentCard, ruleId: 'luhn-v1'
   }) : undefined);
 
-  addMatches(candidates, text, /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)/gu, (match) => {
+  addMatches(candidates, text, /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)/gu, maximumCandidates, maximumCandidateLength, (match) => {
     const valid = match[0].split('.').every((part) => Number(part) <= 255 && (part === '0' || !part.startsWith('0')));
     return valid ? { entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ip, ruleId: 'ipv4-v1' } : undefined;
   });
 
-  addMatches(candidates, text, /(?<![0-9A-Fa-f:])[0-9A-Fa-f:]{2,39}(?![0-9A-Fa-f:])/gu, (match) => isIP(match[0]) === 6 ? ({
+  addMatches(candidates, text, /(?<![0-9A-Fa-f:])[0-9A-Fa-f:]{2,39}(?![0-9A-Fa-f:])/gu, maximumCandidates, maximumCandidateLength, (match) => isIP(match[0]) === 6 ? ({
     entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ip, ruleId: 'ipv6-v1'
   }) : undefined);
 
-  addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, (match) => {
+  addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, maximumCandidates, maximumCandidateLength, (match) => {
     if (/^\d{4}-\d{2}-\d{2}$/u.test(match[0])) return undefined;
     const digits = match[0].replaceAll(/\D/gu, '');
     return digits.length >= 7 && digits.length <= 15
@@ -209,7 +216,7 @@ function collectCandidates(text: string): Candidate[] {
   });
 
   const secretPattern = /\b(api[_-]?key|access[_-]?token|password)\s*[:=]\s*["']?([A-Za-z0-9_./+=-]{12,128})["']?/giu;
-  addMatches(candidates, text, secretPattern, (match) => {
+  addMatches(candidates, text, secretPattern, maximumCandidates, maximumCandidateLength, (match) => {
     const key = match[1]?.toLowerCase();
     const entityType: EntityType = key?.startsWith('password') === true
       ? 'PASSWORD'
@@ -230,21 +237,29 @@ export function detectDeterministic(
   limits: DetectorLimits = defaultDetectorLimits,
   correlationId = 'cor_local_detection'
 ): readonly DetectionEvidence[] {
-  const mapping = utf16ToCodePointMap(text);
-  const codePointLength = mapping[text.length] ?? 0;
-  if (codePointLength > limits.maximumCodePoints) {
-    throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'Canonical text exceeds the detector limit.', retryable: false, correlationId });
+  let codePointLength = 0;
+  for (let index = 0; index < text.length; codePointLength += 1) {
+    const value = text.codePointAt(index);
+    index += value !== undefined && value > 0xffff ? 2 : 1;
+    if (codePointLength >= limits.maximumCodePoints) {
+      throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'Canonical text exceeds the detector limit.', retryable: false, correlationId });
+    }
   }
-
-  const candidates = collectCandidates(text);
-  if (candidates.length > limits.maximumDetections) {
-    throw new SafeError({ code: 'DETECTION_LIMIT_EXCEEDED', message: 'Detection count exceeds the configured safety limit.', retryable: false, correlationId });
-  }
-
-  return candidates.map((candidate) => {
-    if (candidate.endUtf16 - candidate.startUtf16 > limits.maximumCandidateLength) {
+  let candidates: Candidate[];
+  try {
+    candidates = collectCandidates(text, limits.maximumDetections, limits.maximumCandidateLength);
+  } catch (error: unknown) {
+    if (error === detectionLimitReached) {
+      throw new SafeError({ code: 'DETECTION_LIMIT_EXCEEDED', message: 'Detection count exceeds the configured safety limit.', retryable: false, correlationId });
+    }
+    if (error === candidateLengthReached) {
       throw new SafeError({ code: 'DETECTION_LIMIT_EXCEEDED', message: 'A detector candidate exceeds the span-length limit.', retryable: false, correlationId });
     }
+    throw error;
+  }
+  const mapping = utf16ToCodePointMap(text);
+
+  return candidates.map((candidate) => {
     const start = mapping[candidate.startUtf16];
     const end = mapping[candidate.endUtf16];
     if (start === undefined || end === undefined || start >= end) {

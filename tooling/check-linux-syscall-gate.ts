@@ -283,8 +283,11 @@ async function runFileEvidence(root: string): Promise<void> {
       const expected = command.label === 'redact'
         ? ['STAGE_CREATE', 'PUBLISH_LINK', 'STAGE_CLEANUP']
         : [];
-      if (JSON.stringify(observed) !== JSON.stringify(expected)) {
-        throw new Error(`Linux syscall evidence ${command.label} observed an unexpected filesystem mutation sequence.`);
+      // `strace -ff` emits one file per thread. Concatenating those private files cannot
+      // reconstruct a trustworthy cross-thread order, so compare the exact mutation
+      // multiset; application publication tests separately prove commit ordering.
+      if (JSON.stringify([...observed].sort()) !== JSON.stringify([...expected].sort())) {
+        throw new Error(`Linux syscall evidence ${command.label} observed an unexpected filesystem mutation set.`);
       }
     }
   } finally {

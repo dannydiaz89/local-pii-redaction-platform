@@ -11,7 +11,7 @@
     "evaluation": { "status": "ACTIVE", "purpose": "Frozen-corpus detector and model quality metrics" },
     "fuzz": { "status": "PLANNED", "purpose": "Malformed and adversarial untrusted-boundary campaigns", "milestone": "M1" },
     "security-privacy": { "status": "ACTIVE", "purpose": "Abuse cases, residual leakage, and sensitive-sink canaries" },
-    "performance": { "status": "PLANNED", "purpose": "Fixed-profile latency, throughput, and resource bounds", "milestone": "M1" },
+    "performance": { "status": "ACTIVE", "purpose": "Fixed-profile latency, throughput, and resource bounds", "milestone": "M1" },
     "accessibility": { "status": "PLANNED", "purpose": "Automated and manual critical-journey accessibility", "milestone": "M3" },
     "recovery": { "status": "ACTIVE", "purpose": "Fault, cancellation, bounded orphan staging, and lifecycle recovery" },
     "packaging": { "status": "PLANNED", "purpose": "Install, upgrade, offline, platform, and artifact smoke tests", "milestone": "M5" }
@@ -35,13 +35,15 @@
     "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/check-boundaries.test.ts": ["unit", "governance", "security-privacy"],
+    "tooling/check-linux-resource-profile-gate.test.ts": ["unit", "performance", "security-privacy"],
     "tooling/check-linux-syscall-gate.test.ts": ["unit", "security-privacy"]
   },
   "executableGates": {
     "contract": ["pnpm contracts:check"],
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
-    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check", "pnpm ephemeral:filesystem-failure:check"],
+    "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check", "pnpm ephemeral:filesystem-failure:check", "pnpm ephemeral:resource:check"],
+    "performance": ["pnpm ephemeral:resource:check"],
     "recovery": ["pnpm ephemeral:filesystem-failure:check"]
   }
 }

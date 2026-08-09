@@ -13,6 +13,7 @@ if (selectedPhase !== undefined) {
   const path = require('node:path');
 
   const originalReadFile = fsPromises.readFile;
+  const originalOpen = fsPromises.open;
   const originalLink = fsPromises.link;
   const originalUnlink = fsPromises.unlink;
   const selectedPhases = new Set(selectedPhase.split(','));
@@ -43,16 +44,24 @@ if (selectedPhase !== undefined) {
     if (!isTextStage(filePath)) return originalReadFile.call(fsPromises, filePath, ...options);
     stageReadCount += 1;
     if (stageReadCount === 1) await checkpoint('FIRST_STAGE_READ_BEFORE');
-    if (stageReadCount === 2) await checkpoint('SECOND_STAGE_READ_BEFORE');
     const value = await originalReadFile.call(fsPromises, filePath, ...options);
     if (stageReadCount === 1) await checkpoint('FIRST_STAGE_READ_AFTER');
     return value;
   }
 
+  async function coordinatedOpen(filePath, flags, ...options) {
+    const opensForRead = typeof flags === 'number'
+      && (flags & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0;
+    if (isTextStage(filePath) && opensForRead) await checkpoint('SECOND_STAGE_READ_BEFORE');
+    return originalOpen.call(fsPromises, filePath, flags, ...options);
+  }
+
   async function coordinatedLink(existingPath, targetPath) {
     await checkpoint('PUBLICATION_LINK_BEFORE');
     try {
-      return await originalLink.call(fsPromises, existingPath, targetPath);
+      const result = await originalLink.call(fsPromises, existingPath, targetPath);
+      await checkpoint('PUBLICATION_LINK_AFTER');
+      return result;
     } catch (error) {
       await checkpoint('PUBLICATION_LINK_REJECTED');
       throw error;
@@ -71,9 +80,11 @@ if (selectedPhase !== undefined) {
   }
 
   fsPromises.readFile = coordinatedReadFile;
+  fsPromises.open = coordinatedOpen;
   fsPromises.link = coordinatedLink;
   fsPromises.unlink = coordinatedUnlink;
   fs.promises.readFile = coordinatedReadFile;
+  fs.promises.open = coordinatedOpen;
   fs.promises.link = coordinatedLink;
   fs.promises.unlink = coordinatedUnlink;
   syncBuiltinESMExports();
