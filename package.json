@@ -32,6 +32,7 @@
     "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit"
   },
   "devDependencies": {
+    "@local-pii/provider-ollama": "workspace:*",
     "@eslint/js": "^9.32.0",
     "@hono/node-server": "^2.1.0",
     "@types/node": "^24.2.0",

@@ -2,14 +2,24 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { entityTypes } from '../packages/domain/src/index.js';
-import { contextualEntityTypes, createContextualCorpus } from './contextual-corpus.js';
+import {
+  anchorOllamaModelOutput,
+  assertOllamaLoopbackEndpoint,
+  assertOllamaModelName,
+  createOllamaExtractionChatRequest,
+  createOllamaExtractionResponseSchema,
+  ollamaExperimentalDefaultLimits,
+  ollamaExperimentalFixedSeed,
+  ollamaExtractionSystemPrompt,
+  parseOllamaChatEnvelope,
+  readOllamaLimitedUtf8
+} from '@local-pii/provider-ollama';
+
+import { createContextualCorpus } from './contextual-corpus.js';
 
 const defaultBaseUrl = 'http://127.0.0.1:11434';
-const fixedSeed = 20260808;
 const defaultTimeoutMs = 60_000;
-const maximumResponseBytes = 1_000_000;
-const systemPrompt = 'Identify sensitive entities in the supplied text. Return exact half-open Unicode code-point offsets only. Never return matched values, excerpts, explanations, or additional fields.';
+const maximumResponseBytes = ollamaExperimentalDefaultLimits.maximumResponseBytes;
 
 export interface EvaluationSpan {
   readonly entityType: string;
@@ -49,21 +59,11 @@ export interface ExactScore {
   readonly invalidResponses: number;
 }
 
-export interface OllamaChatApiResponse {
-  readonly model: string | undefined;
-  readonly content: string;
-  readonly apiDurationMs: number | undefined;
-}
-
 export interface ModelMetadata {
   readonly name: string;
   readonly digest: string | undefined;
   readonly modifiedAt: string | undefined;
   readonly size: number | undefined;
-  readonly format: string | undefined;
-  readonly family: string | undefined;
-  readonly parameterSize: string | undefined;
-  readonly quantizationLevel: string | undefined;
 }
 
 interface DurationSummary {
@@ -100,9 +100,12 @@ function safeString(value: unknown, maximumLength = 200): string | undefined {
 }
 
 function safeDigest(value: unknown): string | undefined {
-  const digest = safeString(value);
-  if (digest === undefined) return undefined;
-  return /^[a-f0-9]{64}$/.test(digest) ? `sha256:${digest}` : digest;
+  return typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value) ? `sha256:${value}` : undefined;
+}
+
+function safeTimestamp(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value)) return undefined;
+  return Number.isNaN(Date.parse(value)) ? undefined : value;
 }
 
 function optionalNonnegativeNumber(value: unknown): number | undefined {
@@ -117,108 +120,28 @@ function spanKey(span: EvaluationSpan): string {
   return `${span.entityType}\u001f${String(span.start)}\u001f${String(span.end)}`;
 }
 
-function compareSpans(left: EvaluationSpan, right: EvaluationSpan): number {
-  return left.start - right.start || left.end - right.end || left.entityType.localeCompare(right.entityType);
-}
-
 function sha256Json(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')}`;
 }
 
 export function assertLoopbackBaseUrl(input: string): URL {
-  let url: URL;
   try {
-    url = new URL(input);
+    return assertOllamaLoopbackEndpoint(input);
   } catch {
     throw new TypeError('The Ollama base URL is invalid.');
   }
-  const hostname = url.hostname.toLowerCase();
-  const ipv4Parts = hostname.split('.').map((part) => Number(part));
-  const ipv4Loopback = ipv4Parts.length === 4
-    && ipv4Parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
-    && ipv4Parts[0] === 127;
-  const ipv6Loopback = hostname === '[::1]' || hostname === '::1';
-  if (
-    url.protocol !== 'http:'
-    || url.username.length > 0
-    || url.password.length > 0
-    || (!ipv4Loopback && !ipv6Loopback)
-    || (url.pathname !== '/' && url.pathname !== '')
-    || url.search.length > 0
-    || url.hash.length > 0
-  ) {
-    throw new TypeError('The Ollama base URL must be an uncredentialed HTTP loopback origin.');
-  }
-  return url;
 }
 
 export function parseOllamaDetections(
   content: string,
-  textCodePointLength: number,
-  allowedEntityTypes: readonly string[] = entityTypes
+  text: string
 ): ParsedDetections {
-  if (!Number.isSafeInteger(textCodePointLength) || textCodePointLength < 0 || content.length > maximumResponseBytes) {
-    return { detections: [], invalidSpans: 0, duplicateSpans: 0, invalidResponse: true };
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(content) as unknown;
-  } catch {
-    return { detections: [], invalidSpans: 0, duplicateSpans: 0, invalidResponse: true };
-  }
-  if (!isRecord(value) || Object.keys(value).some((key) => key !== 'detections') || !Array.isArray(value.detections)) {
-    return { detections: [], invalidSpans: 0, duplicateSpans: 0, invalidResponse: true };
-  }
-
-  const allowed = new Set(allowedEntityTypes);
-  const seen = new Set<string>();
-  const detections: EvaluationSpan[] = [];
-  let invalidSpans = 0;
-  let duplicateSpans = 0;
-  for (const candidate of value.detections) {
-    if (
-      !isRecord(candidate)
-      || Object.keys(candidate).some((key) => !['entityType', 'start', 'end'].includes(key))
-      || typeof candidate.entityType !== 'string'
-      || !allowed.has(candidate.entityType)
-      || !Number.isSafeInteger(candidate.start)
-      || !Number.isSafeInteger(candidate.end)
-      || (candidate.start as number) < 0
-      || (candidate.start as number) >= (candidate.end as number)
-      || (candidate.end as number) > textCodePointLength
-    ) {
-      invalidSpans += 1;
-      continue;
-    }
-    const span: EvaluationSpan = {
-      entityType: candidate.entityType,
-      start: candidate.start as number,
-      end: candidate.end as number
-    };
-    const key = spanKey(span);
-    if (seen.has(key)) {
-      duplicateSpans += 1;
-      continue;
-    }
-    seen.add(key);
-    detections.push(span);
-  }
-  detections.sort(compareSpans);
-  return { detections, invalidSpans, duplicateSpans, invalidResponse: false };
-}
-
-export function parseOllamaChatApiResponse(value: unknown): OllamaChatApiResponse {
-  if (!isRecord(value) || !isRecord(value.message) || typeof value.message.content !== 'string') {
-    throw new TypeError('Ollama returned an invalid chat response.');
-  }
-  if (value.message.content.length > maximumResponseBytes) {
-    throw new TypeError('Ollama returned an oversized chat response.');
-  }
-  const totalDuration = optionalNonnegativeNumber(value.total_duration);
+  const anchored = anchorOllamaModelOutput(content, text);
   return {
-    model: safeString(value.model),
-    content: value.message.content,
-    apiDurationMs: totalDuration === undefined ? undefined : totalDuration / 1_000_000
+    detections: anchored.detections,
+    invalidSpans: anchored.invalidSpans,
+    duplicateSpans: anchored.duplicateDetections,
+    invalidResponse: anchored.invalidResponse
   };
 }
 
@@ -296,16 +219,11 @@ function parseTagsMetadata(value: unknown, requestedModel: string): ModelMetadat
     if (!isRecord(candidate)) continue;
     const name = safeString(candidate.name) ?? safeString(candidate.model);
     if (name === undefined || !modelMatches(requestedModel, name)) continue;
-    const details = isRecord(candidate.details) ? candidate.details : {};
     return {
       name,
       digest: safeDigest(candidate.digest),
-      modifiedAt: safeString(candidate.modified_at),
-      size: optionalNonnegativeNumber(candidate.size),
-      format: safeString(details.format),
-      family: safeString(details.family),
-      parameterSize: safeString(details.parameter_size),
-      quantizationLevel: safeString(details.quantization_level)
+      modifiedAt: safeTimestamp(candidate.modified_at),
+      size: optionalNonnegativeNumber(candidate.size)
     };
   }
   return undefined;
@@ -313,17 +231,14 @@ function parseTagsMetadata(value: unknown, requestedModel: string): ModelMetadat
 
 function parseShowMetadata(value: unknown, requestedModel: string): ModelMetadata | undefined {
   if (!isRecord(value)) return undefined;
-  const details = isRecord(value.details) ? value.details : {};
-  const name = safeString(value.name) ?? safeString(value.model) ?? requestedModel;
+  const reportedName = safeString(value.name) ?? safeString(value.model);
+  if (reportedName !== undefined && !modelMatches(requestedModel, reportedName)) return undefined;
+  const name = reportedName ?? requestedModel;
   return {
     name,
     digest: safeDigest(value.digest),
-    modifiedAt: safeString(value.modified_at),
-    size: optionalNonnegativeNumber(value.size),
-    format: safeString(details.format),
-    family: safeString(details.family),
-    parameterSize: safeString(details.parameter_size),
-    quantizationLevel: safeString(details.quantization_level)
+    modifiedAt: safeTimestamp(value.modified_at),
+    size: optionalNonnegativeNumber(value.size)
   };
 }
 
@@ -337,17 +252,12 @@ function mergeModelMetadata(
     name: primary.name,
     digest: primary.digest ?? secondary.digest,
     modifiedAt: primary.modifiedAt ?? secondary.modifiedAt,
-    size: primary.size ?? secondary.size,
-    format: primary.format ?? secondary.format,
-    family: primary.family ?? secondary.family,
-    parameterSize: primary.parameterSize ?? secondary.parameterSize,
-    quantizationLevel: primary.quantizationLevel ?? secondary.quantizationLevel
+    size: primary.size ?? secondary.size
   };
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {
-  const body = await response.text();
-  if (body.length > maximumResponseBytes) throw new TypeError('Ollama returned an oversized API response.');
+  const body = await readOllamaLimitedUtf8(response, maximumResponseBytes);
   try {
     return JSON.parse(body) as unknown;
   } catch {
@@ -371,38 +281,16 @@ async function readModelMetadataBestEffort(
   const [showValue, tagsValue] = await Promise.all([
     safeRequest(fetchImplementation(new URL('/api/show', baseUrl), {
         method: 'POST',
+        redirect: 'error',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model, verbose: false })
       })),
-    safeRequest(fetchImplementation(new URL('/api/tags', baseUrl), { method: 'GET' }))
+    safeRequest(fetchImplementation(new URL('/api/tags', baseUrl), { method: 'GET', redirect: 'error' }))
   ]);
   return mergeModelMetadata(
     parseShowMetadata(showValue, model),
     parseTagsMetadata(tagsValue, model)
   );
-}
-
-function responseSchema(): object {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    required: ['detections'],
-    properties: {
-      detections: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['entityType', 'start', 'end'],
-          properties: {
-            entityType: { type: 'string', enum: [...contextualEntityTypes] },
-            start: { type: 'integer', minimum: 0 },
-            end: { type: 'integer', minimum: 1 }
-          }
-        }
-      }
-    }
-  };
 }
 
 async function chat(
@@ -415,27 +303,17 @@ async function chat(
   const started = performance.now();
   const response = await fetchImplementation(new URL('/api/chat', baseUrl), {
     method: 'POST',
+    redirect: 'error',
     signal: AbortSignal.timeout(timeoutMs),
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      format: responseSchema(),
-      options: { temperature: 0, seed: fixedSeed },
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        { role: 'user', content: text }
-      ]
-    })
+    body: JSON.stringify(createOllamaExtractionChatRequest(model, text))
   });
   const latencyMs = performance.now() - started;
   if (!response.ok) throw new Error(`Ollama chat failed with HTTP ${String(response.status)}.`);
-  const api = parseOllamaChatApiResponse(await readJsonResponse(response));
+  const api = parseOllamaChatEnvelope(await readOllamaLimitedUtf8(response, maximumResponseBytes), model);
+  if (api === undefined) throw new TypeError('Ollama returned an invalid chat response.');
   return {
-    parsed: parseOllamaDetections(api.content, Array.from(text).length, contextualEntityTypes),
+    parsed: parseOllamaDetections(api.content, text),
     model: api.model,
     latencyMs,
     apiDurationMs: api.apiDurationMs
@@ -474,10 +352,10 @@ export function parseOllamaEvaluationArguments(argv: readonly string[]): OllamaE
       throw new TypeError('Unknown evaluation argument.');
     }
   }
-  if (model === undefined || model.length === 0 || model.length > 200 || model.startsWith('-')) {
+  if (model === undefined) {
     throw new TypeError('--model is required.');
   }
-  return { model, repeat, baseUrl: assertLoopbackBaseUrl(baseUrl), timeoutMs };
+  return { model: assertOllamaModelName(model), repeat, baseUrl: assertLoopbackBaseUrl(baseUrl), timeoutMs };
 }
 
 const usage = `Usage: pnpm eval:ollama -- --model <local-model> [--json] [--repeat <1-20>] [--timeout-ms <1000-300000>] [--base-url http://127.0.0.1:11434]\n`;
@@ -531,13 +409,13 @@ export async function runOllamaEvaluation(
   return {
     schemaVersion: '1.0.0',
     evaluator: {
-      id: 'local-ollama-exact-span',
-      version: '1.0.0',
+      id: 'local-ollama-verbatim-anchor',
+      version: '2.0.0',
       offsetUnit: 'UNICODE_CODE_POINT',
-      promptDigest: sha256Json(systemPrompt),
-      responseSchemaDigest: sha256Json(responseSchema()),
+      promptDigest: sha256Json(ollamaExtractionSystemPrompt),
+      responseSchemaDigest: sha256Json(createOllamaExtractionResponseSchema()),
       temperature: 0,
-      seed: fixedSeed
+      seed: ollamaExperimentalFixedSeed
     },
     model: {
       requestedName: options.model,

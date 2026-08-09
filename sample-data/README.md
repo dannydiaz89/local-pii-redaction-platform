@@ -47,6 +47,19 @@ pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-de
 This is a test surface, not a qualification result. The application never downloads models, never
 falls back silently when the requested model fails, and currently exposes Ollama only for `scan`.
 Run the same command without the engine/model flags to compare the unchanged rules-only default.
+The model returns only an entity type plus the exact verbatim value; local deterministic code
+anchors that value to one exact occurrence and calculates Unicode code-point offsets. Case changes,
+normalization changes, absent values, and repeated ambiguous values invalidate the response rather
+than being guessed or silently discarded. Exact anchoring does not establish that the model chose
+the correct entity type or found every entity.
+
+Verbatim values exist transiently in the local Ollama request/response and application parser, but
+are excluded from CLI/evaluator reports, errors, stable IDs, and audit material. Ollama and host
+logging, caches, diagnostics, swap, and similar runtime state remain separate disclosed risks.
+The harness intentionally pins the same six contextual types as the experimental provider. Future
+model/detector imports are expected to declare a reviewed subset of the canonical entity catalog in
+a digest-pinned manifest; changing a prompt or supplying arbitrary free-form labels is not treated
+as an equivalent qualified profile.
 
 Because expected outputs are tracked, write manual redaction results to a temporary or differently
 named path to avoid the intentional output-collision protection.
@@ -56,7 +69,7 @@ Compare already-installed Ollama models against the contextual harness with:
 ```sh
 pnpm eval:ollama -- --model phi4-mini:3.8b --repeat 3
 pnpm eval:ollama -- --model llama3.2:3b --repeat 3
-pnpm eval:ollama -- --model qwen3.5:4b --repeat 3 --timeout-ms 120000
+pnpm eval:ollama -- --model gemma3:4b --repeat 3
 ```
 
 The evaluator connects only to an unauthenticated loopback IP, never pulls a model, and emits JSON

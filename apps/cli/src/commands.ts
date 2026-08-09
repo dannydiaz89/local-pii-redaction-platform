@@ -258,7 +258,7 @@ async function runCapabilities(parsed: ParsedArguments, io: CliIo, signal?: Abor
 }
 
 function experimentalWarning(io: CliIo): void {
-  io.stderr('EXPERIMENTAL: Ollama hybrid detection is unqualified; results, spans, and confidence values may be wrong.\n');
+  io.stderr('EXPERIMENTAL: Ollama hybrid detection is unqualified; classifications may be wrong and confidence is an uncalibrated provider constant.\n');
 }
 
 async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal) {

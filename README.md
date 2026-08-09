@@ -144,6 +144,30 @@ loopback URLs; `--ollama-url http://127.0.0.1:11434` and `--timeout-ms 60000` ma
 explicitly. This path is scan-only, bounded to 80,000 input bytes/20,000 Unicode code points, and
 fails closed rather than silently falling back to rules-only behavior.
 
+The experimental model contract asks Ollama only for an entity type and an exact verbatim value.
+Local deterministic code then requires one exact case- and normalization-sensitive occurrence in
+the canonical input and calculates trusted half-open Unicode code-point offsets. Missing,
+ambiguous, malformed, or over-limit values invalidate the entire model response. Identical model
+entries are deduplicated only after anchoring; different classifications at the same span continue
+through the existing conflict resolver. The numeric model-evidence confidence is a conservative,
+uncalibrated provider constant. Exact anchoring proves where text occurs, not that the model's
+classification is correct or complete.
+
+Those additional verbatim values necessarily exist transiently in the local Ollama request,
+response, and application parsing path. The application does not put them in CLI reports, errors,
+detection IDs, evaluator reports, or audit material. Ollama process caches, logs, diagnostics,
+swap, and other host/runtime state remain outside that application-level guarantee.
+
+The six contextual types in this Ollama profile are deliberately fixed so its prompt, structured
+schema, capability descriptor, corpus, and evaluation digest describe one reproducible experiment.
+They are a subset of the platform's versioned canonical entity catalog, not the long-term extension
+mechanism. A future import flow is expected to activate a reviewed, digest-pinned model or detector
+bundle whose manifest declares supported canonical entity types; policy selection and capability
+preflight will then choose only the supported intersection. Unknown free-form labels will continue
+to fail schema validation. Adding a new core type requires a versioned contract change, while
+organization-specific types must use the separately governed `CUSTOM`/installed-detector design.
+The current CLI does not yet expose model-bundle import or arbitrary runtime taxonomy changes.
+
 `SIGINT` and `SIGTERM` request cooperative cancellation. The CLI waits for in-flight cleanup and
 returns the canonical `OPERATION_CANCELLED` error without publishing an unverified output. Signal
 exit codes are `130` for `SIGINT` and `143` for `SIGTERM`.
@@ -158,8 +182,10 @@ output collisions.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
 - The opt-in Ollama hybrid scan is experimental and unqualified. Its contextual results can be
-  incomplete or have incorrect spans; `phi4-mini` previously produced zero exact matches on the
-  small frozen harness. It is useful for testing integration, not for making safety claims.
+  incomplete or semantically incorrect. The prior offset-supplying `phi4-mini` experiment produced
+  zero exact matches on the small frozen harness; that historical result does not describe the new
+  verbatim-plus-local-anchoring contract. The harness is useful for integration and model
+  comparison, not release qualification, and no model is currently qualified.
 - The verification profile is a deterministic residual rescan, not a claim that all PII classes or
   contextual entities were detected.
 - Cooperative cleanup cannot run after `SIGKILL`, a process or host crash, power loss, or some

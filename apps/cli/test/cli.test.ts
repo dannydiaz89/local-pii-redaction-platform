@@ -327,8 +327,6 @@ describe('CLI TXT vertical slice', () => {
     const input = join(root, 'context.txt');
     const text = '😀 Synthetic record. The birth date is 1991-07-14.';
     const value = '1991-07-14';
-    const start = Array.from(text.slice(0, text.indexOf(value))).length;
-    const end = start + Array.from(value).length;
     await writeFile(input, text);
 
     let requests = 0;
@@ -345,7 +343,7 @@ describe('CLI TXT vertical slice', () => {
           model: 'phi4-mini:latest',
           message: {
             role: 'assistant',
-            content: JSON.stringify({ detections: [{ entityType: 'DATE_OF_BIRTH', start, end, confidence: 0.9 }] })
+            content: JSON.stringify({ detections: [{ entityType: 'DATE_OF_BIRTH', verbatim: value }] })
           },
           done: true
         }));
@@ -373,10 +371,14 @@ describe('CLI TXT vertical slice', () => {
       const report = JSON.parse(hybrid.stdout.join('')) as {
         readonly detectorBundleVersion: string;
         readonly counts: { readonly byEntity: Readonly<Record<string, number>> };
+        readonly detections: readonly { readonly confidence: number }[];
       };
       expect(report.counts.byEntity.DATE_OF_BIRTH).toBe(1);
+      expect(report.detections).toContainEqual(expect.objectContaining({ confidence: 0.5 }));
       expect(report.detectorBundleVersion).toMatch(/^composite-v1-/u);
       expect(hybrid.stderr.join('')).toContain('EXPERIMENTAL');
+      expect(hybrid.stdout.join('')).not.toContain(value);
+      expect(hybrid.stderr.join('')).not.toContain(value);
       expect(requests).toBe(3);
 
       const capabilities = capture();
@@ -392,7 +394,7 @@ describe('CLI TXT vertical slice', () => {
       expect(capabilityReport.detectors).toContainEqual(
         expect.objectContaining({
           id: 'ollama-local-model',
-          version: `0.1.0-ollama-experimental.1.sha256-${'a'.repeat(64)}`,
+          version: `0.1.0-ollama-experimental.2.sha256-${'a'.repeat(64)}`,
           availability: 'AVAILABLE',
           qualification: 'EXPERIMENTAL'
         })
@@ -407,6 +409,54 @@ describe('CLI TXT vertical slice', () => {
       expect(humanCapabilities.stdout.join('')).toContain('Engine mode: LOCAL_HYBRID');
       expect(humanCapabilities.stderr.join('')).toContain('EXPERIMENTAL');
       expect(requests).toBe(5);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('fails closed without exposing an unanchored model value in the machine error', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-hybrid-invalid-'));
+    directories.push(root);
+    const input = join(root, 'context.txt');
+    const sourceCanary = 'synthetic source content';
+    const responseCanary = 'model-response-value-canary';
+    await writeFile(input, sourceCanary);
+
+    const server = createServer((request, response) => {
+      response.setHeader('content-type', 'application/json');
+      if (request.url === '/api/tags') {
+        response.end(JSON.stringify({ models: [{ name: 'phi4-mini:latest', digest: 'a'.repeat(64) }] }));
+        return;
+      }
+      request.resume();
+      request.once('end', () => {
+        response.end(JSON.stringify({
+          model: 'phi4-mini:latest',
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({ detections: [{ entityType: 'PERSON', verbatim: responseCanary }] })
+          },
+          done: true
+        }));
+      });
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected local test server address.');
+
+    try {
+      const stream = capture();
+      expect(await executeCli([
+        'scan', input, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental',
+        '--ollama-url', `http://127.0.0.1:${String(address.port)}`, '--json'
+      ], stream.io)).toBe(3);
+      expect(stream.stdout).toHaveLength(0);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'MODEL_OUTPUT_INVALID' } });
+      expect(stream.stderr.join('')).not.toContain(sourceCanary);
+      expect(stream.stderr.join('')).not.toContain(responseCanary);
     } finally {
       server.closeAllConnections();
       server.close();

@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  anchorOllamaModelOutput,
+  createOllamaExtractionResponseSchema,
+  ollamaExperimentalFixedSeed,
+  ollamaExtractionSystemPrompt
+} from '@local-pii/provider-ollama';
+
+import {
   assertLoopbackBaseUrl,
-  parseOllamaChatApiResponse,
   parseOllamaDetections,
   parseOllamaEvaluationArguments,
   runOllamaEvaluation,
@@ -18,6 +24,11 @@ describe('Ollama evaluation safety boundary', () => {
       baseUrl: new URL('http://127.0.0.1:11434'),
       timeoutMs: 60_000
     });
+  });
+
+  it('applies the provider model-name boundary to evaluator arguments', () => {
+    expect(() => parseOllamaEvaluationArguments(['--model', 'model name with spaces'])).toThrow(TypeError);
+    expect(() => parseOllamaEvaluationArguments(['--model', '../model'])).toThrow(TypeError);
   });
 
   it.each([
@@ -38,24 +49,17 @@ describe('Ollama evaluation safety boundary', () => {
     }
   );
 
-  it('parses bounded API timing without retaining unrelated response fields', () => {
-    expect(parseOllamaChatApiResponse({
-      model: 'synthetic-local-model',
-      message: { role: 'assistant', content: '{"detections":[]}' },
-      total_duration: 12_500_000,
-      unrelated: { text: 'must not be retained' }
-    })).toEqual({ model: 'synthetic-local-model', content: '{"detections":[]}', apiDurationMs: 12.5 });
-  });
-
   it('uses only local metadata and chat APIs and omits document content from the report', async () => {
     const requestedPaths: string[] = [];
+    const requestInitializers: RequestInit[] = [];
     const chatBodies: Record<string, unknown>[] = [];
     const fetchImplementation = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       const url = new URL(input instanceof Request ? input.url : input);
       requestedPaths.push(url.pathname);
+      requestInitializers.push(init ?? {});
       if (url.pathname === '/api/show') return Promise.resolve(new Response('', { status: 500 }));
       if (url.pathname === '/api/tags') {
-        return Promise.resolve(Response.json({ models: [{ name: 'synthetic-local-model:latest', digest: 'sha256:local-model-digest' }] }));
+        return Promise.resolve(Response.json({ models: [{ name: 'synthetic-local-model:latest', digest: 'a'.repeat(64) }] }));
       }
       if (url.pathname === '/api/chat') {
         if (typeof init?.body !== 'string') throw new TypeError('Expected a serialized chat body.');
@@ -63,6 +67,7 @@ describe('Ollama evaluation safety boundary', () => {
         return Promise.resolve(Response.json({
           model: 'synthetic-local-model:latest',
           message: { role: 'assistant', content: '{"detections":[]}' },
+          done: true,
           total_duration: 1_000_000
         }));
       }
@@ -78,14 +83,21 @@ describe('Ollama evaluation safety boundary', () => {
     const serialized = JSON.stringify(report);
 
     expect(requestedPaths).not.toContain('/api/pull');
+    expect(requestInitializers).not.toHaveLength(0);
+    expect(requestInitializers.every(({ redirect }) => redirect === 'error')).toBe(true);
     expect(chatBodies[0]).toMatchObject({
       model: 'synthetic-local-model',
       stream: false,
-      options: { temperature: 0, seed: 20260808 },
-      format: { type: 'object', additionalProperties: false }
+      options: { temperature: 0, seed: ollamaExperimentalFixedSeed },
+      format: createOllamaExtractionResponseSchema(),
+      messages: [
+        { role: 'system', content: ollamaExtractionSystemPrompt },
+        expect.objectContaining({ role: 'user' })
+      ]
     });
     expect(report).toMatchObject({
-      model: { localMetadata: { digest: 'sha256:local-model-digest' } },
+      evaluator: { id: 'local-ollama-verbatim-anchor', version: '2.0.0' },
+      model: { reportedName: 'synthetic-local-model:latest', localMetadata: { digest: `sha256:${'a'.repeat(64)}` } },
       resourceUse: { externalProcessRssBytes: { status: 'UNAVAILABLE' } }
     });
     expect(serialized).not.toContain('Mara Vellum');
@@ -94,34 +106,43 @@ describe('Ollama evaluation safety boundary', () => {
 });
 
 describe('Ollama detection parsing', () => {
-  it('validates Unicode code-point bounds, rejects value fields, and counts duplicates', () => {
+  it('uses the provider anchor exactly and counts safely deduplicated entries', () => {
     const text = 'A😀éZ';
     const result = parseOllamaDetections(JSON.stringify({
       detections: [
-        { entityType: 'PERSON', start: 1, end: 2 },
-        { entityType: 'PERSON', start: 1, end: 2 },
-        { entityType: 'EMAIL', start: 4, end: 7 },
-        { entityType: 'EMAIL', start: 0, end: 1, matchedValue: 'prohibited' },
-        { entityType: 'NOT_CANONICAL', start: 0, end: 1 }
+        { entityType: 'PERSON', verbatim: '😀é' },
+        { entityType: 'PERSON', verbatim: '😀é' }
       ]
-    }), Array.from(text).length);
+    }), text);
 
     expect(result).toEqual({
-      detections: [{ entityType: 'PERSON', start: 1, end: 2 }],
-      invalidSpans: 3,
+      detections: [{ entityType: 'PERSON', start: 1, end: 4 }],
+      invalidSpans: 0,
       duplicateSpans: 1,
       invalidResponse: false
     });
+    expect(result.detections).toEqual(anchorOllamaModelOutput(JSON.stringify({
+      detections: [{ entityType: 'PERSON', verbatim: '😀é' }]
+    }), text).detections);
   });
 
   it.each(['not-json', '[]', '{"detections":"none"}', '{"detections":[],"text":"prohibited"}'])(
     'marks a malformed response invalid without echoing it: %s',
     (content) => {
-      expect(parseOllamaDetections(content, 10)).toEqual({
+      expect(parseOllamaDetections(content, 'plain text')).toEqual({
         detections: [], invalidSpans: 0, duplicateSpans: 0, invalidResponse: true
       });
     }
   );
+
+  it('reports anchor failures without retaining the offending value', () => {
+    const canary = 'sensitive-evaluator-canary';
+    const result = parseOllamaDetections(JSON.stringify({
+      detections: [{ entityType: 'PERSON', verbatim: canary }]
+    }), 'plain text');
+    expect(result).toEqual({ detections: [], invalidSpans: 1, duplicateSpans: 0, invalidResponse: false });
+    expect(JSON.stringify(result)).not.toContain(canary);
+  });
 });
 
 describe('exact span scorer', () => {

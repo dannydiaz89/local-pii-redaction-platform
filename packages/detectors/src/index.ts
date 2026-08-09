@@ -493,6 +493,9 @@ export function createCompositeTextDetector(
       limits,
       correlationId
     );
+    if (deterministic.length + contextualEvidence.length > limits.maximumDetections) {
+      throw contextualLimitExceeded(correlationId);
+    }
     const contextualBundleVersion = contextual.detectorBundleVersion;
     return {
       // Some providers discover a model digest during preparation. Bind this

@@ -164,6 +164,29 @@ describe('composite text detector', () => {
     expect(result.contextual).toEqual({ state: 'COMPLETED', detectorBundleVersion: '1.0.0', evidenceCount: 1 });
   });
 
+  it('enforces the detection limit across the combined deterministic and contextual result', async () => {
+    const text = 'alpha@example.test';
+    const contextual: ContextualTextDetectionProvider = {
+      detectorBundleVersion: '1.0.0',
+      detect(_text, extractionRevision) {
+        return Promise.resolve([modelEvidence(extractionRevision, 0, 5)]);
+      }
+    };
+    const exactLimit = createCompositeTextDetector({
+      contextual,
+      limits: { ...defaultDetectorLimits, maximumDetections: 2 }
+    });
+    await expect(exactLimit.detect(text, revision)).resolves.toHaveLength(2);
+
+    const overLimit = createCompositeTextDetector({
+      contextual,
+      limits: { ...defaultDetectorLimits, maximumDetections: 1 }
+    });
+    await expect(overLimit.detect(text, revision)).rejects.toMatchObject({
+      code: 'DETECTION_LIMIT_EXCEEDED'
+    } satisfies Partial<SafeError>);
+  });
+
   it('retains a model-only date of birth', async () => {
     const text = 'Patient date of birth: 1990-01-15';
     const start = text.indexOf('1990-01-15');
