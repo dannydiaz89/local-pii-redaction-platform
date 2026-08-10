@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/domain" },
+    { "path": "packages/job-store" },
     { "path": "packages/policy" },
     { "path": "packages/profile-local" },
     { "path": "packages/detectors" },

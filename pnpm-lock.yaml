@@ -185,6 +185,15 @@ importers:
 
   packages/i18n: {}
 
+  packages/job-store:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/policy:
     dependencies:
       '@local-pii/contracts':

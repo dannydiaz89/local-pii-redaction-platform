@@ -168,6 +168,38 @@ describe('boundary checker', () => {
     );
   });
 
+  it('allows the job metadata boundary to depend only on contracts and domain', () => {
+    expect(checkPackageManifest('packages/job-store/package.json', 'job-store', {
+      name: '@local-pii/job-store',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/domain': 'workspace:*'
+      }
+    })).toEqual([]);
+
+    expect(checkSourceDependencyDirection(
+      'packages/job-store/src/example.ts',
+      "import { readFile } from 'node:fs/promises'; import { createClient } from 'redis'; import { run } from '@local-pii/core';",
+      ['contracts', 'domain'],
+      { packageRuntime: 'job-store' }
+    ).map(({ message }) => message)).toEqual([
+      'imports node:fs/promises, but the job metadata runtime permits no external modules',
+      'imports or loads forbidden durable/server infrastructure redis',
+      'imports @local-pii/core, outside its allow-listed dependency direction'
+    ]);
+
+    expect(checkPackageManifest('packages/job-store/package.json', 'job-store', {
+      name: '@local-pii/job-store',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/domain': 'workspace:*',
+        telemetry: '^1.0.0'
+      }
+    }).map(({ message }) => message)).toContain('job metadata package must not declare external dependencies');
+  });
+
   it('keeps localization dependency-free and the UI runtime React-only', () => {
     expect(checkPackageManifest('packages/i18n/package.json', 'i18n', {
       name: '@local-pii/i18n',

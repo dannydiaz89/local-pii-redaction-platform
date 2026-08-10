@@ -91,7 +91,10 @@ token; protected routes enforce that token plus numeric-loopback Host and exact 
 Origins. Secret-free health/readiness probes and the authenticated canonical
 `GET /v1/capabilities` route are implemented with bounded handlers, privacy-safe errors, abort
 propagation, and clean shutdown. Uploads, jobs, artifact persistence, review, and downloads remain
-disabled until their durable contracts and authorization gates are implemented.
+disabled until their durable implementations and authorization gates are implemented. The
+storage-neutral [`@local-pii/job-store`](./packages/job-store) boundary now proves synthetic-only
+job revision, idempotency, transition, and minimized-event semantics; its reference adapter is
+volatile and is not wired into the API.
 
 ## Web foundation
 
@@ -241,8 +244,10 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no upload/job-processing HTTP API, durable job store, qualified contextual model, or
-  review workflow yet. The implemented web shell is limited to secured capability preflight and
+- There is no upload/job-processing HTTP API, durable job-store implementation, qualified
+  contextual model, or review workflow yet. A storage-neutral metadata port and volatile
+  conformance adapter exist, but retain nothing after process exit and store no document content.
+  The implemented web shell is limited to secured capability preflight and
   design-system/localization foundations; the HTTP surface remains the capability and health
   scaffold described above.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
@@ -270,6 +275,7 @@ output collisions.
 - [`packages/profile-local`](./packages/profile-local): reusable rules-only and experimental local composition
 - [`packages/provider-ollama`](./packages/provider-ollama): experimental loopback-only contextual provider
 - [`packages/i18n`](./packages/i18n): typed bundled catalogs and locale helpers
+- [`packages/job-store`](./packages/job-store): revisioned, idempotent job-metadata port and volatile conformance adapter
 - [`packages/ui`](./packages/ui): accessible React primitives and semantic design tokens
 - [`services/inference-python`](./services/inference-python): Python contract boundary and generated Pydantic models
 - `fixtures/contracts`: synthetic valid and invalid cross-language examples

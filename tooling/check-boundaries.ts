@@ -12,6 +12,7 @@ type WorkspacePackage =
   | 'detectors'
   | 'domain'
   | 'i18n'
+  | 'job-store'
   | 'policy'
   | 'profile-local'
   | 'provider-ollama'
@@ -43,6 +44,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'detectors',
   'domain',
   'i18n',
+  'job-store',
   'policy',
   'profile-local',
   'provider-ollama',
@@ -64,6 +66,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   detectors: ['domain'],
   domain: [],
   i18n: [],
+  'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
   'profile-local': ['adapter-text', 'core', 'detectors', 'domain', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
@@ -80,6 +83,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   detectors: [],
   domain: [],
   i18n: [],
+  'job-store': [],
   policy: [],
   'profile-local': [],
   'provider-ollama': [],
@@ -294,8 +298,9 @@ export function checkSourceDependencyDirection(
       violations.push(violation(path, `imports forbidden domain module ${specifier}`));
       continue;
     }
-    if (options.packageRuntime === 'i18n' && !specifier.startsWith('.')) {
-      violations.push(violation(path, `imports ${specifier}, but the localization runtime permits no external modules`));
+    if ((options.packageRuntime === 'i18n' || options.packageRuntime === 'job-store') && !specifier.startsWith('.')) {
+      const label = options.packageRuntime === 'i18n' ? 'localization' : 'job metadata';
+      violations.push(violation(path, `imports ${specifier}, but the ${label} runtime permits no external modules`));
       continue;
     }
     if (options.packageRuntime === 'ui' && !specifier.startsWith('.') && specifier !== 'react') {
@@ -364,6 +369,14 @@ export function checkPackageManifest(
       .filter((name) => !name.startsWith('@local-pii/'));
     if (external.length > 0) {
       violations.push(violation(path, 'localization package must not declare external dependencies'));
+    }
+  }
+  if (packageName === 'job-store') {
+    const external = (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const)
+      .flatMap((field) => dependencyNames(manifest, field))
+      .filter((name) => !name.startsWith('@local-pii/'));
+    if (external.length > 0) {
+      violations.push(violation(path, 'job metadata package must not declare external dependencies'));
     }
   }
   if (packageName === 'ui') {
