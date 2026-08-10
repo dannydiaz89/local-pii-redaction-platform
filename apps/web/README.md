@@ -11,6 +11,9 @@ Accessible, localized React shell for the future local review workflow.
   filterable native detection table, server-owned page controls, and a native conflict table.
 - Provides native accept/reject/retype controls whose category choices come from the live capability
   manifest, then saves value-free actions to the server's append-only process-local review history.
+- Keeps exact detected text hidden by default and reveals only the bounded current-page matches from
+  the user-selected local file after an explicit action; cleartext never enters API JSON, review
+  history, logs, or browser persistence.
 - Creates and verifies a session-only redacted copy through the real shared application core, shows
   its bounded preview, then offers a generic authenticated download without changing the source.
 - Renders only the first 4,096 Unicode code points of the verified output as escaped plain text;
@@ -28,10 +31,12 @@ The application accepts a TXT or Markdown file up to 8 MiB, sends only its raw b
 same-origin numeric-loopback API, and creates a session-only artifact and real scan job. The
 filename is not sent and neither bytes nor results enter browser persistence or durable storage.
 Artifact/job metadata and value-free results disappear when the application closes. Each page of up
-to 100 detection rows exposes only category, one-based Unicode code-point location,
-detector confidence, and evidence-source labels. Up to 100 conflict rows expose only range,
-possible categories, and source labels; matched values and evidence IDs are not returned or
-rendered. After a conflict-free scan, one action creates and verifies a redacted copy, then shows a
+to 100 detection rows exposes category, one-based Unicode code-point location, detector confidence,
+and evidence-source labels from the server. Up to 100 conflict rows expose only range, possible
+categories, and source labels. Matched values and evidence IDs are never returned by the API. The
+browser may explicitly reveal the exact current-page matches by deriving them from the already-
+selected local file; it retains only those bounded strings until they are hidden or the page/file
+changes. After a conflict-free scan, one action creates and verifies a redacted copy, then shows a
 bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code points. The user
 explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that

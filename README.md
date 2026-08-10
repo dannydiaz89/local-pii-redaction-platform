@@ -155,7 +155,11 @@ conflict locations remain visible in a separate native table. Wide tables remain
 keyboard-scrollable at narrow viewports. Each accepted detection now has native review controls for
 accept, reject, or changing to an entity type advertised by the live capability manifest. Saved
 actions go to the server-authoritative append-only process-local review set with explicit stale-
-revision feedback; they are not stored in browser persistence. For a conflict-free completed scan
+revision feedback; they are not stored in browser persistence. The detection table keeps matched
+text hidden by default. An explicit reveal reads only the bounded matches for the current page from
+the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
+never added to an API response or review record and is released from UI state when hidden, the page
+changes, or the file changes; JavaScript strings cannot be reliably zeroized. For a conflict-free completed scan
 with no saved review decisions, the UI can start a
 second process-local job that applies the selected pinned policy, reopens and verifies the derived
 bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original

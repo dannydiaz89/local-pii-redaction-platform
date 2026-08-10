@@ -162,7 +162,7 @@ describe('web application foundation', () => {
     expect(screen.getByText(/Browser persistence and durable artifact storage remain disabled/u)).toBeTruthy();
   });
 
-  it('runs an ephemeral local scan and renders only minimized localized counts', async () => {
+  it('keeps detected text hidden until the reviewer explicitly reveals the local match', async () => {
     const user = userEvent.setup();
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
     await screen.findByText('Local engine is ready');
@@ -183,12 +183,20 @@ describe('web application foundation', () => {
     expect(screen.getByText('Detector confidence: 99%')).toBeTruthy();
     expect(screen.getByText('Evidence source: pattern rule')).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Category' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Detected text' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Confidence' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Evidence sources' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Previous detection' })).toBeNull();
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
+    const reveal = screen.getByRole('button', { name: 'Show detected text' });
+    expect(reveal.getAttribute('aria-pressed')).toBe('false');
+    await user.click(reveal);
+    expect(await screen.findByText('preview-canary@example.test')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide detected text' }).getAttribute('aria-pressed')).toBe('true');
+    await user.click(screen.getByRole('button', { name: 'Hide detected text' }));
+    await waitFor(() => { expect(screen.queryByText('preview-canary@example.test')).toBeNull(); });
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 

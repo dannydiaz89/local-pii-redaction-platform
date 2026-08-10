@@ -12,6 +12,7 @@ import {
 import { Button, Callout, Card, FileField, Metric, StatusBadge } from '@local-pii/ui';
 
 import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
+import { readDetectedText } from './detected-text.js';
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
 import type {
   LocalJobClient,
@@ -63,6 +64,9 @@ interface ReviewDraft {
   readonly entityType?: PreviewEntityType;
 }
 type ReviewSaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'stale';
+type DetectedTextState =
+  | { readonly kind: 'idle' | 'loading' | 'unavailable' }
+  | { readonly kind: 'ready'; readonly values: ReadonlyMap<string, string> };
 
 function effectiveReviewDecisions(
   decisions: readonly ReviewDecisionSummary[]
@@ -164,6 +168,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const [reviewDrafts, setReviewDrafts] = useState<Readonly<Record<string, ReviewDraft>>>({});
   const [reviewSaveState, setReviewSaveState] = useState<ReviewSaveState>('idle');
+  const [showDetectedText, setShowDetectedText] = useState(false);
+  const [detectedText, setDetectedText] = useState<DetectedTextState>({ kind: 'idle' });
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
@@ -192,6 +198,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setDetectionFilter('ALL');
     setReviewDrafts({});
     setReviewSaveState('idle');
+    setShowDetectedText(false);
+    setDetectedText({ kind: 'idle' });
     previewController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
@@ -258,6 +266,26 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const visibleDetails = scan.kind === 'complete'
     ? scan.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
     : [];
+  const detectionDetails = scan.kind === 'complete' ? scan.summary.details : undefined;
+
+  useEffect(() => {
+    if (!showDetectedText || selectedFile === undefined || detectionDetails === undefined) {
+      setDetectedText({ kind: 'idle' });
+      return;
+    }
+    const controller = new AbortController();
+    setDetectedText({ kind: 'loading' });
+    void readDetectedText(selectedFile, detectionDetails, controller.signal).then(
+      (values) => {
+        if (!controller.signal.aborted) setDetectedText({ kind: 'ready', values });
+      },
+      () => {
+        if (!controller.signal.aborted) setDetectedText({ kind: 'unavailable' });
+      }
+    );
+    return () => { controller.abort(); };
+  }, [detectionDetails, selectedFile, showDetectedText]);
+
   const effectiveReviews = useMemo(() => effectiveReviewDecisions(
     scan.kind === 'complete' ? scan.summary.review.decisions : []
   ), [scan]);
@@ -365,6 +393,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setDetectionFilter('ALL');
                   setReviewDrafts({});
                   setReviewSaveState('idle');
+                  setShowDetectedText(false);
+                  setDetectedText({ kind: 'idle' });
                 }}
               />
             ) : (
@@ -394,6 +424,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setRedaction({ kind: 'idle' });
                   setReviewDrafts({});
                   setReviewSaveState('idle');
+                  setShowDetectedText(false);
+                  setDetectedText({ kind: 'idle' });
                   void jobClient.scan(
                     selectedFile,
                     defaultPolicy,
@@ -507,23 +539,29 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                       <div className="preview-review">
                         <div className="preview-review-heading">
                           <h3 id="preview-details-heading">{t('preview.details')}</h3>
-                          <div className="preview-filter">
-                            <label htmlFor="detection-filter">{t('preview.filter')}</label>
-                            <select
-                              id="detection-filter"
-                              value={detectionFilter}
-                              onChange={(event) => {
-                                const next = event.currentTarget.value;
-                                if (next === 'ALL' || detailCategories.includes(next as PreviewEntityType)) {
-                                  setDetectionFilter(next as PreviewEntityType | 'ALL');
-                                }
-                              }}
-                            >
-                              <option value="ALL">{t('preview.filterAll')}</option>
-                              {detailCategories.map((entityType) => (
-                                <option key={entityType} value={entityType}>{t(entityMessage(entityType))}</option>
-                              ))}
-                            </select>
+                          <div className="preview-review-controls">
+                            <Button
+                              aria-pressed={showDetectedText}
+                              onClick={() => { setShowDetectedText((visible) => !visible); }}
+                            >{showDetectedText ? t('review.hideDetectedText') : t('review.showDetectedText')}</Button>
+                            <div className="preview-filter">
+                              <label htmlFor="detection-filter">{t('preview.filter')}</label>
+                              <select
+                                id="detection-filter"
+                                value={detectionFilter}
+                                onChange={(event) => {
+                                  const next = event.currentTarget.value;
+                                  if (next === 'ALL' || detailCategories.includes(next as PreviewEntityType)) {
+                                    setDetectionFilter(next as PreviewEntityType | 'ALL');
+                                  }
+                                }}
+                              >
+                                <option value="ALL">{t('preview.filterAll')}</option>
+                                {detailCategories.map((entityType) => (
+                                  <option key={entityType} value={entityType}>{t(entityMessage(entityType))}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
                         <div
@@ -536,6 +574,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             <thead>
                               <tr>
                                 <th scope="col">{t('preview.columnCategory')}</th>
+                                <th scope="col">{t('review.columnDetectedText')}</th>
                                 <th scope="col">{t('preview.columnLocation')}</th>
                                 <th scope="col">{t('preview.columnConfidence')}</th>
                                 <th scope="col">{t('preview.columnSources')}</th>
@@ -556,6 +595,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                 return (
                                 <tr key={detail.id}>
                                   <th scope="row">{t(entityMessage(detail.entityType))}</th>
+                                  <td className="detected-text-cell">{!showDetectedText
+                                    ? t('review.detectedTextHidden')
+                                    : detectedText.kind === 'loading'
+                                      ? t('review.detectedTextLoading')
+                                      : detectedText.kind === 'ready' && detectedText.values.has(detail.id)
+                                        ? <code dir="auto">{detectedText.values.get(detail.id)}</code>
+                                        : t('review.detectedTextUnavailable')}</td>
                                   <td>{message(locale, 'preview.location', {
                                     start: formatInteger(locale, detail.start + 1),
                                     end: formatInteger(locale, detail.end)

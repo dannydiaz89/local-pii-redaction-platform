@@ -62,6 +62,7 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-review { display: grid; gap: var(--space-3); margin-block-start: var(--space-5); }
 .preview-review-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--space-3); }
 .preview-review-heading h3 { margin: 0; }
+.preview-review-controls { display: flex; align-items: end; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-3); }
 .preview-filter { display: grid; gap: var(--space-1); }
 .preview-filter label { font-size: .85rem; font-weight: 750; }
 .preview-filter select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .75rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
@@ -72,6 +73,8 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-table thead th { color: var(--color-muted); font-size: .82rem; }
 .preview-table tbody th { font-weight: 750; }
 .preview-table tbody tr:last-child > * { border-block-end: 0; }
+.detected-text-cell { min-inline-size: 12rem; }
+.detected-text-cell code { display: inline-block; max-inline-size: 24rem; border-radius: .3rem; padding: .15rem .35rem; overflow-wrap: anywhere; white-space: pre-wrap; unicode-bidi: plaintext; color: var(--color-ink); background: var(--color-background); font: .92rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .review-decision-cell { display: grid; gap: var(--space-2); min-inline-size: 13rem; }
 .review-decision-cell select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
 .review-decision-cell select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
@@ -107,6 +110,7 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
   .metrics { grid-template-columns: 1fr; }
   .card-heading { align-items: flex-start; flex-direction: column; }
   .preview-review-heading { align-items: stretch; flex-direction: column; }
+  .preview-review-controls { align-items: stretch; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) { .activity-dot { animation: none; } }
