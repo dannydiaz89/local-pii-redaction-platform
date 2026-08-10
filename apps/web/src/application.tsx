@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   formatInteger,
-  isAppLocale,
   localeDirection,
   message,
   type AppLocale,
   type PlainMessageId
 } from '@local-pii/i18n';
-import { Button, Callout, Card, FileField, Metric, SelectField, StatusBadge } from '@local-pii/ui';
+import { Button, Callout, Card, FileField, Metric, StatusBadge } from '@local-pii/ui';
 
 import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
@@ -29,12 +28,6 @@ function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
   return 'capability.rulesOnly';
 }
 
-function localeLabel(locale: AppLocale, option: AppLocale): string {
-  if (option === 'en-XA') return message(locale, 'locale.expanded');
-  if (option === 'ar-XB') return message(locale, 'locale.rtl');
-  return message(locale, 'locale.en');
-}
-
 function formatByteSize(locale: AppLocale, byteLength: number): string {
   const mebibyte = 1024 * 1024;
   if (byteLength >= mebibyte && byteLength % mebibyte === 0) {
@@ -47,7 +40,7 @@ function formatByteSize(locale: AppLocale, byteLength: number): string {
 }
 
 export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebApplicationProps) {
-  const [locale, setLocale] = useState<AppLocale>(initialLocale);
+  const locale = initialLocale;
   const [attempt, setAttempt] = useState(0);
   const [preflight, setPreflight] = useState<PreflightState>({ kind: 'checking' });
   const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
@@ -106,16 +99,6 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
           <span className="brand-mark" aria-hidden="true">L</span>
           <span>{t('app.name')}</span>
         </a>
-        <SelectField
-          id="interface-locale"
-          label={t('locale.label')}
-          value={locale}
-          onChange={(event) => { if (isAppLocale(event.target.value)) setLocale(event.target.value); }}
-        >
-          {(['en', 'en-XA', 'ar-XB'] as const).map((option) => (
-            <option key={option} value={option}>{localeLabel(locale, option)}</option>
-          ))}
-        </SelectField>
       </header>
 
       <main id="main" className="app-main">

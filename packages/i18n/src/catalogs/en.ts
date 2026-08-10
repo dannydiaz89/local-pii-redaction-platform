@@ -8,10 +8,6 @@
 export const englishCatalog = {
   'app.name': 'Local PII',
   'nav.skip': 'Skip to main content',
-  'locale.label': 'Interface language',
-  'locale.en': 'English',
-  'locale.expanded': 'Expanded test locale',
-  'locale.rtl': 'Right-to-left test locale',
   'privacy.eyebrow': 'Local processing boundary',
   'privacy.title': 'Your document stays under your control.',
   'privacy.body': 'The default rules engine works locally. Upload and job processing are not enabled in this preview.',

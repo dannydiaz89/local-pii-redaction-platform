@@ -100,8 +100,8 @@ shared accessible primitives and semantic tokens from [`packages/ui`](./packages
 its current user-facing copy comes from the typed, bundled catalog in
 [`packages/i18n`](./packages/i18n). The canonical English source lives independently in
 [`packages/i18n/src/catalogs/en.ts`](./packages/i18n/src/catalogs/en.ts); future human locale
-catalogs belong beside it. English plus expansion and RTL stress locales ship from the first
-screen. The shell uses native landmarks and controls, visible focus, logical CSS properties,
+catalogs belong beside it. English is the only user-selectable presentation today; expansion and
+RTL pseudolocales remain test-only layout gates. The shell uses native landmarks and controls, visible focus, logical CSS properties,
 reduced-motion and forced-colors accommodations, and automated axe checks. Manual keyboard,
 screen-reader, zoom/reflow, and contrast review remain required before accessibility qualification.
 

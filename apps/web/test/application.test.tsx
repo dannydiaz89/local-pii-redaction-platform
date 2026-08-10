@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -35,6 +35,8 @@ describe('web application foundation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Your document stays under your control.' })).toBeTruthy();
     expect(screen.getByText('100 MiB')).toBeTruthy();
     expect(screen.getByLabelText('Document file')).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(document.documentElement.lang).toBe('en');
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
@@ -67,16 +69,14 @@ describe('web application foundation', () => {
     expect(screen.getByRole('alert').textContent).toContain('100 MiB');
   });
 
-  it('switches expansion and RTL stress locales without changing canonical capability values', async () => {
-    const user = userEvent.setup();
-    render(<WebApplication capabilityClient={readyClient()} />);
-    await screen.findByText('Local engine is ready');
+  it('keeps stress locales test-only while preserving canonical capability values', async () => {
+    render(<WebApplication capabilityClient={readyClient()} initialLocale="ar-XB" />);
+    await waitFor(() => { expect(screen.getAllByText(/١٠٠/u).length).toBeGreaterThan(0); });
 
-    await user.selectOptions(screen.getByLabelText('Interface language'), 'ar-XB');
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.documentElement.lang).toBe('ar-XB');
     expect(document.title).toContain('PII');
-    expect(screen.getAllByText(/١٠٠/u).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('uses the selected extension-specific limit without reading file bytes', () => {

@@ -8,8 +8,8 @@ Accessible, localized React shell for the future local review workflow.
 - Consumes the one-time in-memory launcher bootstrap without browser persistence.
 - Uses shared primitives and semantic tokens from `@local-pii/ui`.
 - Resolves all user-facing copy through bundled catalogs in `@local-pii/i18n`.
-- Provides expansion, RTL, reduced-motion, forced-colors, and automated accessibility coverage from
-  the first screen.
+- Keeps expansion and RTL pseudolocales available to tests while exposing English only, alongside
+  reduced-motion, forced-colors, and automated accessibility coverage.
 
 ## Current scope
 
