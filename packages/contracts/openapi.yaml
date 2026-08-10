@@ -3,7 +3,7 @@ info:
   title: Local PII Redaction API
   version: 0.1.0
   description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
-x-implementation-status: capabilities-scaffold
+x-implementation-status: metadata-job-control
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -40,7 +40,6 @@ paths:
               schema:
                 $ref: "./schemas/capabilities/capability-manifest.schema.json"
   /v1/jobs/{jobId}:
-    x-implementation-status: planned
     parameters:
       - name: jobId
         in: path
@@ -57,6 +56,97 @@ paths:
                 $ref: "./schemas/jobs/job.schema.json"
         "404":
           description: Job is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+  /v1/jobs:
+    post:
+      operationId: createJob
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./schemas/jobs/create-job-request.schema.json"
+      responses:
+        "201":
+          description: A new metadata-only queued job was created
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/job.schema.json"
+        "200":
+          description: The original creation result was replayed for the idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/job.schema.json"
+        "409":
+          description: The idempotency key conflicts with a different request
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+  /v1/jobs/{jobId}/events:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    get:
+      operationId: listJobEvents
+      parameters:
+        - name: after
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+      responses:
+        "200":
+          description: Bounded cursor page of privacy-minimized job events
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/job-event-page.schema.json"
+        "404":
+          description: Job is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+  /v1/jobs/{jobId}/cancellation:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    post:
+      operationId: cancelJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./schemas/jobs/cancel-job-request.schema.json"
+      responses:
+        "200":
+          description: Cancellation was accepted with a new aggregate revision
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/job.schema.json"
+        "409":
+          description: Expected revision is stale or cancellation is not allowed in the current state
           content:
             application/json:
               schema:

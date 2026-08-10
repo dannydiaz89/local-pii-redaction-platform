@@ -2865,6 +2865,147 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/cancel-job-request/1.0.0",
+    "title": "Cancel job request",
+    "description": "Revision-bound request to move a cancellable job toward cancellation.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "expectedRevision"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "expectedRevision": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "expectedRevision": 1
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/create-job-request/1.0.0",
+    "title": "Create job request",
+    "description": "Metadata-only request for a pinned local job. Document bytes and locators are not accepted.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "policy"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "enum": [
+          "SCAN",
+          "REDACT",
+          "VERIFY",
+          "INSPECT"
+        ]
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "SCAN",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/job-event-page/1.0.0",
+    "title": "Job event page",
+    "description": "Bounded cursor page of privacy-minimized job events.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "jobId",
+      "nextCursor",
+      "events"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "jobId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "nextCursor": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "events": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/jobs/job-event/1.0.0"
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "nextCursor": 1,
+        "events": [
+          {
+            "schemaVersion": "1.0.0",
+            "id": "603df129-c778-4b13-8b2a-0fe745593c8f",
+            "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+            "cursor": 1,
+            "revision": 1,
+            "type": "JOB_CREATED",
+            "occurredAt": "2026-08-09T18:00:00Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/jobs/job-event/1.0.0",
     "title": "Job event",
     "description": "At-least-once safe job event carrying no document values or excerpts.",

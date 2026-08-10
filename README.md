@@ -57,8 +57,8 @@ cross-platform evidence.
 ## Try the CLI
 
 User-facing document processing currently runs through the local CLI. The repository also contains
-a production-bounded HTTP composition scaffold, but it does not yet expose uploads or processing
-jobs.
+a production-bounded HTTP composition scaffold with volatile metadata-only job control, but it does
+not yet expose uploads or execute processing jobs.
 
 ```sh
 pnpm build
@@ -90,11 +90,14 @@ composition root and a separate numeric-loopback starter. Each launch generates 
 token; protected routes enforce that token plus numeric-loopback Host and exact allow-listed browser
 Origins. Secret-free health/readiness probes and the authenticated canonical
 `GET /v1/capabilities` route are implemented with bounded handlers, privacy-safe errors, abort
-propagation, and clean shutdown. Uploads, jobs, artifact persistence, review, and downloads remain
-disabled until their durable implementations and authorization gates are implemented. The
-storage-neutral [`@local-pii/job-store`](./packages/job-store) boundary now proves synthetic-only
-job revision, idempotency, transition, and minimized-event semantics; its reference adapter is
-volatile and is not wired into the API.
+propagation, and clean shutdown. Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
+`GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
+only pinned operational metadata. The storage-neutral
+[`@local-pii/job-store`](./packages/job-store) boundary provides revision, idempotency, transition,
+and minimized-event semantics; the development API composes its volatile reference adapter, so jobs
+execute no work and disappear when the process exits. Uploads, artifact persistence, processing,
+review, and downloads remain disabled until their durable implementations and authorization gates
+are implemented.
 
 ## Web foundation
 
@@ -244,9 +247,10 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no upload/job-processing HTTP API, durable job-store implementation, qualified
-  contextual model, or review workflow yet. A storage-neutral metadata port and volatile
-  conformance adapter exist, but retain nothing after process exit and store no document content.
+- There is no upload or job-processing HTTP API, durable job-store implementation, qualified
+  contextual model, or review workflow yet. Authenticated metadata-only job create/status/events/
+  cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
+  store no document content.
   The implemented web shell is limited to secured capability preflight and
   design-system/localization foundations; the HTTP surface remains the capability and health
   scaffold described above.

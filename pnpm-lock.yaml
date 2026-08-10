@@ -77,6 +77,9 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@local-pii/job-store':
+        specifier: workspace:*
+        version: link:../../packages/job-store
       '@local-pii/profile-local':
         specifier: workspace:*
         version: link:../../packages/profile-local

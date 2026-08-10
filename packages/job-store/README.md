@@ -14,9 +14,10 @@ Storage-neutral job metadata boundary for the future opt-in durable application 
 ## Boundary
 
 This package never stores document bytes, extracted text, filenames, paths, detections, or review
-content. It does not select a database or enable persistence in the CLI or API. The exported
-`createVolatileJobMetadataStore` loses all state on process exit and must not be described as a
-durable implementation.
+content. It does not select a database or enable persistence in the CLI or API. The local API
+development scaffold now composes the exported `createVolatileJobMetadataStore` for metadata-only
+job control; it loses all state on process exit and must not be described as a durable
+implementation or processing queue.
 
 A future SQLite adapter can implement the same `JobMetadataStore` port after encryption, retention,
 migration, restart, and backup behavior are explicitly qualified.

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 import Fastify, {
   LogController,
@@ -17,6 +17,7 @@ import {
 import type { ApplicationContext } from '@local-pii/core';
 import { SafeError } from '@local-pii/domain';
 
+import type { CancelJobRequest, CreateJobRequest, JobControlPort } from './job-control.js';
 import {
   isLocalWebShellRoute,
   registerLocalWebShell,
@@ -38,6 +39,7 @@ export interface ApiReadinessPort {
 
 export interface ApiDependencies {
   readonly application: CapabilityApplicationPort;
+  readonly jobs: JobControlPort;
   readonly readiness: ApiReadinessPort;
 }
 
@@ -58,10 +60,16 @@ export const apiMaximumBodyBytes = 16 * 1024;
 export const apiDefaultHandlerTimeoutMs = 5_000;
 
 const capabilitySchemaId = 'https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0';
+const cancelJobRequestSchemaId = 'https://local-pii.dev/schemas/jobs/cancel-job-request/1.0.0';
+const createJobRequestSchemaId = 'https://local-pii.dev/schemas/jobs/create-job-request/1.0.0';
 const errorSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 const errorSchemaV2Id = 'https://local-pii.dev/schemas/common/errors/2.0.0';
 const errorSchemaV3Id = 'https://local-pii.dev/schemas/common/errors/3.0.0';
+const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
+const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
+const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
 
 class HttpSafeError extends SafeError {
   public readonly httpStatusCode: number;
@@ -197,6 +205,7 @@ function statusFor(error: SafeError): number {
   if (error.code === 'FORMAT_UNSUPPORTED') return 415;
   if (error.code === 'POLICY_UNSATISFIABLE') return 422;
   if (error.code === 'AUTHORIZATION_DENIED') return 403;
+  if (error.code === 'IDEMPOTENCY_CONFLICT' || error.code === 'JOB_CONFLICT') return 409;
   if (error.code === 'RATE_LIMITED') return 429;
   if (error.code === 'MODEL_UNAVAILABLE' || error.code === 'STORAGE_UNAVAILABLE') return 503;
   if (error.code === 'SCHEMA_INVALID' || error.code === 'CONTRACT_UNSUPPORTED') return 400;
@@ -274,6 +283,63 @@ function sendCanonical(reply: FastifyReply, schemaId: string, value: unknown): F
   return reply.send(value);
 }
 
+function requestFailure(request: FastifyRequest): HttpSafeError {
+  return new HttpSafeError(400, {
+    code: 'SCHEMA_INVALID',
+    message: 'The request is malformed or does not match its contract.',
+    retryable: false,
+    correlationId: requestCorrelationId(request)
+  });
+}
+
+function canonicalBody(request: FastifyRequest, schemaId: string): unknown {
+  if (!validateContract(schemaId, request.body).valid) throw requestFailure(request);
+  return request.body;
+}
+
+function jobIdParameter(request: FastifyRequest): string {
+  const params = request.params;
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) throw requestFailure(request);
+  const record = params as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || typeof record.jobId !== 'string' || !jobIdPattern.test(record.jobId)) {
+    throw requestFailure(request);
+  }
+  return record.jobId;
+}
+
+function parseBoundedInteger(value: unknown, minimum: number, maximum: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : undefined;
+}
+
+function eventQuery(request: FastifyRequest): { readonly afterCursor: number; readonly limit: number } {
+  const query = request.query;
+  if (query === null || typeof query !== 'object' || Array.isArray(query)) throw requestFailure(request);
+  const record = query as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== 'after' && key !== 'limit')) throw requestFailure(request);
+  const afterCursor = record.after === undefined ? 0 : parseBoundedInteger(record.after, 0, Number.MAX_SAFE_INTEGER);
+  const limit = record.limit === undefined ? 100 : parseBoundedInteger(record.limit, 1, 100);
+  if (afterCursor === undefined || limit === undefined) throw requestFailure(request);
+  return { afterCursor, limit };
+}
+
+function idempotencyKey(request: FastifyRequest): string {
+  const value = request.headers['idempotency-key'];
+  if (typeof value !== 'string' || !idempotencyKeyPattern.test(value)) throw requestFailure(request);
+  return value;
+}
+
+function unavailableJob(request: FastifyRequest): HttpSafeError {
+  return new HttpSafeError(404, {
+    code: 'AUTHORIZATION_DENIED',
+    message: 'The requested job is unavailable.',
+    retryable: false,
+    correlationId: requestCorrelationId(request)
+  });
+}
+
 function deadlineFailure(request: FastifyRequest): SafeError {
   return new SafeError({
     code: 'INTERNAL_ERROR',
@@ -335,20 +401,21 @@ async function invokeBounded<Result>(
 
 function setCorsHeaders(reply: FastifyReply, origin: string): void {
   reply.header('access-control-allow-origin', origin);
-  reply.header('access-control-allow-methods', 'GET, OPTIONS');
-  reply.header('access-control-allow-headers', 'authorization, content-type');
+  reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+  reply.header('access-control-allow-headers', 'authorization, content-type, idempotency-key');
   reply.header('access-control-max-age', '300');
   reply.header('vary', 'Origin');
 }
 
 function requestedHeadersAreAllowed(value: string | undefined): boolean {
   if (value === undefined || value.trim() === '') return true;
-  const allowed = new Set(['authorization', 'content-type']);
+  const allowed = new Set(['authorization', 'content-type', 'idempotency-key']);
   return value.split(',').every((header) => allowed.has(header.trim().toLowerCase()));
 }
 
 export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions): FastifyInstance {
   const allowedOrigins = validateSessionPolicy(options.session);
+  const jobIdempotencyScope = `session-${createHash('sha256').update(options.session.bearerToken, 'utf8').digest('hex')}`;
   const lifecycle = new AbortController();
   const handlerTimeoutMs = options.handlerTimeoutMs ?? apiDefaultHandlerTimeoutMs;
   if (!Number.isSafeInteger(handlerTimeoutMs) || handlerTimeoutMs < 100 || handlerTimeoutMs > 60_000) {
@@ -403,7 +470,7 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       const requestedMethod = request.headers['access-control-request-method'];
       if (
         origin === undefined
-        || requestedMethod !== 'GET'
+        || (requestedMethod !== 'GET' && requestedMethod !== 'POST')
         || !requestedHeadersAreAllowed(request.headers['access-control-request-headers'])
       ) {
         throw originFailure(request);
@@ -446,6 +513,41 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       dependencies.application.getCapabilities({ correlationId: requestCorrelationId(request) }, signal)
     );
     return sendCanonical(reply, capabilitySchemaId, manifest);
+  });
+  server.post('/v1/jobs', async (request, reply) => {
+    const body = canonicalBody(request, createJobRequestSchemaId) as CreateJobRequest;
+    const correlationId = requestCorrelationId(request);
+    const result = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.jobs.create(body, idempotencyKey(request), jobIdempotencyScope, correlationId, signal)
+    );
+    return sendCanonical(reply.status(result.replayed ? 200 : 201), jobSchemaId, result.job);
+  });
+  server.get('/v1/jobs/:jobId', async (request, reply) => {
+    const correlationId = requestCorrelationId(request);
+    const job = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.jobs.get(jobIdParameter(request), correlationId, signal)
+    );
+    if (job === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, jobSchemaId, job);
+  });
+  server.get('/v1/jobs/:jobId/events', async (request, reply) => {
+    const correlationId = requestCorrelationId(request);
+    const jobId = jobIdParameter(request);
+    const query = eventQuery(request);
+    const page = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.jobs.listEvents(jobId, query.afterCursor, query.limit, correlationId, signal)
+    );
+    if (page === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, jobEventPageSchemaId, page);
+  });
+  server.post('/v1/jobs/:jobId/cancellation', async (request, reply) => {
+    const body = canonicalBody(request, cancelJobRequestSchemaId) as CancelJobRequest;
+    const correlationId = requestCorrelationId(request);
+    const result = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.jobs.cancel(jobIdParameter(request), body, correlationId, signal)
+    );
+    if (result === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, jobSchemaId, result.job);
   });
 
   if (options.browserShell !== undefined) {

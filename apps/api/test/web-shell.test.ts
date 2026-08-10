@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   createLocalWebAssets,
+  createVolatileJobControl,
   browserLaunchCommand,
   loadLocalWebAssets,
   localWebContentSecurityPolicy,
@@ -33,6 +34,7 @@ function manifest(): CapabilityManifest {
 function dependencies(): ApiDependencies {
   return {
     application: { getCapabilities: () => Promise.resolve(manifest()) },
+    jobs: createVolatileJobControl(),
     readiness: { check: () => Promise.resolve() }
   };
 }

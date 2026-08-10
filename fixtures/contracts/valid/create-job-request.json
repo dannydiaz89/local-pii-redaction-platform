@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "SCAN",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/jobs/create-job-request/1.0.0",
+  "title": "Create job request",
+  "description": "Metadata-only request for a pinned local job. Document bytes and locators are not accepted.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "policy"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operation": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
+        "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+      }
+    }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0",
+    "operation": "SCAN",
+    "policy": {
+      "id": "development-labels",
+      "version": "0.1.0",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }]
+}

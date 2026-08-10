@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/jobs/cancel-job-request/1.0.0",
+  "title": "Cancel job request",
+  "description": "Revision-bound request to move a cancellable job toward cancellation.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "expectedRevision"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "expectedRevision": { "type": "integer", "minimum": 1 }
+  },
+  "examples": [{ "schemaVersion": "1.0.0", "expectedRevision": 1 }]
+}

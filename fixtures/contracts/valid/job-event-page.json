@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+  "nextCursor": 1,
+  "events": [{
+    "schemaVersion": "1.0.0",
+    "id": "603df129-c778-4b13-8b2a-0fe745593c8f",
+    "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+    "cursor": 1,
+    "revision": 1,
+    "type": "JOB_CREATED",
+    "occurredAt": "2026-08-09T18:00:00Z"
+  }]
+}

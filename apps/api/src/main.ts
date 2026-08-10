@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { localTextApplication } from '@local-pii/profile-local';
 
 import { runTrustedLocalLauncher } from './launcher.js';
+import { createVolatileJobControl } from './job-control.js';
 
 const webRoot = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   try {
     await runTrustedLocalLauncher({
       application: localTextApplication,
+      jobs: createVolatileJobControl(),
       readiness: { check: (signal) => { signal?.throwIfAborted(); return Promise.resolve(); } }
     }, { webRoot }, lifecycle.signal);
   } finally {

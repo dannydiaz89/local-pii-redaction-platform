@@ -15,6 +15,7 @@
     "@local-pii/contracts": "workspace:*",
     "@local-pii/core": "workspace:*",
     "@local-pii/domain": "workspace:*",
+    "@local-pii/job-store": "workspace:*",
     "@local-pii/profile-local": "workspace:*",
     "fastify": "^5.11.3"
   }

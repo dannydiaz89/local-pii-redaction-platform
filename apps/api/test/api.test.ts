@@ -10,6 +10,7 @@ import {
   apiDefaultHandlerTimeoutMs,
   apiMaximumBodyBytes,
   buildApi,
+  createVolatileJobControl,
   generateLocalSessionToken,
   localApiHostname,
   startLocalApi,
@@ -22,6 +23,9 @@ const errorSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 const sessionToken = 'A'.repeat(43);
 const allowedOrigin = 'http://127.0.0.1:4173';
 const loopbackHost = '127.0.0.1';
+const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
+const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
+const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
 const servers: ReturnType<typeof buildApi>[] = [];
 
 function capabilityManifest(): CapabilityManifest {
@@ -34,6 +38,7 @@ function capabilityManifest(): CapabilityManifest {
 function dependencies(overrides: Partial<ApiDependencies> = {}): ApiDependencies {
   return {
     application: { getCapabilities: () => Promise.resolve(capabilityManifest()) },
+    jobs: createVolatileJobControl(),
     readiness: { check: () => Promise.resolve() },
     ...overrides
   };
@@ -52,6 +57,18 @@ function server(
 
 function authorization(token = sessionToken): Readonly<Record<string, string>> {
   return { host: loopbackHost, authorization: `Bearer ${token}` };
+}
+
+function createJobPayload(operation: 'SCAN' | 'REDACT' = 'SCAN'): Record<string, unknown> {
+  return {
+    schemaVersion: '1.0.0',
+    operation,
+    policy: {
+      id: 'development-labels',
+      version: '0.1.0',
+      digest: `sha256:${'b'.repeat(64)}`
+    }
+  };
 }
 
 function expectCanonicalError(response: { readonly body: string }): void {
@@ -274,12 +291,12 @@ describe('local API composition', () => {
     const instance = server();
     const accepted = await instance.inject({
       method: 'OPTIONS',
-      url: '/v1/capabilities',
+      url: '/v1/jobs',
       headers: {
         host: loopbackHost,
         origin: allowedOrigin,
-        'access-control-request-method': 'GET',
-        'access-control-request-headers': 'authorization, content-type'
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization, content-type, idempotency-key'
       }
     });
     const rejected = await instance.inject({
@@ -295,12 +312,165 @@ describe('local API composition', () => {
 
     expect(accepted.statusCode).toBe(204);
     expect(accepted.headers['access-control-allow-origin']).toBe(allowedOrigin);
-    expect(accepted.headers['access-control-allow-methods']).toBe('GET, OPTIONS');
-    expect(accepted.headers['access-control-allow-headers']).toBe('authorization, content-type');
+    expect(accepted.headers['access-control-allow-methods']).toBe('GET, POST, OPTIONS');
+    expect(accepted.headers['access-control-allow-headers']).toBe('authorization, content-type, idempotency-key');
     expect(accepted.body).not.toContain(sessionToken);
     expect(rejected.statusCode).toBe(403);
     expect(rejected.body).not.toContain('x-alpha-canary');
     expectCanonicalError(rejected);
+  });
+
+  it('creates and exactly replays a canonical metadata-only job', async () => {
+    const instance = server();
+    const first = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload()
+    });
+    const replay = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload()
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(first.json());
+    expect(validateContract(jobSchemaId, first.json()).valid).toBe(true);
+    expect(first.json()).toMatchObject({ operation: 'SCAN', state: 'QUEUED', revision: 1 });
+    expect(first.json<{ readonly id: string }>().id).toMatch(/^job_[0-9A-HJKMNP-TV-Z]{26}$/u);
+    for (const prohibited of ['filename', 'path', 'content', 'excerpt', 'sourceValue']) {
+      expect(first.body).not.toContain(prohibited);
+    }
+  });
+
+  it('rejects conflicting idempotency reuse without exposing request metadata', async () => {
+    const instance = server();
+    await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload('SCAN')
+    });
+    const conflict = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload('REDACT')
+    });
+
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(conflict.body).not.toContain(idempotencyKey);
+    expectCanonicalError(conflict);
+  });
+
+  it('reads status, paginates minimized events, and accepts revision-bound cancellation', async () => {
+    const instance = server();
+    const created = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload()
+    });
+    const job = created.json<{ readonly id: string; readonly revision: number }>();
+    const status = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${job.id}`, headers: authorization()
+    });
+    const initialEvents = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${job.id}/events?after=0&limit=1`, headers: authorization()
+    });
+    const cancellation = await instance.inject({
+      method: 'POST',
+      url: `/v1/jobs/${job.id}/cancellation`,
+      headers: authorization(),
+      payload: { schemaVersion: '1.0.0', expectedRevision: job.revision }
+    });
+    const staleCancellation = await instance.inject({
+      method: 'POST',
+      url: `/v1/jobs/${job.id}/cancellation`,
+      headers: authorization(),
+      payload: { schemaVersion: '1.0.0', expectedRevision: job.revision }
+    });
+    const laterEvents = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${job.id}/events?after=1&limit=1`, headers: authorization()
+    });
+
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toEqual(created.json());
+    expect(initialEvents.json()).toMatchObject({ nextCursor: 1, events: [{ type: 'JOB_CREATED' }] });
+    expect(cancellation.json()).toMatchObject({ state: 'CANCELLING', revision: 2 });
+    expect(staleCancellation.statusCode).toBe(409);
+    expect(staleCancellation.json()).toMatchObject({ error: { code: 'JOB_CONFLICT', retryable: true } });
+    expect(laterEvents.json()).toMatchObject({ nextCursor: 2, events: [{ type: 'CANCELLATION_REQUESTED' }] });
+    expect(validateContract(jobEventPageSchemaId, initialEvents.json()).valid).toBe(true);
+    expect(validateContract(jobEventPageSchemaId, laterEvents.json()).valid).toBe(true);
+  });
+
+  it('fails closed on malformed job bodies, keys, queries, and unavailable identifiers', async () => {
+    const instance = server();
+    const plantedValue = 'alpha@example.test';
+    const malformed = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': 'not-a-key' },
+      payload: { ...createJobPayload(), content: plantedValue }
+    });
+    const unavailable = await instance.inject({
+      method: 'GET',
+      url: '/v1/jobs/job_01J4M91NJK8WAPJ7J95K73CB2Z',
+      headers: authorization()
+    });
+    const invalidQuery = await instance.inject({
+      method: 'GET',
+      url: '/v1/jobs/job_01J4M91NJK8WAPJ7J95K73CB2Z/events?limit=101',
+      headers: authorization()
+    });
+    const unavailableCancellation = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs/job_01J4M91NJK8WAPJ7J95K73CB2Z/cancellation',
+      headers: authorization(),
+      payload: { schemaVersion: '1.0.0', expectedRevision: 1 }
+    });
+
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.body).not.toContain(plantedValue);
+    expect(unavailable.statusCode).toBe(404);
+    expect(unavailable.json()).toMatchObject({ error: { code: 'AUTHORIZATION_DENIED' } });
+    expect(invalidQuery.statusCode).toBe(400);
+    expect(unavailableCancellation.statusCode).toBe(404);
+    for (const response of [malformed, unavailable, invalidQuery, unavailableCancellation]) expectCanonicalError(response);
+  });
+
+  it('aborts noncooperative job control work at the shared handler deadline', async () => {
+    let observedSignal: AbortSignal | undefined;
+    const base = createVolatileJobControl();
+    const jobs: ApiDependencies['jobs'] = {
+      ...base,
+      create(_request, _key, _scope, _correlationId, signal) {
+        observedSignal = signal;
+        return new Promise(() => undefined);
+      }
+    };
+    const instance = server(dependencies({ jobs }), {
+      session: { bearerToken: sessionToken },
+      handlerTimeoutMs: 100
+    });
+    const response = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: createJobPayload()
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({
+      error: { code: 'INTERNAL_ERROR', details: { deadlineExceeded: true } }
+    });
+    expect(observedSignal?.aborted).toBe(true);
+    expectCanonicalError(response);
   });
 
   it('aborts a capability port and fails canonically when the handler deadline expires', async () => {

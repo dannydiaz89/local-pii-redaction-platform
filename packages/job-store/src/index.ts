@@ -73,10 +73,10 @@ export interface ListJobEventsQuery {
 }
 
 export interface JobMetadataStore {
-  create(command: CreateJobCommand): Promise<JobMutationResult>;
-  transition(command: TransitionJobCommand): Promise<JobMutationResult>;
-  get(jobId: string, correlationId: string): Promise<Job | undefined>;
-  listEvents(query: ListJobEventsQuery): Promise<readonly JobEvent[]>;
+  create(command: CreateJobCommand, signal?: AbortSignal): Promise<JobMutationResult>;
+  transition(command: TransitionJobCommand, signal?: AbortSignal): Promise<JobMutationResult>;
+  get(jobId: string, correlationId: string, signal?: AbortSignal): Promise<Job | undefined>;
+  listEvents(query: ListJobEventsQuery, signal?: AbortSignal): Promise<readonly JobEvent[]>;
 }
 
 interface IdempotencyRecord {
@@ -245,8 +245,10 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
   const eventIds = new Set<string>();
 
   return Object.freeze({
-    async create(command: CreateJobCommand): Promise<JobMutationResult> {
+    async create(command: CreateJobCommand, signal?: AbortSignal): Promise<JobMutationResult> {
+      signal?.throwIfAborted();
       await Promise.resolve();
+      signal?.throwIfAborted();
       parseCorrelationId(command.correlationId);
       const correlationId = command.correlationId;
       const jobId = validateJobId(command.jobId, correlationId);
@@ -317,8 +319,10 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       return Object.freeze({ job: cloneJob(job), event: cloneEvent(event), replayed: false });
     },
 
-    async transition(command: TransitionJobCommand): Promise<JobMutationResult> {
+    async transition(command: TransitionJobCommand, signal?: AbortSignal): Promise<JobMutationResult> {
+      signal?.throwIfAborted();
       await Promise.resolve();
+      signal?.throwIfAborted();
       parseCorrelationId(command.correlationId);
       const correlationId = command.correlationId;
       const jobId = validateJobId(command.jobId, correlationId);
@@ -368,16 +372,20 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       return Object.freeze({ job: cloneJob(job), event: cloneEvent(event), replayed: false });
     },
 
-    async get(jobIdInput: string, correlationId: string): Promise<Job | undefined> {
+    async get(jobIdInput: string, correlationId: string, signal?: AbortSignal): Promise<Job | undefined> {
+      signal?.throwIfAborted();
       await Promise.resolve();
+      signal?.throwIfAborted();
       parseCorrelationId(correlationId);
       const jobId = validateJobId(jobIdInput, correlationId);
       const job = jobs.get(jobId);
       return job === undefined ? undefined : cloneJob(job);
     },
 
-    async listEvents(query: ListJobEventsQuery): Promise<readonly JobEvent[]> {
+    async listEvents(query: ListJobEventsQuery, signal?: AbortSignal): Promise<readonly JobEvent[]> {
+      signal?.throwIfAborted();
       await Promise.resolve();
+      signal?.throwIfAborted();
       parseCorrelationId(query.correlationId);
       const jobId = validateJobId(query.jobId, query.correlationId);
       const afterCursor = query.afterCursor ?? 0;
