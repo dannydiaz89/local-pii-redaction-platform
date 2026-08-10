@@ -9,9 +9,11 @@ import { WebApplication } from '../src/application.js';
 import type { CapabilityClient } from '../src/api.js';
 import { preflightSelectedFile } from '../src/file-preflight.js';
 import type { LocalJobClient } from '../src/job-api.js';
+import { createRedactedTextPreview } from '../src/redacted-preview.js';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   Reflect.deleteProperty(URL, 'createObjectURL');
   Reflect.deleteProperty(URL, 'revokeObjectURL');
 });
@@ -52,6 +54,7 @@ function readyJobClient(): LocalJobClient {
     conflictDetails: [],
     conflictDetailsLimited: false
   };
+  const redactedBytes = new TextEncoder().encode('Synthetic contact: [EMAIL_1]\n<script>not executable</script>');
   return {
     loadPolicies: () => Promise.resolve({
       defaultPolicy: {
@@ -80,10 +83,10 @@ function readyJobClient(): LocalJobClient {
       output: {
         id: 'art_01J4M91NJK8WAPJ7J95K73CB2N',
         mediaType: 'text/plain',
-        byteLength: 28,
+        byteLength: redactedBytes.byteLength,
         digest: `sha256:${'c'.repeat(64)}`,
         displayName: 'document.redacted.txt',
-        bytes: new TextEncoder().encode('Synthetic contact: [EMAIL_1]')
+        bytes: redactedBytes
       }
     }),
     listDetections: () => Promise.resolve(page),
@@ -100,6 +103,14 @@ function readyJobClient(): LocalJobClient {
 }
 
 describe('web application foundation', () => {
+  it('bounds redacted text previews on Unicode code-point boundaries', () => {
+    const bytes = new TextEncoder().encode('\uFEFFa😀bcd');
+    expect(createRedactedTextPreview(bytes, 3)).toEqual({ text: 'a😀b', codePoints: 3, truncated: true });
+    expect(createRedactedTextPreview(new TextEncoder().encode('complete'), 20)).toEqual({
+      text: 'complete', codePoints: 8, truncated: false
+    });
+  });
+
   it('renders the capability preflight as an accessible local-first journey', async () => {
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
 
@@ -157,11 +168,12 @@ describe('web application foundation', () => {
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
-  it('creates a verified session-only redaction and exposes an accessible download', async () => {
+  it('redacts and downloads in one action, then renders an escaped bounded preview', async () => {
     const createObjectUrl = vi.fn(() => 'blob:local-verified-output');
     const revokeObjectUrl = vi.fn();
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+    const automaticDownload = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     const user = userEvent.setup();
     const { container, unmount } = render(
       <WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />
@@ -174,13 +186,22 @@ describe('web application foundation', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
     await screen.findByText('1 potential item found.');
-    await user.click(screen.getByRole('button', { name: 'Redact locally' }));
+    await user.click(screen.getByRole('button', { name: 'Redact and download' }));
 
-    expect(await screen.findByText('The redacted copy passed verification and is ready to download.')).toBeTruthy();
-    const download = screen.getByRole('link', { name: 'Download verified redacted copy' });
+    expect(await screen.findByText(
+      'The verified redacted copy is ready. Your browser was asked to download it.'
+    )).toBeTruthy();
+    const download = screen.getByRole('link', { name: 'Download again' });
     expect(download.getAttribute('href')).toBe('blob:local-verified-output');
     expect(download.getAttribute('download')).toBe('document.redacted.txt');
     expect(container.textContent).not.toContain(sourceValue);
+    const previewRegion = screen.getByRole('region', { name: 'Verified redacted output preview' });
+    expect(previewRegion.textContent).toContain('<script>not executable</script>');
+    previewRegion.focus();
+    expect(document.activeElement).toBe(previewRegion);
+    expect(container.querySelector('script')).toBeNull();
+    expect(screen.getByText('Showing the complete verified output.')).toBeTruthy();
+    expect(automaticDownload).toHaveBeenCalledTimes(1);
     expect(createObjectUrl).toHaveBeenCalledTimes(1);
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 

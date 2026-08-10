@@ -24,6 +24,7 @@ import type {
   ScanProgressState
 } from './job-api.js';
 import { webPreviewMaximumInputBytes } from './preview-limit.js';
+import { createRedactedTextPreview } from './redacted-preview.js';
 
 type PreflightState =
   | { readonly kind: 'checking' }
@@ -139,12 +140,16 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [redaction, setRedaction] = useState<RedactionState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const previewController = useRef<AbortController | undefined>(undefined);
+  const downloadedOutputId = useRef<string | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
   const downloadUrl = useMemo(() => redaction.kind === 'complete'
     ? URL.createObjectURL(new Blob([redaction.summary.output.bytes.slice().buffer], {
       type: redaction.summary.output.mediaType
     }))
+    : undefined, [redaction]);
+  const redactedPreview = useMemo(() => redaction.kind === 'complete'
+    ? createRedactedTextPreview(redaction.summary.output.bytes)
     : undefined, [redaction]);
 
   useEffect(() => {
@@ -187,6 +192,20 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   useEffect(() => () => {
     if (redaction.kind === 'complete') redaction.summary.output.bytes.fill(0);
   }, [redaction]);
+  useEffect(() => {
+    if (redaction.kind !== 'complete'
+      || downloadUrl === undefined
+      || downloadedOutputId.current === redaction.summary.output.id) return;
+    downloadedOutputId.current = redaction.summary.output.id;
+    const download = document.createElement('a');
+    download.href = downloadUrl;
+    download.download = redaction.summary.output.displayName;
+    download.hidden = true;
+    download.setAttribute('aria-hidden', 'true');
+    document.body.append(download);
+    download.click();
+    download.remove();
+  }, [downloadUrl, redaction]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
@@ -636,6 +655,28 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                       )}
                     </div>
                   ) : null}
+                  {redactedPreview === undefined ? null : (
+                    <div className="redacted-output-preview">
+                      <h4 id="redacted-preview-title">{t('redaction.previewTitle')}</h4>
+                      <p>{t('redaction.previewBody')}</p>
+                      <div
+                        className="redacted-preview-scroll"
+                        role="region"
+                        tabIndex={0}
+                        aria-labelledby="redacted-preview-title"
+                      >
+                        <pre dir="auto">{redactedPreview.text || t('redaction.previewEmpty')}</pre>
+                      </div>
+                      <p className="preview-details-privacy">
+                        {redactedPreview.truncated
+                          ? message(locale, 'redaction.previewTruncated', {
+                            count: formatInteger(locale, redactedPreview.codePoints)
+                          })
+                          : t('redaction.previewComplete')}
+                      </p>
+                      <p className="preview-details-privacy">{t('redaction.previewWarning')}</p>
+                    </div>
+                  )}
                   <p className="preview-details-privacy">{t('redaction.privacy')}</p>
                 </section>
               ) : null}

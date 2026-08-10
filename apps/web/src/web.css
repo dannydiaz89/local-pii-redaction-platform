@@ -82,6 +82,11 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .redaction-panel > .ui-button { justify-self: start; }
 .download-link { display: inline-flex; min-block-size: 2.75rem; align-items: center; border-radius: var(--radius-small); padding: .7rem 1rem; color: white; background: var(--color-accent); font-weight: 750; text-decoration: none; }
 .download-link:hover { background: var(--color-accent-strong); }
+.redacted-output-preview { display: grid; gap: var(--space-3); }
+.redacted-output-preview h4, .redacted-output-preview p { margin: 0; }
+.redacted-preview-scroll { max-block-size: 24rem; overflow: auto; border: 1px solid var(--color-border); border-radius: .5rem; background: var(--color-surface); }
+.redacted-preview-scroll:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .2rem; }
+.redacted-preview-scroll pre { margin: 0; padding: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-ink); font: .92rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; unicode-bidi: plaintext; }
 
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
 
