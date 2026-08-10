@@ -196,8 +196,16 @@ describe('web application foundation', () => {
     await user.click(reveal);
     expect(await screen.findByText('preview-canary@example.test')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Hide detected text' }).getAttribute('aria-pressed')).toBe('true');
+    await user.click(screen.getByRole('button', { name: 'View source context' }));
+    const sourceContext = await screen.findByRole('region', {
+      name: 'Highlighted detected text in its local source context'
+    });
+    expect(sourceContext.textContent).toContain('Synthetic contact: preview-canary@example.test');
+    expect(sourceContext.querySelector('mark')?.textContent).toBe('preview-canary@example.test');
+    await waitFor(() => { expect(document.activeElement).toBe(sourceContext); });
     await user.click(screen.getByRole('button', { name: 'Hide detected text' }));
     await waitFor(() => { expect(screen.queryByText('preview-canary@example.test')).toBeNull(); });
+    expect(screen.queryByRole('heading', { name: 'Source context' })).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 

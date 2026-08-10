@@ -17,6 +17,7 @@ import { preflightSelectedFile, type FilePreflightResult } from './file-prefligh
 import type {
   LocalJobClient,
   JobEventType,
+  JobDetectionSummary,
   PolicyCatalogSummary,
   PreviewDetectionSource,
   PreviewEntityType,
@@ -28,6 +29,7 @@ import type {
 } from './job-api.js';
 import { webPreviewMaximumInputBytes } from './preview-limit.js';
 import { createRedactedTextPreview } from './redacted-preview.js';
+import { readSourceDetectionContext, type SourceDetectionContext } from './source-context.js';
 
 type PreflightState =
   | { readonly kind: 'checking' }
@@ -67,6 +69,9 @@ type ReviewSaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'stale';
 type DetectedTextState =
   | { readonly kind: 'idle' | 'loading' | 'unavailable' }
   | { readonly kind: 'ready'; readonly values: ReadonlyMap<string, string> };
+type SourceContextState =
+  | { readonly kind: 'idle' | 'loading' | 'unavailable' }
+  | { readonly kind: 'ready'; readonly context: SourceDetectionContext };
 
 function effectiveReviewDecisions(
   decisions: readonly ReviewDecisionSummary[]
@@ -170,7 +175,10 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [reviewSaveState, setReviewSaveState] = useState<ReviewSaveState>('idle');
   const [showDetectedText, setShowDetectedText] = useState(false);
   const [detectedText, setDetectedText] = useState<DetectedTextState>({ kind: 'idle' });
+  const [sourceContext, setSourceContext] = useState<SourceContextState>({ kind: 'idle' });
   const previewController = useRef<AbortController | undefined>(undefined);
+  const sourceContextController = useRef<AbortController | undefined>(undefined);
+  const sourceContextRegion = useRef<HTMLDivElement | null>(null);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
   const downloadUrl = useMemo(() => redaction.kind === 'complete'
@@ -200,7 +208,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setReviewSaveState('idle');
     setShowDetectedText(false);
     setDetectedText({ kind: 'idle' });
+    setSourceContext({ kind: 'idle' });
     previewController.current?.abort();
+    sourceContextController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
       jobClient.loadPolicies(controller.signal)
@@ -219,13 +229,19 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     return () => { controller.abort(); };
   }, [attempt, capabilityClient, jobClient]);
 
-  useEffect(() => () => { previewController.current?.abort(); }, []);
+  useEffect(() => () => {
+    previewController.current?.abort();
+    sourceContextController.current?.abort();
+  }, []);
   useEffect(() => () => {
     if (downloadUrl !== undefined) URL.revokeObjectURL(downloadUrl);
   }, [downloadUrl]);
   useEffect(() => () => {
     if (redaction.kind === 'complete') redaction.summary.output.bytes.fill(0);
   }, [redaction]);
+  useEffect(() => {
+    if (sourceContext.kind === 'ready') sourceContextRegion.current?.focus();
+  }, [sourceContext]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
@@ -269,6 +285,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const detectionDetails = scan.kind === 'complete' ? scan.summary.details : undefined;
 
   useEffect(() => {
+    sourceContextController.current?.abort();
+    setSourceContext({ kind: 'idle' });
     if (!showDetectedText || selectedFile === undefined || detectionDetails === undefined) {
       setDetectedText({ kind: 'idle' });
       return;
@@ -286,6 +304,22 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     return () => { controller.abort(); };
   }, [detectionDetails, selectedFile, showDetectedText]);
 
+  const showSourceContext = (detail: JobDetectionSummary): void => {
+    if (selectedFile === undefined || !showDetectedText) return;
+    const controller = new AbortController();
+    sourceContextController.current?.abort();
+    sourceContextController.current = controller;
+    setSourceContext({ kind: 'loading' });
+    void readSourceDetectionContext(selectedFile, detail, controller.signal).then(
+      (context) => {
+        if (!controller.signal.aborted) setSourceContext({ kind: 'ready', context });
+      },
+      () => {
+        if (!controller.signal.aborted) setSourceContext({ kind: 'unavailable' });
+      }
+    );
+  };
+
   const effectiveReviews = useMemo(() => effectiveReviewDecisions(
     scan.kind === 'complete' ? scan.summary.review.decisions : []
   ), [scan]);
@@ -293,6 +327,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const supportedReviewEntityTypes = preflight.kind === 'ready'
     ? preflight.summary.supportedEntityTypes
     : [];
+  const sourceContextDetail = sourceContext.kind === 'ready'
+    ? detectionDetails?.find(({ id }) => id === sourceContext.context.detectionId)
+    : undefined;
 
   return (
     <div className="app-shell">
@@ -394,6 +431,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setReviewSaveState('idle');
                   setShowDetectedText(false);
                   setDetectedText({ kind: 'idle' });
+                  sourceContextController.current?.abort();
+                  setSourceContext({ kind: 'idle' });
                 }}
               />
             ) : (
@@ -425,6 +464,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setReviewSaveState('idle');
                   setShowDetectedText(false);
                   setDetectedText({ kind: 'idle' });
+                  sourceContextController.current?.abort();
+                  setSourceContext({ kind: 'idle' });
                   void jobClient.scan(
                     selectedFile,
                     defaultPolicy,
@@ -541,7 +582,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                           <div className="preview-review-controls">
                             <Button
                               aria-pressed={showDetectedText}
-                              onClick={() => { setShowDetectedText((visible) => !visible); }}
+                              onClick={() => {
+                                if (showDetectedText) {
+                                  sourceContextController.current?.abort();
+                                  setSourceContext({ kind: 'idle' });
+                                }
+                                setShowDetectedText((visible) => !visible);
+                              }}
                             >{showDetectedText ? t('review.hideDetectedText') : t('review.showDetectedText')}</Button>
                             <div className="preview-filter">
                               <label htmlFor="detection-filter">{t('preview.filter')}</label>
@@ -563,6 +610,53 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </div>
                           </div>
                         </div>
+                        {sourceContext.kind === 'loading' ? (
+                          <Callout>{t('review.sourceContextLoading')}</Callout>
+                        ) : sourceContext.kind === 'unavailable' ? (
+                          <Callout tone="critical">{t('review.sourceContextUnavailable')}</Callout>
+                        ) : sourceContext.kind === 'ready' && sourceContextDetail !== undefined ? (
+                          <section
+                            id="source-detection-context"
+                            className="source-context"
+                            aria-labelledby="source-context-title"
+                          >
+                            <div className="source-context-heading">
+                              <div>
+                                <h4 id="source-context-title">{t('review.sourceContextTitle')}</h4>
+                                <p>{t('review.sourceContextBody')}</p>
+                              </div>
+                              <Button
+                                className="context-button"
+                                onClick={() => {
+                                  sourceContextController.current?.abort();
+                                  setSourceContext({ kind: 'idle' });
+                                }}
+                              >{t('review.closeContext')}</Button>
+                            </div>
+                            <p className="source-context-summary">
+                              <strong>{t(entityMessage(sourceContextDetail.entityType))}</strong>
+                              {' · '}
+                              {message(locale, 'preview.location', {
+                                start: formatInteger(locale, sourceContextDetail.start + 1),
+                                end: formatInteger(locale, sourceContextDetail.end)
+                              })}
+                            </p>
+                            <div
+                              ref={sourceContextRegion}
+                              className="source-context-scroll"
+                              role="region"
+                              tabIndex={0}
+                              aria-label={t('review.sourceContextLabel')}
+                            >
+                              <pre dir="auto">{sourceContext.context.leadingTruncated
+                                ? <span aria-hidden="true">…</span>
+                                : null}<span>{sourceContext.context.before}</span><mark>{sourceContext.context.match}</mark><span>{sourceContext.context.after}</span>{sourceContext.context.trailingTruncated
+                                ? <span aria-hidden="true">…</span>
+                                : null}</pre>
+                            </div>
+                            <p className="preview-details-privacy">{t('review.sourceContextPrivacy')}</p>
+                          </section>
+                        ) : null}
                         <div
                           className="preview-table-scroll"
                           role="region"
@@ -599,7 +693,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                     : detectedText.kind === 'loading'
                                       ? t('review.detectedTextLoading')
                                       : detectedText.kind === 'ready' && detectedText.values.has(detail.id)
-                                        ? <code dir="auto">{detectedText.values.get(detail.id)}</code>
+                                        ? <div className="detected-text-actions">
+                                          <code dir="auto">{detectedText.values.get(detail.id)}</code>
+                                          <Button
+                                            className="context-button"
+                                            onClick={() => { showSourceContext(detail); }}
+                                          >{t('review.viewContext')}</Button>
+                                        </div>
                                         : t('review.detectedTextUnavailable')}</td>
                                   <td>{message(locale, 'preview.location', {
                                     start: formatInteger(locale, detail.start + 1),

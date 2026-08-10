@@ -7,6 +7,8 @@ Accessible React primitives and semantic design tokens shared by local web scree
 - Provides small native-first primitives such as `Button`, `Card`, `Callout`, `StatusBadge`,
   `Metric`, `SelectField`, and `FileField`.
 - Defines shared color, spacing, typography, focus, motion, and layout behavior in `styles.css`.
+- Includes a semantic detected-text highlight token while keeping category and location text as the
+  non-color review signal.
 - Supports keyboard use, visible focus, logical properties, reduced motion, and forced colors.
 
 ## Boundary

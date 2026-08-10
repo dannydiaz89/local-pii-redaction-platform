@@ -164,7 +164,10 @@ revision feedback; they are not stored in browser persistence. The detection tab
 text hidden by default. An explicit reveal reads only the bounded matches for the current page from
 the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
 never added to an API response or review record and is released from UI state when hidden, the page
-changes, or the file changes; JavaScript strings cannot be reliably zeroized. For a conflict-free completed scan
+changes, or the file changes. A reviewer can then open one escaped source-context excerpt at a time:
+at most 80 Unicode code points before and 120 after the selected match, with the match highlighted
+and keyboard focus moved into the excerpt. Context is also local-only and cleared when closed or
+when its owning page/file changes; JavaScript strings cannot be reliably zeroized. For a conflict-free completed scan
 with an exact current review set, the UI can start a second process-local job that applies the
 selected pinned policy plus saved accept/reject/retype decisions, reopens and verifies the derived
 bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original

@@ -75,6 +75,17 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-table tbody tr:last-child > * { border-block-end: 0; }
 .detected-text-cell { min-inline-size: 12rem; }
 .detected-text-cell code { display: inline-block; max-inline-size: 24rem; border-radius: .3rem; padding: .15rem .35rem; overflow-wrap: anywhere; white-space: pre-wrap; unicode-bidi: plaintext; color: var(--color-ink); background: var(--color-background); font: .92rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.detected-text-actions { display: grid; justify-items: start; gap: var(--space-2); }
+.context-button.ui-button { min-block-size: 2.25rem; border: 1px solid var(--color-accent); padding: .4rem .65rem; color: var(--color-accent-strong); background: var(--color-surface); font-size: .85rem; }
+.context-button.ui-button:hover { color: white; background: var(--color-accent-strong); }
+.source-context { display: grid; gap: var(--space-3); border: 1px solid var(--color-border); border-inline-start: .3rem solid var(--color-accent); border-radius: .5rem; padding: var(--space-4); background: var(--color-background); }
+.source-context-heading { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }
+.source-context-heading h4, .source-context-heading p, .source-context-summary { margin: 0; }
+.source-context-heading p, .source-context-summary { color: var(--color-muted); line-height: 1.55; }
+.source-context-scroll { max-block-size: 18rem; overflow: auto; border: 1px solid var(--color-border); border-radius: .4rem; background: var(--color-surface); }
+.source-context-scroll:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .2rem; }
+.source-context-scroll pre { margin: 0; padding: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-ink); font: .95rem/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; unicode-bidi: plaintext; }
+.source-context-scroll mark { border-radius: .2rem; padding-inline: .12rem; color: var(--color-ink); background: var(--color-highlight); font-weight: 800; }
 .review-decision-cell { display: grid; gap: var(--space-2); min-inline-size: 13rem; }
 .review-decision-cell select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
 .review-decision-cell select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
@@ -111,6 +122,7 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
   .card-heading { align-items: flex-start; flex-direction: column; }
   .preview-review-heading { align-items: stretch; flex-direction: column; }
   .preview-review-controls { align-items: stretch; flex-direction: column; }
+  .source-context-heading { align-items: stretch; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) { .activity-dot { animation: none; } }
