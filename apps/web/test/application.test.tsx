@@ -3,14 +3,18 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WebApplication } from '../src/application.js';
 import type { CapabilityClient } from '../src/api.js';
 import { preflightSelectedFile } from '../src/file-preflight.js';
 import type { LocalJobClient } from '../src/job-api.js';
 
-afterEach(() => { cleanup(); });
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(URL, 'createObjectURL');
+  Reflect.deleteProperty(URL, 'revokeObjectURL');
+});
 
 function readyClient(): CapabilityClient {
   return {
@@ -65,6 +69,22 @@ function readyJobClient(): LocalJobClient {
         id: '123e4567-e89b-42d3-a456-426614174000', cursor: 1, revision: 1,
         type: 'JOB_CREATED', occurredAt: completedJob.createdAt
       }]
+    }),
+    redact: () => Promise.resolve({
+      job: {
+        ...completedJob,
+        operation: 'REDACT',
+        state: 'VERIFIED',
+        revision: 8
+      },
+      output: {
+        id: 'art_01J4M91NJK8WAPJ7J95K73CB2N',
+        mediaType: 'text/plain',
+        byteLength: 28,
+        digest: `sha256:${'c'.repeat(64)}`,
+        displayName: 'document.redacted.txt',
+        bytes: new TextEncoder().encode('Synthetic contact: [EMAIL_1]')
+      }
     }),
     listDetections: () => Promise.resolve(page),
     scanPreview: () => Promise.resolve({
@@ -135,6 +155,37 @@ describe('web application foundation', () => {
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it('creates a verified session-only redaction and exposes an accessible download', async () => {
+    const createObjectUrl = vi.fn(() => 'blob:local-verified-output');
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+    const user = userEvent.setup();
+    const { container, unmount } = render(
+      <WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />
+    );
+    await screen.findByText('Local engine is ready');
+    const sourceValue = 'browser-redaction@example.test';
+    await user.upload(
+      screen.getByLabelText('Document file'),
+      new File([`Synthetic contact: ${sourceValue}`], 'private-source.txt', { type: 'text/plain' })
+    );
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await screen.findByText('1 potential item found.');
+    await user.click(screen.getByRole('button', { name: 'Redact locally' }));
+
+    expect(await screen.findByText('The redacted copy passed verification and is ready to download.')).toBeTruthy();
+    const download = screen.getByRole('link', { name: 'Download verified redacted copy' });
+    expect(download.getAttribute('href')).toBe('blob:local-verified-output');
+    expect(download.getAttribute('download')).toBe('document.redacted.txt');
+    expect(container.textContent).not.toContain(sourceValue);
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+
+    unmount();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:local-verified-output');
   });
 
   it('renders and filters a keyboard-scrollable native detection table', async () => {

@@ -4,6 +4,9 @@
  */
 export const localPreviewMaximumInputBytes = 8 * 1024 * 1024;
 
+/** Maximum verified derived bytes retained for one session-only browser redaction. */
+export const localRedactionMaximumOutputBytes = 16 * 1024 * 1024;
+
 /** Maximum value-free detection rows returned by one ephemeral browser review response. */
 export const localPreviewMaximumDetectionDetails = 100;
 

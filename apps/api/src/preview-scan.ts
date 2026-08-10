@@ -18,6 +18,9 @@ import { textCapabilityRequirement } from '@local-pii/profile-local';
 export type PreviewFormat = 'text' | 'markdown';
 export type PreviewScanReport = Readonly<JobsPreviewScanReportContract.EphemeralPreviewScanReport>;
 export type PreviewReviewReport = Readonly<JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2>;
+export interface DecodedLocalTextArtifact extends TextArtifact {
+  readonly mediaType: 'text/plain' | 'text/markdown';
+}
 
 export interface PreviewScanPort {
   scan(
@@ -42,7 +45,11 @@ function extractionDigest(text: string) {
   return parseSha256Digest(`sha256:${digest}`);
 }
 
-function decodeArtifact(bytes: Uint8Array, format: PreviewFormat, correlationId: string): TextArtifact {
+export function decodeLocalTextArtifact(
+  bytes: Uint8Array,
+  format: PreviewFormat,
+  correlationId: string
+): DecodedLocalTextArtifact {
   const hasUtf8Bom = bytes.length >= 3
     && bytes[0] === utf8Bom[0]
     && bytes[1] === utf8Bom[1]
@@ -88,7 +95,7 @@ export function scanLocalTextBytes(
   signal?: AbortSignal
 ): Promise<TextScanResult> {
   signal?.throwIfAborted();
-  const artifact = decodeArtifact(bytes, format, context.correlationId);
+  const artifact = decodeLocalTextArtifact(bytes, format, context.correlationId);
   return application.scan({
     session: { input: () => Promise.resolve(artifact) },
     requirement: textCapabilityRequirement('SCAN'),

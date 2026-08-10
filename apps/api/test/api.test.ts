@@ -11,7 +11,7 @@ import {
   validateContract
 } from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
-import { localTextApplication } from '@local-pii/profile-local';
+import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profile-local';
 
 import {
   apiDefaultHandlerTimeoutMs,
@@ -547,7 +547,7 @@ describe('local API composition', () => {
   it('runs a bounded artifact through a real asynchronous scan job and paginated value-free results', async () => {
     const bytes = Buffer.from('Synthetic contacts: first@example.test and second@example.test', 'utf8');
     const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-    const catalog = policyCatalog();
+    const catalog = createLocalPolicyCatalog();
     const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
     const instance = server(dependencies({
       jobs: processing,
@@ -622,6 +622,89 @@ describe('local API composition', () => {
     const serialized = `${initiated.body}${uploaded.body}${created.body}${events.body}${firstPage.body}${secondPage.body}`;
     expect(serialized).not.toContain('first@example.test');
     expect(serialized).not.toContain('second@example.test');
+  });
+
+  it('runs real verified redaction and authorizes only the session output for download', async () => {
+    const sourceValue = 'browser-redaction@example.test';
+    const bytes = Buffer.from(`Synthetic contact: ${sourceValue}`, 'utf8');
+    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    const catalog = createLocalPolicyCatalog();
+    const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
+    const instance = server(dependencies({
+      jobs: processing,
+      processing,
+      policies: { get: () => Promise.resolve(catalog) }
+    }));
+    const initiated = await instance.inject({
+      method: 'POST',
+      url: '/v1/artifacts',
+      headers: authorization(),
+      payload: { schemaVersion: '1.0.0', mediaType: 'text/plain', byteLength: bytes.length, digest }
+    });
+    const inputArtifactId = initiated.json<{ readonly id: string }>().id;
+    const uploaded = await instance.inject({
+      method: 'PUT',
+      url: `/v1/artifacts/${inputArtifactId}/content`,
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: bytes
+    });
+    expect(uploaded.statusCode).toBe(200);
+    const inputDownload = await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${inputArtifactId}/content`, headers: authorization()
+    });
+    expect(inputDownload.statusCode).toBe(404);
+    expect(inputDownload.body).not.toContain(sourceValue);
+
+    const created = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: {
+        schemaVersion: '3.0.0',
+        operation: 'REDACT',
+        inputArtifactId,
+        policy: {
+          id: catalog.defaultPolicyId,
+          version: catalog.policies[0].version,
+          digest: catalog.policies[0].digest
+        }
+      }
+    });
+    expect(created.statusCode).toBe(201);
+    const jobId = created.json<{ readonly id: string }>().id;
+    let current = created.json<{ readonly state: string; readonly revision: number }>();
+    for (let attempt = 0; attempt < 20 && current.state !== 'VERIFIED'; attempt += 1) {
+      const response = await instance.inject({ method: 'GET', url: `/v1/jobs/${jobId}`, headers: authorization() });
+      current = response.json<typeof current>();
+    }
+    expect(current).toMatchObject({ state: 'VERIFIED', revision: 8 });
+
+    const outputResponse = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/output`, headers: authorization()
+    });
+    expect(outputResponse.statusCode).toBe(200);
+    expect(validateContract(artifactSchemaId, outputResponse.json()).valid).toBe(true);
+    expect(outputResponse.json()).toMatchObject({
+      kind: 'SANITIZED_OUTPUT',
+      publicationState: 'PUBLISHABLE',
+      displayName: 'document.redacted.txt'
+    });
+    const outputArtifactId = outputResponse.json<{ readonly id: string }>().id;
+    const downloaded = await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${outputArtifactId}/content`, headers: authorization()
+    });
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers['content-type']).toMatch(/^text\/plain/u);
+    expect(downloaded.headers['content-disposition']).toBe('attachment; filename="document.redacted.txt"');
+    expect(downloaded.body).toBe('Synthetic contact: [EMAIL_1]');
+    expect(downloaded.body).not.toContain(sourceValue);
+    expect(outputResponse.body).not.toContain(sourceValue);
+
+    const unauthorized = await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${outputArtifactId}/content`, headers: { host: loopbackHost }
+    });
+    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.body).not.toContain(outputArtifactId);
   });
 
   it('rejects mismatched artifact bytes without creating a scanable artifact', async () => {

@@ -57,8 +57,9 @@ cross-platform evidence.
 ## Try the CLI
 
 User-facing document processing runs through the local CLI and the development browser profile. The
-browser can now execute a bounded session-only rules scan; the CLI remains the only interface for
-redaction, verification, and machine-oriented workflows.
+browser can execute bounded session-only rules scans and verified redaction downloads; the CLI
+remains the interface for explicit output paths, standalone verification, recovery, and
+machine-oriented workflows.
 
 ```sh
 pnpm build
@@ -107,10 +108,14 @@ only pinned operational metadata. The storage-neutral
 and minimized-event semantics. The development browser profile now adds a bounded process-local
 artifact/worker composition: `POST /v1/artifacts` admits digest-bound metadata, a one-use binary
 `PUT` supplies at most 8 MiB without a filename, `POST /v1/jobs` starts the real rules scan, and
-`GET /v1/jobs/{jobId}/detections` pages value-free results. One worker runs at a time; input byte
-buffers are overwritten and released after processing, while artifact metadata and result pages
-exist only until the application closes. JavaScript strings cannot be reliably zeroized. Durable
-artifact persistence, retained jobs, editable decisions, redaction, and downloads remain disabled.
+`GET /v1/jobs/{jobId}/detections` pages value-free results. A v3 job can also run real rules-only
+redaction through the shared application core. Only an output that reaches `VERIFIED` is exposed by
+`GET /v1/jobs/{jobId}/output` and the authenticated artifact-content download. One worker runs at a
+time; scan input buffers are overwritten and released after processing. A verified redacted output
+is retained only until application shutdown, and uses a generic download name. Artifact
+metadata and result pages also disappear when the application closes. JavaScript strings cannot be
+reliably zeroized. Durable artifact persistence, retained jobs, editable decisions, reports, and
+restart/resume remain disabled.
 
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
@@ -142,11 +147,16 @@ value-free detection pages. Once connected, document intake admits TXT/Markdown 
 The UI displays the server-owned completion state/event count plus aggregate categories and a
 native, filterable detection table with server-owned 100-row page controls. Up to 100 unresolved
 conflict locations remain visible in a separate native table. Wide tables remain
-keyboard-scrollable at narrow viewports. It retains nothing in browser persistence and sends no
-filename or matched value back in responses. This is session-only processing, not the durable
-review store. Until the
+keyboard-scrollable at narrow viewports. For a conflict-free completed scan, the UI can start a
+second process-local job that applies the selected pinned policy, reopens and verifies the derived
+bytes, and exposes a download only after the server reaches `VERIFIED`. The original file remains
+unchanged. The browser uses a generic filename and a temporary Blob URL for the current page; the
+server retains the output only for the current application launch. It retains nothing in browser
+persistence and sends no filename or matched value back in JSON responses. This is session-only
+processing, not the durable review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
-state. Editable review decisions, durable resume, redaction, and download remain intentionally absent.
+state. Editable review decisions, durable resume/history, retained reports, and lifecycle deletion
+controls remain intentionally absent.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a
@@ -275,7 +285,7 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no durable upload or asynchronous job-processing HTTP API, activated durable job-store
+- There is no durable upload or retained asynchronous job-processing HTTP API, activated durable job-store
   profile, qualified contextual model, or review workflow yet. A metadata-only SQLite prototype
   exercises restart and transaction semantics but remains disabled and unqualified for production.
   The authenticated ephemeral
@@ -283,9 +293,10 @@ output collisions.
   value-free detection locations. Metadata-only job create/status/events/
   cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
   store no document content.
-  The implemented web shell is limited to secured capability/policy preflight, an ephemeral
-  rules-only scan with a native category filter, and design-system/localization foundations. Its durable job controls remain
-  disconnected until the artifact, retention, and authorization boundary exists.
+  The implemented web shell is limited to secured capability/policy preflight, process-local
+  rules-only scan/review, and a verified session redaction download. Its design-system and
+  localization foundations are active, but durable review decisions, restart/resume, retention,
+  reports, and lifecycle deletion remain unavailable.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
   launch and packaged-install path qualification remain open. The OS opener receives no secret in
   its process arguments. The external-browser handoff does not defend against an adversarial local

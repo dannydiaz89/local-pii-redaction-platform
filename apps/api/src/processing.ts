@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
-import type {
-  ArtifactsArtifactContract,
-  ArtifactsCreateArtifactRequestContract,
-  JobsDetectionPageContract
+import {
+  localRedactionMaximumOutputBytes,
+  type ArtifactsArtifactContract,
+  type ArtifactsCreateArtifactRequestContract,
+  type JobsDetectionPageContract
 } from '@local-pii/contracts';
-import type { TextProcessingApplication, TextScanResult } from '@local-pii/core';
+import type { TextProcessingApplication, TextRedactionResult, TextScanResult } from '@local-pii/core';
 import {
   canTransition,
   parseArtifactId,
@@ -17,6 +18,11 @@ import {
   type JobMetadataStore,
   type JobMutationResult
 } from '@local-pii/job-store';
+import {
+  createEphemeralTextArtifactSession,
+  resolveLocalPolicy,
+  textCapabilityRequirement
+} from '@local-pii/profile-local';
 
 import {
   createJobControl,
@@ -25,9 +31,14 @@ import {
   type Job,
   type JobControlPort,
   type JobEventPage,
+  type LocalProcessingJobRequest,
   type ProcessingJobRequest
 } from './job-control.js';
-import { scanLocalTextBytes, type PreviewFormat } from './preview-scan.js';
+import {
+  decodeLocalTextArtifact,
+  scanLocalTextBytes,
+  type PreviewFormat
+} from './preview-scan.js';
 
 export type Artifact = Readonly<ArtifactsArtifactContract.Artifact>;
 export type CreateArtifactRequest = Readonly<ArtifactsCreateArtifactRequestContract.CreateLocalArtifactRequest>;
@@ -37,6 +48,11 @@ export type DetectionPage = Readonly<Omit<GeneratedDetectionPage, 'detections' |
   readonly conflictDetails: readonly Readonly<GeneratedDetectionPage['conflictDetails'][number]>[];
 };
 type Detection = DetectionPage['detections'][number];
+
+export interface OutputArtifactDownload {
+  readonly artifact: Artifact;
+  readonly bytes: Uint8Array;
+}
 
 export interface ProcessingControlPort extends JobControlPort {
   initiateArtifact(
@@ -57,6 +73,12 @@ export interface ProcessingControlPort extends JobControlPort {
     correlationId: string,
     signal?: AbortSignal
   ): Promise<DetectionPage | undefined>;
+  outputForJob(jobId: string, correlationId: string, signal?: AbortSignal): Promise<Artifact | undefined>;
+  downloadOutput(
+    artifactId: string,
+    correlationId: string,
+    signal?: AbortSignal
+  ): Promise<OutputArtifactDownload | undefined>;
   close(): Promise<void>;
 }
 
@@ -140,7 +162,10 @@ function cloneArtifact(artifact: Artifact): Artifact {
   return Object.freeze({ ...artifact });
 }
 
-function stableDetectionId(result: TextScanResult, spanId: string): string {
+type DetectionBearingResult = Pick<TextScanResult, 'detectorBundleVersion' | 'evidence' | 'resolution'>
+  | Pick<TextRedactionResult, 'detectorBundleVersion' | 'evidence' | 'resolution'>;
+
+function stableDetectionId(result: DetectionBearingResult, spanId: string): string {
   const bytes = createHash('sha256')
     .update('local-pii:job-detection:v1\u0000', 'utf8')
     .update(result.resolution.extractionRevision, 'utf8')
@@ -154,7 +179,7 @@ function stableDetectionId(result: TextScanResult, spanId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function resultForScan(result: TextScanResult, correlationId: string): JobResult {
+function resultForScan(result: DetectionBearingResult, correlationId: string): JobResult {
   const evidenceById = new Map<string, (typeof result.evidence)[number]>(
     result.evidence.map((evidence) => [evidence.id, evidence])
   );
@@ -238,6 +263,7 @@ export function createVolatileProcessingControl(
   });
   const artifacts = new Map<string, ArtifactRecord>();
   const artifactByJob = new Map<string, string>();
+  const outputByJob = new Map<string, string>();
   const artifactClaimByRequest = new Map<string, string>();
   const requestClaimByArtifact = new Map<string, string>();
   const results = new Map<string, JobResult>();
@@ -303,30 +329,97 @@ export function createVolatileProcessingControl(
       return;
     }
     try {
-      controller.signal.throwIfAborted();
       let job = await store.get(jobId, correlationId);
       if (job === undefined) return;
+      controller.signal.throwIfAborted();
       job = await transition(job, 'VALIDATING', correlationId);
       controller.signal.throwIfAborted();
       job = await transition(job, 'EXTRACTING', correlationId);
       job = await transition(job, 'DETECTING', correlationId);
-      const scan = await scanLocalTextBytes(
-        application,
-        artifact.bytes,
-        artifact.format,
-        { correlationId },
-        controller.signal
-      );
-      controller.signal.throwIfAborted();
-      job = await transition(job, 'RESOLVING', correlationId);
-      const result = resultForScan(scan, correlationId);
-      results.set(jobId, result);
-      await transition(
-        job,
-        scan.outcome,
-        correlationId,
-        { detections: result.detections.length, conflicts: result.conflicts }
-      );
+      if (job.operation === 'SCAN') {
+        const scan = await scanLocalTextBytes(
+          application,
+          artifact.bytes,
+          artifact.format,
+          { correlationId },
+          controller.signal
+        );
+        controller.signal.throwIfAborted();
+        job = await transition(job, 'RESOLVING', correlationId);
+        const result = resultForScan(scan, correlationId);
+        results.set(jobId, result);
+        await transition(
+          job,
+          scan.outcome,
+          correlationId,
+          { detections: result.detections.length, conflicts: result.conflicts }
+        );
+      } else if (job.operation === 'REDACT') {
+        job = await transition(job, 'RESOLVING', correlationId);
+        job = await transition(job, 'REDACTING', correlationId);
+        const policy = resolveLocalPolicy(job.policy);
+        if (policy === undefined) {
+          fail('POLICY_UNSATISFIABLE', 'The requested processing policy is unavailable.', false, correlationId);
+        }
+        const source = decodeLocalTextArtifact(artifact.bytes, artifact.format, correlationId);
+        const handle = createEphemeralTextArtifactSession(source, localRedactionMaximumOutputBytes);
+        let detachedOutput: Uint8Array | undefined;
+        let outputRetained = false;
+        try {
+          const redaction = await application.redact({
+            session: handle.session,
+            requirement: textCapabilityRequirement('REDACT'),
+            policy,
+            signal: controller.signal
+          }, { correlationId });
+          controller.signal.throwIfAborted();
+          job = await transition(job, 'VERIFYING', correlationId);
+          detachedOutput = handle.publishedBytes();
+          if (detachedOutput === undefined
+            || detachedOutput.byteLength !== redaction.published.byteLength
+            || digestBytes(detachedOutput) !== redaction.published.digest) {
+            fail('ARTIFACT_DIGEST_MISMATCH', 'The verified output could not be reconciled.', false, correlationId);
+          }
+          if (retainedBytes + detachedOutput.byteLength > maximumRetainedBytes) {
+            fail('RATE_LIMITED', 'The local processing session has reached its byte limit.', true, correlationId);
+          }
+          const createdAt = now();
+          const outputId = createArtifactId(createdAt, randomArtifactBytes());
+          const output: ArtifactRecord = {
+            metadata: Object.freeze({
+              schemaVersion: '1.0.0',
+              id: outputId,
+              kind: 'SANITIZED_OUTPUT',
+              mediaType: artifact.metadata.mediaType,
+              byteLength: detachedOutput.byteLength,
+              digest: redaction.published.digest,
+              displayName: artifact.format === 'markdown' ? 'document.redacted.md' : 'document.redacted.txt',
+              publicationState: 'PUBLISHABLE',
+              createdAt: createdAt.toISOString()
+            }),
+            expectedDigest: redaction.published.digest,
+            format: artifact.format,
+            bytes: detachedOutput
+          };
+          const result = resultForScan(redaction, correlationId);
+          await transition(
+            job,
+            'VERIFIED',
+            correlationId,
+            { detections: result.detections.length, conflicts: result.conflicts }
+          );
+          retainedBytes += detachedOutput.byteLength;
+          artifacts.set(outputId, output);
+          outputByJob.set(jobId, outputId);
+          results.set(jobId, result);
+          outputRetained = true;
+        } finally {
+          if (!outputRetained) detachedOutput?.fill(0);
+          handle.dispose();
+        }
+      } else {
+        fail('CONTRACT_UNSUPPORTED', 'The requested processing operation is unavailable.', false, correlationId);
+      }
     } catch (error: unknown) {
       results.delete(jobId);
       await finishCancelledOrFailed(
@@ -420,6 +513,9 @@ export function createVolatileProcessingControl(
       if (artifact?.metadata.publicationState !== 'IMMUTABLE' || artifact.bytes === undefined) {
         fail('AUTHORIZATION_DENIED', 'The requested artifact is unavailable.', false, correlationId);
       }
+      if (request.operation === 'REDACT' && artifacts.size >= maximumArtifacts) {
+        fail('RATE_LIMITED', 'The local processing session has reached its artifact limit.', true, correlationId);
+      }
       const requestClaim = `${idempotencyScope}\u0000${idempotencyKey}`;
       const priorArtifactForRequest = artifactClaimByRequest.get(requestClaim);
       if (priorArtifactForRequest !== undefined && priorArtifactForRequest !== artifactId) {
@@ -427,7 +523,7 @@ export function createVolatileProcessingControl(
       }
       const priorRequestForArtifact = requestClaimByArtifact.get(artifactId);
       if (priorRequestForArtifact !== undefined && priorRequestForArtifact !== requestClaim) {
-        fail('JOB_CONFLICT', 'The artifact is already bound to a scan job.', false, correlationId);
+        fail('JOB_CONFLICT', 'The artifact is already bound to a processing job.', false, correlationId);
       }
       artifactClaimByRequest.set(requestClaim, artifactId);
       requestClaimByArtifact.set(artifactId, requestClaim);
@@ -475,7 +571,8 @@ export function createVolatileProcessingControl(
       const job = await jobs.get(jobId, correlationId, signal);
       if (job === undefined) return undefined;
       const result = results.get(jobId);
-      if (result === undefined || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW')) {
+      if (result === undefined
+        || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW' && job.state !== 'VERIFIED')) {
         fail('JOB_CONFLICT', 'The scan results are not available yet.', true, correlationId);
       }
       const detections = result.detections.slice(cursor, cursor + limit);
@@ -495,6 +592,39 @@ export function createVolatileProcessingControl(
       });
     },
 
+    async outputForJob(jobId, correlationId, signal) {
+      signal?.throwIfAborted();
+      const job = await jobs.get(jobId, correlationId, signal);
+      if (job === undefined) return undefined;
+      const outputId = outputByJob.get(jobId);
+      const output = outputId === undefined ? undefined : artifacts.get(outputId);
+      if (job.operation !== 'REDACT' || job.state !== 'VERIFIED' || output === undefined) {
+        fail('JOB_CONFLICT', 'The verified output is not available yet.', true, correlationId);
+      }
+      return cloneArtifact(output.metadata);
+    },
+
+    downloadOutput(artifactIdInput, correlationId, signal) {
+      signal?.throwIfAborted();
+      const artifactId = parseArtifactId(artifactIdInput);
+      const output = artifacts.get(artifactId);
+      if (output?.metadata.kind !== 'SANITIZED_OUTPUT'
+        || output.metadata.publicationState !== 'PUBLISHABLE'
+        || output.bytes === undefined
+        || ![...outputByJob.values()].includes(artifactId)) {
+        return Promise.resolve(undefined);
+      }
+      if (output.bytes.byteLength !== output.metadata.byteLength
+        || digestBytes(output.bytes) !== output.metadata.digest) {
+        fail('ARTIFACT_DIGEST_MISMATCH', 'The verified output could not be reconciled.', false, correlationId);
+      }
+      signal?.throwIfAborted();
+      return Promise.resolve(Object.freeze({
+        artifact: cloneArtifact(output.metadata),
+        bytes: Uint8Array.from(output.bytes)
+      }));
+    },
+
     async close() {
       if (closed) return;
       closed = true;
@@ -503,6 +633,7 @@ export function createVolatileProcessingControl(
       for (const artifact of artifacts.values()) releaseArtifactBytes(artifact);
       artifacts.clear();
       artifactByJob.clear();
+      outputByJob.clear();
       artifactClaimByRequest.clear();
       requestClaimByArtifact.clear();
       results.clear();
@@ -512,6 +643,8 @@ export function createVolatileProcessingControl(
   return Object.freeze(control);
 }
 
-export function isProcessingJobRequest(request: CreateJobRequest): request is ProcessingJobRequest {
-  return request.schemaVersion === '2.0.0';
+export function isProcessingJobRequest(
+  request: CreateJobRequest
+): request is ProcessingJobRequest | LocalProcessingJobRequest {
+  return request.schemaVersion === '2.0.0' || request.schemaVersion === '3.0.0';
 }

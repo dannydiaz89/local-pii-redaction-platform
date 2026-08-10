@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   localPreviewMaximumConflictDetails,
   localPreviewMaximumDetectionDetails,
-  localPreviewMaximumInputBytes
+  localPreviewMaximumInputBytes,
+  localRedactionMaximumOutputBytes
 } from '@local-pii/contracts';
 
 import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
@@ -11,7 +12,8 @@ import { createLocalJobClient, projectPolicyCatalog, projectPreviewScan } from '
 import {
   webPreviewMaximumConflictDetails,
   webPreviewMaximumDetectionDetails,
-  webPreviewMaximumInputBytes
+  webPreviewMaximumInputBytes,
+  webRedactionMaximumOutputBytes
 } from '../src/preview-limit.js';
 
 const session = {
@@ -50,9 +52,13 @@ function policyResponse(): Readonly<Record<string, unknown>> {
   return { schemaVersion: '1.0.0', defaultPolicyId: policy.id, policies: [policy] };
 }
 
-function jobResponse(state = 'QUEUED', revision = 1): Readonly<Record<string, unknown>> {
+function jobResponse(
+  state = 'QUEUED',
+  revision = 1,
+  operation: 'SCAN' | 'REDACT' = 'SCAN'
+): Readonly<Record<string, unknown>> {
   return {
-    schemaVersion: '1.0.0', id: jobId, operation: 'SCAN', state, revision,
+    schemaVersion: '1.0.0', id: jobId, operation, state, revision,
     policy: { id: policy.id, version: policy.version, digest: policy.digest },
     createdAt: '2026-08-09T18:00:00Z', updatedAt: '2026-08-09T18:00:00Z'
   };
@@ -145,6 +151,7 @@ describe('browser policy and job client', () => {
     expect(webPreviewMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
     expect(webPreviewMaximumDetectionDetails).toBe(localPreviewMaximumDetectionDetails);
     expect(webPreviewMaximumConflictDetails).toBe(localPreviewMaximumConflictDetails);
+    expect(webRedactionMaximumOutputBytes).toBe(localRedactionMaximumOutputBytes);
   });
 
   it('projects a closed policy catalog without presentation copy', () => {
@@ -353,6 +360,83 @@ describe('browser policy and job client', () => {
     expect(serialized).not.toContain(privateName);
     expect(fetchImplementation.mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
+    });
+  });
+
+  it('downloads only the digest-bound verified output from a session redaction job', async () => {
+    const inputArtifactId = 'art_01J4M91NJK8WAPJ7J95K73CB2M';
+    const outputArtifactId = 'art_01J4M91NJK8WAPJ7J95K73CB2N';
+    const outputBytes = new TextEncoder().encode('Synthetic contact: [EMAIL_1]');
+    const outputDigestBytes = await globalThis.crypto.subtle.digest('SHA-256', outputBytes);
+    const outputDigest = `sha256:${Array.from(new Uint8Array(outputDigestBytes), (byte) =>
+      byte.toString(16).padStart(2, '0')).join('')}`;
+    let inputDigest = '';
+    let inputByteLength = 0;
+    const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname === '/v1/artifacts' && init?.method === 'POST') {
+        const request = JSON.parse(init.body as string) as { byteLength: number; digest: string };
+        inputDigest = request.digest;
+        inputByteLength = request.byteLength;
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', id: inputArtifactId, kind: 'INPUT', mediaType: 'text/plain',
+          byteLength: request.byteLength, digest: request.digest, displayName: 'document.txt',
+          publicationState: 'STAGED', createdAt: '2026-08-09T18:00:00Z'
+        }));
+      }
+      if (url.pathname === `/v1/artifacts/${inputArtifactId}/content` && init?.method === 'PUT') {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', id: inputArtifactId, kind: 'INPUT', mediaType: 'text/plain',
+          byteLength: inputByteLength, digest: inputDigest, displayName: 'document.txt',
+          publicationState: 'IMMUTABLE', createdAt: '2026-08-09T18:00:00Z'
+        }));
+      }
+      if (url.pathname === '/v1/jobs' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(jobResponse('QUEUED', 1, 'REDACT')));
+      }
+      if (url.pathname === `/v1/jobs/${jobId}`) {
+        return Promise.resolve(jsonResponse(jobResponse('VERIFIED', 8, 'REDACT')));
+      }
+      if (url.pathname === `/v1/jobs/${jobId}/output`) {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', id: outputArtifactId, kind: 'SANITIZED_OUTPUT', mediaType: 'text/plain',
+          byteLength: outputBytes.byteLength, digest: outputDigest, displayName: 'document.redacted.txt',
+          publicationState: 'PUBLISHABLE', createdAt: '2026-08-09T18:00:01Z'
+        }));
+      }
+      if (url.pathname === `/v1/artifacts/${outputArtifactId}/content` && init?.method === 'GET') {
+        return Promise.resolve(new Response(outputBytes, {
+          status: 200,
+          headers: { 'content-type': 'text/plain', 'content-length': String(outputBytes.byteLength) }
+        }));
+      }
+      return Promise.reject(new Error('UNEXPECTED_REQUEST'));
+    });
+    const client = createLocalJobClient(session, fetchImplementation);
+    const sourceName = 'private-redaction-source.txt';
+    const result = await client.redact(
+      new File(['Synthetic contact: browser-redaction@example.test'], sourceName, { type: 'text/plain' }),
+      policy,
+      () => undefined,
+      new AbortController().signal
+    );
+
+    expect(new TextDecoder().decode(result.output.bytes)).toBe('Synthetic contact: [EMAIL_1]');
+    expect(result).toMatchObject({
+      job: { operation: 'REDACT', state: 'VERIFIED' },
+      output: { id: outputArtifactId, displayName: 'document.redacted.txt', digest: outputDigest }
+    });
+    const calls = fetchImplementation.mock.calls.map(([input]) => requestUrl(input).pathname);
+    expect(calls).toEqual([
+      '/v1/artifacts', `/v1/artifacts/${inputArtifactId}/content`, '/v1/jobs',
+      `/v1/jobs/${jobId}`, `/v1/jobs/${jobId}/output`, `/v1/artifacts/${outputArtifactId}/content`
+    ]);
+    const serialized = fetchImplementation.mock.calls.map(([input, init]) =>
+      `${requestUrl(input).href}\n${typeof init?.body === 'string' ? init.body : ''}`).join('\n');
+    expect(serialized).not.toContain(sourceName);
+    const createBody = fetchImplementation.mock.calls[2]?.[1]?.body;
+    expect(typeof createBody === 'string' ? JSON.parse(createBody) : undefined).toMatchObject({
+      schemaVersion: '3.0.0', operation: 'REDACT', inputArtifactId
     });
   });
 

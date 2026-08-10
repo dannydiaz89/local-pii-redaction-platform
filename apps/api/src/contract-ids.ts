@@ -6,6 +6,7 @@ export const apiContractIds = Object.freeze({
   createArtifactRequest: 'https://local-pii.dev/schemas/artifacts/create-artifact-request/1.0.0',
   createJobRequest: 'https://local-pii.dev/schemas/jobs/create-job-request/1.0.0',
   createProcessingJobRequest: 'https://local-pii.dev/schemas/jobs/create-job-request/2.0.0',
+  createLocalProcessingJobRequest: 'https://local-pii.dev/schemas/jobs/create-job-request/3.0.0',
   detectionPage: 'https://local-pii.dev/schemas/jobs/detection-page/1.0.0',
   error: 'https://local-pii.dev/schemas/common/errors/1.0.0',
   errorV2: 'https://local-pii.dev/schemas/common/errors/2.0.0',

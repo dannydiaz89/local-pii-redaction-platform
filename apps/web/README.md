@@ -9,6 +9,8 @@ Accessible, localized React shell for the future local review workflow.
   state/events, cancellation, and value-free detection pagination.
 - Runs the authenticated rules-only job and renders localized status, aggregate counts, a bounded
   filterable native detection table, server-owned page controls, and a native conflict table.
+- Creates and verifies a session-only redacted copy through the real shared application core, then
+  offers a generic authenticated download without changing the selected source file.
 - Keeps wide result tables keyboard-scrollable on narrow viewports.
 - Consumes the one-time in-memory launcher bootstrap without browser persistence.
 - Uses shared primitives and semantic tokens from `@local-pii/ui`.
@@ -25,8 +27,10 @@ Artifact/job metadata and value-free results disappear when the application clos
 to 100 detection rows exposes only category, one-based Unicode code-point location,
 detector confidence, and evidence-source labels. Up to 100 conflict rows expose only range,
 possible categories, and source labels; matched values and evidence IDs are not returned or
-rendered. The application does not yet provide durable resume, editable review decisions,
-redaction, or download. Running Vite directly intentionally shows the disconnected state
+rendered. After a conflict-free scan, the application can create and download a verified redacted
+copy. Its temporary Blob URL is page-local and the server output exists only for the current
+application launch. The application does not provide durable resume/history, editable review
+decisions, retained reports, or lifecycle deletion. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.
 
 ## Development

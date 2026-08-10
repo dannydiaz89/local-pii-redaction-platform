@@ -1,4 +1,4 @@
-import { bundledPolicies, compilePolicy } from '@local-pii/policy';
+import { bundledPolicies, compilePolicy, type EffectivePolicy } from '@local-pii/policy';
 
 export interface LocalPolicySummary {
   readonly id: string;
@@ -12,6 +12,12 @@ export interface LocalPolicyCatalog {
   readonly schemaVersion: '1.0.0';
   readonly defaultPolicyId: string;
   readonly policies: readonly [LocalPolicySummary, ...LocalPolicySummary[]];
+}
+
+export interface LocalPolicyReference {
+  readonly id: string;
+  readonly version: string;
+  readonly digest: string;
 }
 
 /** Returns only pinned operational metadata; policy rules and presentation copy remain separate. */
@@ -39,4 +45,13 @@ export function createLocalPolicyCatalog(): LocalPolicyCatalog {
     defaultPolicyId: 'development-labels',
     policies: frozenPolicies
   });
+}
+
+/** Resolves only an exact digest-pinned bundled policy; presentation metadata is not accepted. */
+export function resolveLocalPolicy(reference: LocalPolicyReference): EffectivePolicy | undefined {
+  const sources: Partial<Record<string, (typeof bundledPolicies)[keyof typeof bundledPolicies]>> = bundledPolicies;
+  const source = sources[reference.id];
+  if (source === undefined) return undefined;
+  const policy = compilePolicy(source);
+  return policy.version === reference.version && policy.digest === reference.digest ? policy : undefined;
 }

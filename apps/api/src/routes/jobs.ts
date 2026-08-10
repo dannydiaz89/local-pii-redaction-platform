@@ -19,15 +19,21 @@ export function registerJobRoutes(server: FastifyInstance, context: ApiRouteCont
   const { dependencies, handlerTimeoutMs, jobIdempotencyScope, lifecycleSignal } = context;
 
   server.post('/v1/jobs', async (request, reply) => {
-    const processingRequest = request.body !== null
+    const schemaVersion = request.body !== null
       && typeof request.body === 'object'
       && !Array.isArray(request.body)
-      && (request.body as Record<string, unknown>).schemaVersion === '2.0.0';
+      ? (request.body as Record<string, unknown>).schemaVersion
+      : undefined;
+    const processingRequest = schemaVersion === '2.0.0' || schemaVersion === '3.0.0';
     const jobs = processingRequest ? dependencies.processing : dependencies.jobs;
     if (jobs === undefined) throw unavailableJob(request);
     const body = canonicalBody(
       request,
-      processingRequest ? apiContractIds.createProcessingJobRequest : apiContractIds.createJobRequest
+      schemaVersion === '3.0.0'
+        ? apiContractIds.createLocalProcessingJobRequest
+        : processingRequest
+          ? apiContractIds.createProcessingJobRequest
+          : apiContractIds.createJobRequest
     ) as CreateJobRequest;
     const correlationId = requestCorrelationId(request);
     const result = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
@@ -66,6 +72,16 @@ export function registerJobRoutes(server: FastifyInstance, context: ApiRouteCont
     );
     if (page === undefined) throw unavailableJob(request);
     return sendCanonical(reply, apiContractIds.detectionPage, page);
+  });
+
+  server.get('/v1/jobs/:jobId/output', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const output = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
+      processing.outputForJob(jobIdParameter(request), requestCorrelationId(request), signal)
+    );
+    if (output === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, apiContractIds.artifact, output);
   });
 
   server.post('/v1/jobs/:jobId/cancellation', async (request, reply) => {

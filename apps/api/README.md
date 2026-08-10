@@ -6,8 +6,10 @@ Loopback-only HTTP composition root for the local web application.
 
 - Builds the Fastify server around injected application and readiness ports.
 - Exposes privacy-minimized liveness, readiness, capability, and pinned-policy catalog endpoints.
-- Exposes authenticated metadata-only job control plus a bounded process-local artifact and real
-  asynchronous rules-scan worker with value-free detection pagination.
+- Exposes authenticated metadata-only job control plus bounded process-local artifacts and real
+  asynchronous rules scan/redaction workers with value-free detection pagination.
+- Authorizes a verified redacted output only after the shared core reopens and verifies it, then
+  serves its exact bytes under a generic attachment name.
 - Runs an authenticated 8 MiB process-local TXT/Markdown preview scan that returns aggregate counts
   or at most 100 value-free detection rows and 100 value-free conflict rows through separate
   versioned contracts.
@@ -19,11 +21,13 @@ Loopback-only HTTP composition root for the local web application.
 
 This is a development scaffold. Its browser profile admits at most eight process-local artifacts
 and 32 MiB of retained input bytes, accepts each byte sequence once against a declared digest, and
-runs one real rules-scan worker at a time. The worker overwrites and releases its byte buffer after
-processing; all artifact metadata, job metadata, and value-free results disappear at shutdown.
-JavaScript strings cannot be reliably zeroized. The older preview routes remain for compatibility.
-It does not yet expose durable uploads, editable review decisions, reports, downloads, or durable
-storage. Detection/conflict locations never include matched values, excerpts, or evidence IDs. The
+runs one real rules scan or redaction worker at a time. Scan inputs are overwritten and released
+after processing; a verified redacted output is retained only for authenticated download during the
+current application launch. All artifact metadata, job metadata, value-free results, and output
+bytes disappear at shutdown. JavaScript strings cannot be reliably zeroized. The older preview
+routes remain for compatibility. It does not expose durable uploads, editable review decisions,
+reports, retained downloads, or durable storage. Detection/conflict locations never include matched
+values, excerpts, or evidence IDs. The
 external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.
 

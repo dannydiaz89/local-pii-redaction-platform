@@ -77,6 +77,11 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-details-privacy { margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 .page-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
 .page-controls > span { color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.redaction-panel { display: grid; gap: var(--space-3); margin-block-start: var(--space-4); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-4); }
+.redaction-panel h3, .redaction-panel > p { margin: 0; }
+.redaction-panel > .ui-button { justify-self: start; }
+.download-link { display: inline-flex; min-block-size: 2.75rem; align-items: center; border-radius: var(--radius-small); padding: .7rem 1rem; color: white; background: var(--color-accent); font-weight: 750; text-decoration: none; }
+.download-link:hover { background: var(--color-accent-strong); }
 
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
 

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "3.0.0",
+  "operation": "VERIFY",
+  "inputArtifactId": "art_01J4M91NJK8WAPJ7J95K73CB2M",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

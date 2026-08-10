@@ -195,6 +195,18 @@ export interface TextArtifactSession extends TextInputSession {
   discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
 }
 
+export type EphemeralTextArtifactSource = Readonly<Omit<TextArtifact, 'path'>>;
+
+/**
+ * Owns a process-local staged/published byte sequence for non-filesystem composition roots.
+ * Returned bytes are detached copies; `dispose` overwrites buffers still owned by this handle.
+ */
+export interface EphemeralTextArtifactSessionHandle {
+  readonly session: TextArtifactSession;
+  publishedBytes(): Uint8Array | undefined;
+  dispose(): void;
+}
+
 function digestBytes(bytes: Uint8Array): Sha256Digest {
   return parseSha256Digest(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
 }
@@ -1029,6 +1041,160 @@ export function createLocalTextArtifactSession(
       await discardStagedTextArtifact(staged, fileSystem);
     }
   };
+}
+
+/**
+ * Creates the same typed-label writer boundary as the filesystem adapter without selecting a path.
+ * This is intended for bounded session-only API work; publication commits only to this handle.
+ */
+export function createEphemeralTextArtifactSession(
+  sourceInput: EphemeralTextArtifactSource,
+  maximumOutputBytes = defaultMaximumInputBytes
+): EphemeralTextArtifactSessionHandle {
+  if (!Number.isSafeInteger(maximumOutputBytes) || maximumOutputBytes < 1) {
+    throw new TypeError('The ephemeral text output limit is invalid.');
+  }
+  const source: TextArtifact = Object.freeze({ ...sourceInput, path: 'ephemeral:input' });
+  let stagedState: { readonly descriptor: StagedTextArtifact; readonly bytes: Buffer } | undefined;
+  let published: Buffer | undefined;
+  let disposed = false;
+
+  const requireActive = (): void => {
+    if (disposed) {
+      throw new SafeError({
+        code: 'STORAGE_UNAVAILABLE',
+        message: 'The ephemeral artifact session is unavailable.',
+        retryable: false,
+        correlationId: 'cor_text_adapter'
+      });
+    }
+  };
+  const matchingStage = (staged: StagedTextArtifact) => stagedState !== undefined
+    && staged.reference === stagedState.descriptor.reference
+    && staged.digest === stagedState.descriptor.digest
+    && staged.byteLength === stagedState.descriptor.byteLength;
+  const clearStage = (): void => {
+    stagedState?.bytes.fill(0);
+    stagedState = undefined;
+  };
+
+  const session: TextArtifactSession = {
+    writer: textWriterDescriptor,
+    input(signal) {
+      signal?.throwIfAborted();
+      requireActive();
+      return Promise.resolve(source);
+    },
+    stage(plan, signal) {
+      signal?.throwIfAborted();
+      requireActive();
+      if (stagedState !== undefined || published !== undefined) {
+        throw new SafeError({
+          code: 'JOB_CONFLICT',
+          message: 'The ephemeral artifact session already contains an output.',
+          retryable: false,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      assertWriterPlanCanApply(plan, source);
+      const encoded = Buffer.from(new TextEncoder().encode(applyTypedLabelPlan(source.text, plan)));
+      const bytes = source.hasUtf8Bom
+        ? Buffer.concat([Buffer.from(utf8Bom), encoded])
+        : encoded;
+      if (bytes.byteLength > maximumOutputBytes) {
+        bytes.fill(0);
+        throw new SafeError({
+          code: 'INPUT_TOO_LARGE',
+          message: 'The derived artifact exceeds the configured byte limit.',
+          retryable: false,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      const descriptorWithoutReceipt = {
+        reference: 'ephemeral:stage',
+        path: 'ephemeral:stage',
+        targetPath: 'ephemeral:published',
+        byteLength: bytes.byteLength,
+        digest: digestBytes(bytes)
+      };
+      const descriptor = Object.freeze({
+        ...descriptorWithoutReceipt,
+        receipt: createTextWriterReceipt(plan, descriptorWithoutReceipt)
+      });
+      stagedState = { descriptor, bytes };
+      try {
+        signal?.throwIfAborted();
+      } catch (error: unknown) {
+        clearStage();
+        throw error;
+      }
+      return Promise.resolve(descriptor);
+    },
+    reopen(staged, signal) {
+      signal?.throwIfAborted();
+      requireActive();
+      if (!matchingStage(staged) || stagedState === undefined) {
+        throw new SafeError({
+          code: 'ARTIFACT_DIGEST_MISMATCH',
+          message: 'The staged artifact changed before it could be reopened.',
+          retryable: false,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      const bytes = stagedState.bytes;
+      const content = source.hasUtf8Bom ? bytes.subarray(utf8Bom.byteLength) : bytes;
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+      signal?.throwIfAborted();
+      return Promise.resolve(Object.freeze({
+        reference: staged.reference,
+        path: staged.path,
+        displayName: source.displayName,
+        mediaType: source.mediaType,
+        byteLength: bytes.byteLength,
+        digest: digestBytes(bytes),
+        extractionRevision: extractionDigest(text),
+        text,
+        hasUtf8Bom: source.hasUtf8Bom
+      }));
+    },
+    publish(staged, signal) {
+      signal?.throwIfAborted();
+      requireActive();
+      if (!matchingStage(staged) || stagedState === undefined) {
+        throw new SafeError({
+          code: 'ARTIFACT_DIGEST_MISMATCH',
+          message: 'The staged artifact changed before publication.',
+          retryable: false,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      published = stagedState.bytes;
+      stagedState = undefined;
+      return Promise.resolve(Object.freeze({
+        reference: 'ephemeral:published',
+        byteLength: published.byteLength,
+        digest: digestBytes(published)
+      }));
+    },
+    discard(staged, signal) {
+      signal?.throwIfAborted();
+      requireActive();
+      if (matchingStage(staged)) clearStage();
+      return Promise.resolve();
+    }
+  };
+
+  return Object.freeze({
+    session: Object.freeze(session),
+    publishedBytes: () => published === undefined ? undefined : Uint8Array.from(published),
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      clearStage();
+      published?.fill(0);
+      published = undefined;
+    }
+  });
 }
 
 export async function writeTextArtifact(

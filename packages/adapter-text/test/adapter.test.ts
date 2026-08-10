@@ -11,6 +11,7 @@ import { compileTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction
 import { rm } from 'node:fs/promises';
 
 import {
+  createEphemeralTextArtifactSession,
   createLocalTextArtifactSession,
   createTextWriterReceipt,
   cleanupStaleTextStages,
@@ -103,6 +104,36 @@ async function stageEntries(root: string): Promise<string[]> {
 }
 
 describe('text adapter', () => {
+  it('stages, reopens, publishes, and disposes a process-local typed-label output', async () => {
+    const root = await directory();
+    const input = join(root, 'ephemeral-source.txt');
+    await writeFile(input, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('alice@example.test')]));
+    const { path, ...source } = await readTextArtifact(input);
+    const handle = createEphemeralTextArtifactSession(source, 1024);
+
+    const staged = await handle.session.stage(typedLabelPlan(await handle.session.input()));
+    const reopened = await handle.session.reopen(staged);
+    const published = await handle.session.publish(staged);
+
+    expect(reopened.text).toBe('[EMAIL_1]');
+    expect(path.endsWith('/ephemeral-source.txt')).toBe(true);
+    expect(reopened.digest).toBe(staged.digest);
+    expect(published).toMatchObject({
+      reference: 'ephemeral:published',
+      digest: staged.digest,
+      byteLength: staged.byteLength
+    });
+    expect(handle.publishedBytes()).toEqual(
+      Uint8Array.from(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('[EMAIL_1]')]))
+    );
+    expect(await readFile(input)).toEqual(
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('alice@example.test')])
+    );
+
+    handle.dispose();
+    expect(handle.publishedBytes()).toBeUndefined();
+  });
+
   it('matches fixed SHA-256 vectors for artifact bytes and canonical extraction revisions', async () => {
     const root = await directory();
     const input = join(root, 'digest-vector.txt');

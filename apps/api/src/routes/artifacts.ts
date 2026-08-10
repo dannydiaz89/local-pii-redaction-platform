@@ -44,4 +44,20 @@ export function registerArtifactRoutes(server: FastifyInstance, context: ApiRout
     );
     return sendCanonical(reply, apiContractIds.artifact, artifact);
   });
+
+  server.get('/v1/artifacts/:artifactId/content', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const output = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
+      processing.downloadOutput(artifactIdParameter(request), requestCorrelationId(request), signal)
+    );
+    if (output === undefined) throw unavailableJob(request);
+    reply.type(output.artifact.mediaType);
+    reply.header('content-length', String(output.bytes.byteLength));
+    reply.header('content-disposition', `attachment; filename="${output.artifact.displayName}"`);
+    reply.header('x-local-pii-digest', output.artifact.digest);
+    const payload = Buffer.from(output.bytes);
+    output.bytes.fill(0);
+    return reply.send(payload);
+  });
 }

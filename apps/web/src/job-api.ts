@@ -9,13 +9,15 @@ import type {
 import {
   assertLocalApiSession,
   readBoundedJsonResponse,
+  readBoundedResponseBytes,
   runBoundedLocalRequest,
   type LocalApiSession
 } from './api.js';
 import {
   webPreviewMaximumConflictDetails,
   webPreviewMaximumDetectionDetails,
-  webPreviewMaximumInputBytes
+  webPreviewMaximumInputBytes,
+  webRedactionMaximumOutputBytes
 } from './preview-limit.js';
 
 export type JobOperation = JobsJobContract.Job['operation'];
@@ -111,6 +113,20 @@ export interface ProcessingScanSummary extends DetectionPageSummary {
   readonly events: readonly JobEventSummary[];
 }
 
+export interface RedactedOutputSummary {
+  readonly id: string;
+  readonly mediaType: 'text/plain' | 'text/markdown';
+  readonly byteLength: number;
+  readonly digest: string;
+  readonly displayName: 'document.redacted.txt' | 'document.redacted.md';
+  readonly bytes: Uint8Array;
+}
+
+export interface ProcessingRedactionSummary {
+  readonly job: JobStatusSummary;
+  readonly output: RedactedOutputSummary;
+}
+
 export interface LocalJobClient {
   loadPolicies(signal: AbortSignal): Promise<PolicyCatalogSummary>;
   scan(
@@ -119,6 +135,12 @@ export interface LocalJobClient {
     onProgress: (state: ScanProgressState) => void,
     signal: AbortSignal
   ): Promise<ProcessingScanSummary>;
+  redact(
+    file: File,
+    policy: PolicyReference,
+    onProgress: (state: ScanProgressState) => void,
+    signal: AbortSignal
+  ): Promise<ProcessingRedactionSummary>;
   listDetections(
     jobId: string,
     cursor: number,
@@ -474,6 +496,34 @@ function projectArtifact(value: unknown): ArtifactSummary {
   });
 }
 
+function projectOutputArtifact(value: unknown): Omit<RedactedOutputSummary, 'bytes'> {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'id', 'kind', 'mediaType', 'byteLength', 'digest', 'displayName',
+      'publicationState', 'createdAt', 'expiresAt'
+    ])
+    || value.schemaVersion !== '1.0.0'
+    || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
+    || value.kind !== 'SANITIZED_OUTPUT'
+    || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
+    || !safeInteger(value.byteLength, 0, webRedactionMaximumOutputBytes)
+    || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
+    || (value.displayName !== 'document.redacted.txt' && value.displayName !== 'document.redacted.md')
+    || (value.mediaType === 'text/plain') !== (value.displayName === 'document.redacted.txt')
+    || value.publicationState !== 'PUBLISHABLE'
+    || !dateTime(value.createdAt)
+    || (value.expiresAt !== undefined && !dateTime(value.expiresAt))) {
+    throw new Error('OUTPUT_RESPONSE_INVALID');
+  }
+  return Object.freeze({
+    id: value.id,
+    mediaType: value.mediaType,
+    byteLength: value.byteLength,
+    digest: value.digest,
+    displayName: value.displayName
+  });
+}
+
 export function projectDetectionPage(value: unknown, expectedJobId: string): DetectionPageSummary {
   if (!isRecord(value)
     || !hasOnlyKeys(value, [
@@ -659,22 +709,17 @@ export function createLocalJobClient(
     if (!jobIdPattern.test(jobId)) throw new TypeError('The job identifier is invalid.');
     return new URL(`/v1/jobs/${jobId}${suffix}`, origin);
   };
-
-  const client: LocalJobClient = {
-    loadPolicies(signal) {
-      return invoke(signal, async (operationSignal) => projectPolicyCatalog(await requestJson(
-        origin, session.bearerToken, fetchImplementation, new URL('/v1/policies', origin),
-        { method: 'GET' }, operationSignal, maximumPolicyResponseBytes, 'POLICY_RESPONSE_INVALID'
-      )));
-    },
-
-    async scan(file, policy, onProgress, signal) {
-      const mediaType = mediaTypeForFile(file);
-      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > webPreviewMaximumInputBytes) {
-        throw new TypeError('The scan file is invalid.');
-      }
-      const trustedPolicy = projectPolicy(policy);
-      const bytes = await file.arrayBuffer();
+  const uploadInput = async (
+    file: File,
+    onProgress: (state: ScanProgressState) => void,
+    signal: AbortSignal
+  ): Promise<ArtifactSummary> => {
+    const mediaType = mediaTypeForFile(file);
+    if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > webPreviewMaximumInputBytes) {
+      throw new TypeError('The processing file is invalid.');
+    }
+    const bytes = await file.arrayBuffer();
+    try {
       if (signal.aborted) throw new Error('JOB_REQUEST_CANCELLED');
       if (bytes.byteLength !== file.size) throw new Error('ARTIFACT_REQUEST_FAILED');
       const digest = await sha256Digest(bytes);
@@ -710,6 +755,23 @@ export function createLocalJobClient(
         || immutableArtifact.publicationState !== 'IMMUTABLE') {
         throw new Error('ARTIFACT_RESPONSE_INVALID');
       }
+      return immutableArtifact;
+    } finally {
+      new Uint8Array(bytes).fill(0);
+    }
+  };
+
+  const client: LocalJobClient = {
+    loadPolicies(signal) {
+      return invoke(signal, async (operationSignal) => projectPolicyCatalog(await requestJson(
+        origin, session.bearerToken, fetchImplementation, new URL('/v1/policies', origin),
+        { method: 'GET' }, operationSignal, maximumPolicyResponseBytes, 'POLICY_RESPONSE_INVALID'
+      )));
+    },
+
+    async scan(file, policy, onProgress, signal) {
+      const trustedPolicy = projectPolicy(policy);
+      const artifact = await uploadInput(file, onProgress, signal);
       const body = JSON.stringify({
         schemaVersion: '2.0.0',
         operation: 'SCAN',
@@ -742,6 +804,72 @@ export function createLocalJobClient(
         outcome: job.state,
         job,
         events: eventPage.events
+      });
+    },
+
+    async redact(file, policy, onProgress, signal) {
+      const trustedPolicy = projectPolicy(policy);
+      const artifact = await uploadInput(file, onProgress, signal);
+      const body = JSON.stringify({
+        schemaVersion: '3.0.0',
+        operation: 'REDACT',
+        inputArtifactId: artifact.id,
+        policy: { id: trustedPolicy.id, version: trustedPolicy.version, digest: trustedPolicy.digest }
+      });
+      let job = projectJob(await invoke(signal, async (operationSignal) => requestJson(
+        origin, session.bearerToken, fetchImplementation, new URL('/v1/jobs', origin),
+        { method: 'POST', body, idempotencyKey: createIdempotencyKey() },
+        operationSignal, maximumJobResponseBytes, 'JOB_RESPONSE_INVALID'
+      )));
+      if (job.operation !== 'REDACT') throw new Error('JOB_RESPONSE_INVALID');
+      onProgress(job.state);
+      const workflowDeadline = Date.now() + scanWorkflowTimeoutMs;
+      while (job.state !== 'VERIFIED') {
+        if (job.state === 'SUCCEEDED' || job.state === 'NEEDS_REVIEW'
+          || job.state === 'FAILED' || job.state === 'CANCELLED' || job.state === 'EXPIRED') {
+          throw new Error('JOB_PROCESSING_FAILED');
+        }
+        if (Date.now() >= workflowDeadline) throw new Error('JOB_PROCESSING_TIMEOUT');
+        await waitForPoll(signal, 75);
+        job = await client.get(job.id, signal);
+        if (job.operation !== 'REDACT') throw new Error('JOB_RESPONSE_INVALID');
+        onProgress(job.state);
+      }
+      const output = projectOutputArtifact(await invoke(signal, async (operationSignal) => requestJson(
+        origin, session.bearerToken, fetchImplementation, jobUrl(job.id, '/output'),
+        { method: 'GET' }, operationSignal, maximumJobResponseBytes, 'OUTPUT_RESPONSE_INVALID',
+        'OUTPUT_REQUEST_FAILED'
+      )));
+      const outputUrl = new URL(`/v1/artifacts/${output.id}/content`, origin);
+      const outputBytes = await invoke(signal, async (operationSignal) => {
+        const response = await fetchImplementation(outputUrl, {
+          method: 'GET',
+          headers: { authorization: `Bearer ${session.bearerToken}`, accept: output.mediaType },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+          referrerPolicy: 'no-referrer',
+          signal: operationSignal
+        });
+        if (outputUrl.origin !== origin.origin || !response.ok) throw new Error('OUTPUT_REQUEST_FAILED');
+        const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
+        if (mediaType !== output.mediaType) throw new Error('OUTPUT_RESPONSE_INVALID');
+        return readBoundedResponseBytes(response, webRedactionMaximumOutputBytes, 'OUTPUT_RESPONSE_INVALID');
+      });
+      const digestBytes = outputBytes.slice();
+      let downloadedDigest: string;
+      try {
+        downloadedDigest = await sha256Digest(digestBytes.buffer);
+      } finally {
+        digestBytes.fill(0);
+      }
+      if (outputBytes.byteLength !== output.byteLength || downloadedDigest !== output.digest) {
+        outputBytes.fill(0);
+        throw new Error('OUTPUT_RESPONSE_INVALID');
+      }
+      return Object.freeze({
+        job,
+        output: Object.freeze({ ...output, bytes: outputBytes })
       });
     },
 
@@ -834,6 +962,7 @@ export function createDisconnectedJobClient(): LocalJobClient {
   return {
     loadPolicies: unavailable,
     scan: unavailable,
+    redact: unavailable,
     listDetections: unavailable,
     scanPreview: unavailable,
     create: unavailable,

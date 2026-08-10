@@ -53,13 +53,14 @@ export function assertLocalApiSession(session: LocalApiSession): URL {
   return origin;
 }
 
-export async function readBoundedJsonResponse(
+export async function readBoundedResponseBytes(
   response: Response,
   maximumResponseBytes: number,
   invalidResponseCode: string
-): Promise<unknown> {
+): Promise<Uint8Array> {
   const declaredLength = response.headers.get('content-length');
-  if (declaredLength !== null && Number(declaredLength) > maximumResponseBytes) {
+  if (declaredLength !== null
+    && (!/^(0|[1-9][0-9]*)$/u.test(declaredLength) || Number(declaredLength) > maximumResponseBytes)) {
     throw new Error(invalidResponseCode);
   }
   if (response.body === null) throw new Error(invalidResponseCode);
@@ -74,6 +75,9 @@ export async function readBoundedJsonResponse(
       if (total > maximumResponseBytes) throw new Error(invalidResponseCode);
       chunks.push(result.value);
     }
+  } catch (error: unknown) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -83,6 +87,15 @@ export async function readBoundedJsonResponse(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return body;
+}
+
+export async function readBoundedJsonResponse(
+  response: Response,
+  maximumResponseBytes: number,
+  invalidResponseCode: string
+): Promise<unknown> {
+  const body = await readBoundedResponseBytes(response, maximumResponseBytes, invalidResponseCode);
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)) as unknown;
   } catch {

@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   title: Local PII Redaction API
   version: 0.1.0
-  description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
-x-implementation-status: session-artifact-scan-job-and-metadata-control
+  description: Local-first session job and artifact control plane. Artifact bytes are never embedded in JSON.
+x-implementation-status: session-artifact-scan-redact-and-verified-download
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -129,6 +129,23 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/artifacts/artifact.schema.json"
+    get:
+      operationId: downloadVerifiedSessionArtifact
+      description: Downloads a server-authorized, verified process-local redacted output. Input artifacts are never downloadable through this route.
+      responses:
+        "200":
+          description: Exact verified redacted bytes with a generic attachment name
+          content:
+            text/plain:
+              schema: { type: string, contentMediaType: text/plain, maxLength: 16777216 }
+            text/markdown:
+              schema: { type: string, contentMediaType: text/markdown, maxLength: 16777216 }
+        "404":
+          description: Artifact is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId
@@ -169,9 +186,10 @@ paths:
               oneOf:
                 - $ref: "./schemas/jobs/create-job-request.schema.json"
                 - $ref: "./schemas/jobs/create-job-request-v2.schema.json"
+                - $ref: "./schemas/jobs/create-job-request-v3.schema.json"
       responses:
         "201":
-          description: A new metadata-only or process-local scan job was created
+          description: A new metadata-only, process-local scan, or process-local redaction job was created
           content:
             application/json:
               schema:
@@ -238,6 +256,28 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/jobs/detection-page.schema.json"
+  /v1/jobs/{jobId}/output:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    get:
+      operationId: getVerifiedJobOutput
+      description: Returns minimized metadata only after a redaction job reaches VERIFIED.
+      responses:
+        "200":
+          description: Server-authorized verified process-local output metadata
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/artifacts/artifact.schema.json"
+        "404":
+          description: Job or output is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
   /v1/jobs/{jobId}/cancellation:
     parameters:
       - name: jobId

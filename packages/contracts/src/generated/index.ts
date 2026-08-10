@@ -19,6 +19,7 @@ export * as DetectionDetectionContract from './detection-detection.js';
 export * as ExtractionExtractedDocumentContract from './extraction-extracted-document.js';
 export * as JobsCancelJobRequestContract from './jobs-cancel-job-request.js';
 export * as JobsCreateJobRequestV2Contract from './jobs-create-job-request-v2.js';
+export * as JobsCreateJobRequestV3Contract from './jobs-create-job-request-v3.js';
 export * as JobsCreateJobRequestContract from './jobs-create-job-request.js';
 export * as JobsDetectionPageContract from './jobs-detection-page.js';
 export * as JobsJobEventPageContract from './jobs-job-event-page.js';

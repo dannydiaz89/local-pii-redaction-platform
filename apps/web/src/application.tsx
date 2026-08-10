@@ -19,6 +19,7 @@ import type {
   PolicyCatalogSummary,
   PreviewDetectionSource,
   PreviewEntityType,
+  ProcessingRedactionSummary,
   ProcessingScanSummary,
   ScanProgressState
 } from './job-api.js';
@@ -45,6 +46,12 @@ type ScanState =
     readonly pageHistory: readonly number[];
     readonly loadingPage: boolean;
   }
+  | { readonly kind: 'failed' };
+
+type RedactionState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'redacting'; readonly progress: ScanProgressState }
+  | { readonly kind: 'complete'; readonly summary: ProcessingRedactionSummary }
   | { readonly kind: 'failed' };
 
 function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
@@ -89,6 +96,9 @@ function jobStateMessage(state: ScanProgressState): PlainMessageId {
     RESOLVING: 'job.state.resolving',
     NEEDS_REVIEW: 'job.state.review',
     SUCCEEDED: 'job.state.complete',
+    REDACTING: 'job.state.redacting',
+    VERIFYING: 'job.state.verifying',
+    VERIFIED: 'job.state.verified',
     CANCELLING: 'job.state.cancelling',
     CANCELLED: 'job.state.cancelled',
     FAILED: 'job.state.failed'
@@ -126,10 +136,16 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
   const [selectedFile, setSelectedFile] = useState<File>();
   const [scan, setScan] = useState<ScanState>({ kind: 'idle' });
+  const [redaction, setRedaction] = useState<RedactionState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
+  const downloadUrl = useMemo(() => redaction.kind === 'complete'
+    ? URL.createObjectURL(new Blob([redaction.summary.output.bytes.slice().buffer], {
+      type: redaction.summary.output.mediaType
+    }))
+    : undefined, [redaction]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -143,6 +159,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setFilePreflight({ kind: 'none' });
     setSelectedFile(undefined);
     setScan({ kind: 'idle' });
+    setRedaction({ kind: 'idle' });
     setDetectionFilter('ALL');
     previewController.current?.abort();
     void Promise.all([
@@ -164,6 +181,12 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   }, [attempt, capabilityClient, jobClient]);
 
   useEffect(() => () => { previewController.current?.abort(); }, []);
+  useEffect(() => () => {
+    if (downloadUrl !== undefined) URL.revokeObjectURL(downloadUrl);
+  }, [downloadUrl]);
+  useEffect(() => () => {
+    if (redaction.kind === 'complete') redaction.summary.output.bytes.fill(0);
+  }, [redaction]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
@@ -299,6 +322,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setFilePreflight(result);
                   setSelectedFile(result.kind === 'ready' ? selected : undefined);
                   setScan({ kind: 'idle' });
+                  setRedaction({ kind: 'idle' });
                   setDetectionFilter('ALL');
                 }}
               />
@@ -326,6 +350,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   previewController.current?.abort();
                   previewController.current = controller;
                   setScan({ kind: 'scanning', progress: 'UPLOADING' });
+                  setRedaction({ kind: 'idle' });
                   void jobClient.scan(
                     selectedFile,
                     defaultPolicy,
@@ -556,6 +581,64 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                 )}
               </div>
             ) : null}
+            {scan.kind === 'complete'
+              && scan.summary.conflicts === 0
+              && selectedFile !== undefined
+              && defaultPolicy !== undefined ? (
+                <section className="redaction-panel" aria-labelledby="redaction-title">
+                  <h3 id="redaction-title">{t('redaction.title')}</h3>
+                  <p>{t('redaction.body')}</p>
+                  {redaction.kind !== 'complete' ? (
+                    <Button
+                      disabled={redaction.kind === 'redacting'}
+                      onClick={() => {
+                        const controller = new AbortController();
+                        previewController.current?.abort();
+                        previewController.current = controller;
+                        setRedaction({ kind: 'redacting', progress: 'UPLOADING' });
+                        void jobClient.redact(
+                          selectedFile,
+                          defaultPolicy,
+                          (progress) => {
+                            if (!controller.signal.aborted) setRedaction({ kind: 'redacting', progress });
+                          },
+                          controller.signal
+                        ).then(
+                          (summary) => {
+                            if (!controller.signal.aborted) setRedaction({ kind: 'complete', summary });
+                          },
+                          () => {
+                            if (!controller.signal.aborted) setRedaction({ kind: 'failed' });
+                          }
+                        );
+                      }}
+                    >{redaction.kind === 'redacting' ? t('redaction.running') : t('redaction.action')}</Button>
+                  ) : null}
+                  {redaction.kind !== 'idle' ? (
+                    <div role={redaction.kind === 'failed' ? 'alert' : 'status'} aria-live="polite">
+                      {redaction.kind === 'redacting' ? (
+                        <Callout>{message(locale, 'job.progress', {
+                          state: t(jobStateMessage(redaction.progress))
+                        })}</Callout>
+                      ) : redaction.kind === 'failed' ? (
+                        <Callout tone="critical">{t('redaction.failed')}</Callout>
+                      ) : (
+                        <Callout tone="positive">
+                          <p>{t('redaction.ready')}</p>
+                          {downloadUrl === undefined ? null : (
+                            <a
+                              className="download-link"
+                              href={downloadUrl}
+                              download={redaction.summary.output.displayName}
+                            >{t('redaction.download')}</a>
+                          )}
+                        </Callout>
+                      )}
+                    </div>
+                  ) : null}
+                  <p className="preview-details-privacy">{t('redaction.privacy')}</p>
+                </section>
+              ) : null}
             <p className="intake-privacy">{t('intake.privacy')}</p>
             <p className="coming-soon">{t('intake.next')}</p>
           </Card>
