@@ -97,7 +97,10 @@ export interface PolicyDecision {
     | 'POLICY_ACTION'
     | 'POLICY_REVIEW_BAND'
     | 'POLICY_BELOW_THRESHOLD'
-    | 'POLICY_REQUIRED_EVIDENCE_MISSING';
+    | 'POLICY_REQUIRED_EVIDENCE_MISSING'
+    | 'REVIEW_ACCEPTED'
+    | 'REVIEW_REJECTED'
+    | 'REVIEW_RETYPED';
 }
 
 /** Structural input compatible with a resolved span after binding its extraction revision. */
@@ -425,6 +428,17 @@ export function evaluatePolicy(policy: EffectivePolicy, entityType: EntityType, 
     return deepFreeze({ entityType, action: 'REQUIRE_REVIEW', explanationCode: 'POLICY_REVIEW_BAND' });
   }
   return deepFreeze({ entityType, action: rule.action, explanationCode: 'POLICY_ACTION' });
+}
+
+/** Applies the configured terminal action after an explicit human classification decision. */
+export function evaluateReviewedEntity(
+  policy: EffectivePolicy,
+  entityType: EntityType,
+  explanationCode: 'REVIEW_ACCEPTED' | 'REVIEW_RETYPED'
+): PolicyDecision {
+  const rule = policy.entities.find((candidate) => candidate.entityType === entityType);
+  if (rule === undefined) throw new TypeError('Entity type is not present in the effective policy.');
+  return deepFreeze({ entityType, action: rule.action, explanationCode });
 }
 
 function assertAcceptedSpanShape(span: AcceptedSpanInput): void {

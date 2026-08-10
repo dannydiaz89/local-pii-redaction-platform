@@ -106,6 +106,47 @@ describe('bound verification attestation', () => {
     expect(JSON.stringify(report)).not.toContain('alpha@example.test');
   });
 
+  it('permits only an exact rejected-review residual at its mapped output span', () => {
+    const reviewedPlan: VerificationPlanBinding = {
+      ...plan,
+      actions: [{
+        id: actionId,
+        sourceSpanId: 'rsp_11111111111141118111111111111111',
+        entityType: 'EMAIL',
+        start: 0,
+        end: 13,
+        replacement: '[EMAIL_1]'
+      }],
+      review: {
+        extractionRevision: revision,
+        revision: 2,
+        decisionCount: 2,
+        digest: parseSha256Digest(`sha256:${'8'.repeat(64)}`),
+        decisions: [{
+          sourceSpanId: 'rsp_11111111111141118111111111111111',
+          action: 'ACCEPT',
+          entityType: 'EMAIL',
+          start: 0,
+          end: 13
+        }, {
+          sourceSpanId: 'rsp_22222222222242228222222222222222',
+          action: 'REJECT',
+          entityType: 'PHONE',
+          start: 14,
+          end: 26
+        }]
+      }
+    };
+    const request = { ...boundRequest('[EMAIL_1] 555-123-4567'), plan: reviewedPlan };
+
+    expect(verifyBoundCanonicalText(request).outcome).toBe('PASS');
+    const shifted = verifyBoundCanonicalText({ ...request, reopenedText: 'x[EMAIL_1] 555-123-4567' });
+    expect(shifted.outcome).toBe('FAIL');
+    expect(shifted.findings).toContainEqual(expect.objectContaining({
+      code: 'RESIDUAL_ENTITY', entityType: 'PHONE', count: 1
+    }));
+  });
+
   it.each([
     ['missing', receipt([]), 'ACTION_NOT_APPLIED'],
     ['extra', receipt([actionId, extraActionId]), 'UNEXPECTED_ACTION'],

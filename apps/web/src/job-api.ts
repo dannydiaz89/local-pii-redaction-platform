@@ -124,6 +124,7 @@ export type ReviewDecisionInput = Readonly<JobsReviewDecisionRequestContract.Dec
 export type ReviewDecisionSummary = Readonly<JobsReviewSetContract.DecisionRecord>;
 
 export interface ReviewSetSummary {
+  readonly schemaVersion: '1.0.0';
   readonly jobId: string;
   readonly jobRevision: number;
   readonly extractionRevision: string;
@@ -157,6 +158,7 @@ export interface LocalJobClient {
   redact(
     file: File,
     policy: PolicyReference,
+    review: ReviewSetSummary,
     onProgress: (state: ScanProgressState) => void,
     signal: AbortSignal
   ): Promise<ProcessingRedactionSummary>;
@@ -731,6 +733,7 @@ export function projectReviewSet(value: unknown, expectedJobId: string): ReviewS
     throw new Error('REVIEW_RESPONSE_INVALID');
   });
   return Object.freeze({
+    schemaVersion: '1.0.0' as const,
     jobId: expectedJobId,
     jobRevision: value.jobRevision,
     extractionRevision: value.extractionRevision,
@@ -928,14 +931,22 @@ export function createLocalJobClient(
       });
     },
 
-    async redact(file, policy, onProgress, signal) {
+    async redact(file, policy, review, onProgress, signal) {
       const trustedPolicy = projectPolicy(policy);
+      const trustedReview = projectReviewSet(review, review.jobId);
       const artifact = await uploadInput(file, onProgress, signal);
       const body = JSON.stringify({
-        schemaVersion: '3.0.0',
+        schemaVersion: '4.0.0',
         operation: 'REDACT',
         inputArtifactId: artifact.id,
-        policy: { id: trustedPolicy.id, version: trustedPolicy.version, digest: trustedPolicy.digest }
+        policy: { id: trustedPolicy.id, version: trustedPolicy.version, digest: trustedPolicy.digest },
+        review: {
+          sourceJobId: trustedReview.jobId,
+          expectedJobRevision: trustedReview.jobRevision,
+          expectedExtractionRevision: trustedReview.extractionRevision,
+          expectedReviewRevision: trustedReview.reviewRevision,
+          expectedReviewDigest: trustedReview.digest
+        }
       });
       let job = projectJob(await invoke(signal, async (operationSignal) => requestJson(
         origin, session.bearerToken, fetchImplementation, new URL('/v1/jobs', origin),

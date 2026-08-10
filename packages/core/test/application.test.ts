@@ -230,6 +230,85 @@ describe('TextProcessingApplication', () => {
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'publish']);
   });
 
+  it('binds a saved rejection into the plan and keeps the reviewed span', async () => {
+    const sourceText = 'Email ada@example.test';
+    const session = new FakeSession('ephemeral', sourceText);
+    const result = await createTextProcessingApplication(dependencies()).redact({
+      session,
+      requirement,
+      policy,
+      review: {
+        binding: {
+          extractionRevision: revision(sourceText),
+          revision: 1,
+          decisionCount: 1,
+          digest: digest('review-reject')
+        },
+        decisions: [{
+          sourceSpanId: 'rsp_11111111111141118111111111111111',
+          action: 'REJECT'
+        }]
+      }
+    }, context);
+
+    expect(result.plan.schemaVersion).toBe('2.0.0');
+    if (result.plan.schemaVersion !== '2.0.0') throw new Error('Expected a reviewed plan.');
+    expect(result.plan.actions).toEqual([]);
+    expect(result.plan.review.decisions).toEqual([{
+      sourceSpanId: 'rsp_11111111111141118111111111111111',
+      action: 'REJECT',
+      entityType: 'EMAIL',
+      start: 6,
+      end: 22
+    }]);
+    expect(result.policyDecisions).toContainEqual(expect.objectContaining({
+      action: 'KEEP', reviewAction: 'REJECT', explanationCode: 'REVIEW_REJECTED'
+    }));
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'publish']);
+  });
+
+  it('lets an explicit saved review accept or retype a below-threshold span', async () => {
+    const sourceText = 'Email ada@example.test';
+    const reviewedDependencies = dependencies({
+      detector: {
+        detectorBundleVersion: 'test-detector',
+        detect: (text, extractionRevision) => Promise.resolve(emailEvidence(text, extractionRevision).map((item) => ({
+          ...item,
+          confidence: 0.2
+        })))
+      }
+    });
+    for (const decision of [
+      { action: 'ACCEPT' as const, expectedType: 'EMAIL' as const },
+      { action: 'RETYPE' as const, entityType: 'PHONE' as const, expectedType: 'PHONE' as const }
+    ]) {
+      const session = new FakeSession('ephemeral', sourceText);
+      const result = await createTextProcessingApplication(reviewedDependencies).redact({
+        session,
+        requirement,
+        policy,
+        review: {
+          binding: {
+            extractionRevision: revision(sourceText),
+            revision: 1,
+            decisionCount: 1,
+            digest: digest(`review-${decision.action}`)
+          },
+          decisions: [{
+            sourceSpanId: 'rsp_11111111111141118111111111111111',
+            ...(decision.action === 'RETYPE'
+              ? { action: decision.action, entityType: decision.entityType }
+              : { action: decision.action })
+          }]
+        }
+      }, context);
+      expect(result.plan.actions[0]?.entityType).toBe(decision.expectedType);
+      expect(result.policyDecisions[0]).toMatchObject({
+        action: 'TYPED_LABEL', reviewAction: decision.action
+      });
+    }
+  });
+
   it('blocks unresolved conflicts before staging', async () => {
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({

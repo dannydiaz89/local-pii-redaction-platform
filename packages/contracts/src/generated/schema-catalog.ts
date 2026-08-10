@@ -3060,6 +3060,106 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/create-job-request/4.0.0",
+    "title": "Create reviewed local redaction job request",
+    "description": "Creates a session-only redaction job bound to an immutable input, pinned policy, completed scan, and exact append-only review-set revision.",
+    "schemaVersion": "4.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "inputArtifactId",
+      "policy",
+      "review"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "4.0.0"
+      },
+      "operation": {
+        "const": "REDACT"
+      },
+      "inputArtifactId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId"
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceJobId",
+          "expectedJobRevision",
+          "expectedExtractionRevision",
+          "expectedReviewRevision",
+          "expectedReviewDigest"
+        ],
+        "properties": {
+          "sourceJobId": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+          },
+          "expectedJobRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expectedExtractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "expectedReviewRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "expectedReviewDigest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "4.0.0",
+        "operation": "REDACT",
+        "inputArtifactId": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "review": {
+          "sourceJobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+          "expectedJobRevision": 6,
+          "expectedExtractionRevision": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "expectedReviewRevision": 1,
+          "expectedReviewDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/jobs/create-job-request/1.0.0",
     "title": "Create job request",
     "description": "Metadata-only request for a pinned local job. Document bytes and locators are not accepted.",
@@ -4711,6 +4811,333 @@ export const schemaCatalog = [
         "limits": {
           "maximumInputBytes": 104857600
         }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/redaction/redaction-plan/2.0.0",
+    "title": "Reviewed redaction plan",
+    "description": "Immutable ordered replacement instructions bound to exact input, base resolution, review set, capability, policy, detector, and writer provenance.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "strategy",
+      "strategyVersion",
+      "inputDigest",
+      "extractionRevision",
+      "resolutionDigest",
+      "review",
+      "capabilityDigest",
+      "detectorBundleVersion",
+      "policy",
+      "writer",
+      "expectedActionCount",
+      "actions",
+      "digest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "strategy": {
+        "const": "TYPED_LABEL"
+      },
+      "strategyVersion": {
+        "const": "0.2.0"
+      },
+      "inputDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "extractionRevision": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "resolutionDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "extractionRevision",
+          "revision",
+          "decisionCount",
+          "digest",
+          "decisions"
+        ],
+        "properties": {
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "decisionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "decisions": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sourceSpanId",
+                    "action",
+                    "entityType",
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "sourceSpanId": {
+                      "type": "string",
+                      "pattern": "^rsp_[a-f0-9]{32}$"
+                    },
+                    "action": {
+                      "enum": [
+                        "ACCEPT",
+                        "REJECT"
+                      ]
+                    },
+                    "entityType": {
+                      "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sourceSpanId",
+                    "action",
+                    "entityType",
+                    "reviewedEntityType",
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "sourceSpanId": {
+                      "type": "string",
+                      "pattern": "^rsp_[a-f0-9]{32}$"
+                    },
+                    "action": {
+                      "const": "RETYPE"
+                    },
+                    "entityType": {
+                      "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+                    },
+                    "reviewedEntityType": {
+                      "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "capabilityDigest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "detectorBundleVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          }
+        }
+      },
+      "writer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          }
+        }
+      },
+      "expectedActionCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "actions": {
+        "type": "array",
+        "maxItems": 100000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "action",
+            "sourceSpanId",
+            "evidenceIds",
+            "entityType",
+            "start",
+            "end",
+            "replacement"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^act_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "action": {
+              "const": "TYPED_LABEL"
+            },
+            "sourceSpanId": {
+              "type": "string",
+              "pattern": "^rsp_[a-f0-9]{32}$"
+            },
+            "evidenceIds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "replacement": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "strategy": "TYPED_LABEL",
+        "strategyVersion": "0.2.0",
+        "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resolutionDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "review": {
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "revision": 1,
+          "decisionCount": 1,
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "decisions": [
+            {
+              "sourceSpanId": "rsp_aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+              "action": "ACCEPT",
+              "entityType": "EMAIL",
+              "start": 8,
+              "end": 25
+            }
+          ]
+        },
+        "capabilityDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "detectorBundleVersion": "0.1.0",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "riskTier": "LOW"
+        },
+        "writer": {
+          "id": "text-adapter",
+          "version": "0.1.0"
+        },
+        "expectedActionCount": 1,
+        "actions": [
+          {
+            "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+            "action": "TYPED_LABEL",
+            "sourceSpanId": "rsp_aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+            "evidenceIds": [
+              "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            ],
+            "entityType": "EMAIL",
+            "start": 8,
+            "end": 25,
+            "replacement": "[EMAIL_1]"
+          }
+        ],
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
       }
     ]
   },

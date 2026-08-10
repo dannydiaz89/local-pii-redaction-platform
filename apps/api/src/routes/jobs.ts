@@ -25,13 +25,15 @@ export function registerJobRoutes(server: FastifyInstance, context: ApiRouteCont
       && !Array.isArray(request.body)
       ? (request.body as Record<string, unknown>).schemaVersion
       : undefined;
-    const processingRequest = schemaVersion === '2.0.0' || schemaVersion === '3.0.0';
+    const processingRequest = schemaVersion === '2.0.0' || schemaVersion === '3.0.0' || schemaVersion === '4.0.0';
     const jobs = processingRequest ? dependencies.processing : dependencies.jobs;
     if (jobs === undefined) throw unavailableJob(request);
     const body = canonicalBody(
       request,
-      schemaVersion === '3.0.0'
-        ? apiContractIds.createLocalProcessingJobRequest
+      schemaVersion === '4.0.0'
+        ? apiContractIds.createReviewedLocalRedactionJobRequest
+        : schemaVersion === '3.0.0'
+          ? apiContractIds.createLocalProcessingJobRequest
         : processingRequest
           ? apiContractIds.createProcessingJobRequest
           : apiContractIds.createJobRequest

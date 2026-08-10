@@ -8,10 +8,16 @@ import {
   type JobsReviewDecisionRequestContract,
   type JobsReviewSetContract
 } from '@local-pii/contracts';
-import type { TextProcessingApplication, TextRedactionResult, TextScanResult } from '@local-pii/core';
+import type {
+  RedactionReviewSnapshot,
+  TextProcessingApplication,
+  TextRedactionResult,
+  TextScanResult
+} from '@local-pii/core';
 import {
   canTransition,
   parseArtifactId,
+  parseSha256Digest,
   SafeError,
   type EntityType
 } from '@local-pii/domain';
@@ -34,7 +40,8 @@ import {
   type JobControlPort,
   type JobEventPage,
   type LocalProcessingJobRequest,
-  type ProcessingJobRequest
+  type ProcessingJobRequest,
+  type ReviewedLocalRedactionJobRequest
 } from './job-control.js';
 import {
   decodeLocalTextArtifact,
@@ -118,11 +125,13 @@ interface ArtifactRecord {
 }
 
 interface JobResult {
+  readonly inputDigest: string;
   readonly extractionRevision: string;
   readonly detections: readonly Detection[];
   readonly byEntity: Readonly<Partial<Record<EntityType, number>>>;
   readonly conflicts: number;
   readonly conflictDetails: readonly GeneratedDetectionPage['conflictDetails'][number][];
+  readonly reviewTargets: readonly Readonly<{ readonly detectionId: string; readonly spanId: string }>[];
 }
 
 const crockfordBase32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -237,7 +246,11 @@ function stableDetectionId(result: DetectionBearingResult, spanId: string): stri
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function resultForScan(result: DetectionBearingResult, correlationId: string): JobResult {
+function resultForScan(
+  result: DetectionBearingResult,
+  inputDigest: string,
+  correlationId: string
+): JobResult {
   const evidenceById = new Map<string, (typeof result.evidence)[number]>(
     result.evidence.map((evidence) => [evidence.id, evidence])
   );
@@ -275,11 +288,16 @@ function resultForScan(result: DetectionBearingResult, correlationId: string): J
     }) as GeneratedDetectionPage['conflictDetails'][number];
   });
   return Object.freeze({
+    inputDigest,
     extractionRevision: result.resolution.extractionRevision,
     detections: Object.freeze(detections),
     byEntity: Object.freeze(byEntity),
     conflicts: result.resolution.conflicts.length,
-    conflictDetails: Object.freeze(conflictDetails)
+    conflictDetails: Object.freeze(conflictDetails),
+    reviewTargets: Object.freeze(result.resolution.spans.map((span) => Object.freeze({
+      detectionId: stableDetectionId(result, span.id),
+      spanId: span.id
+    })))
   });
 }
 
@@ -327,6 +345,7 @@ export function createVolatileProcessingControl(
   const requestClaimByArtifact = new Map<string, string>();
   const results = new Map<string, JobResult>();
   const reviewHistories = new Map<string, readonly Readonly<JobsReviewSetContract.DecisionRecord>[]>();
+  const reviewSnapshots = new Map<string, RedactionReviewSnapshot>();
   const controllers = new Map<string, AbortController>();
   const pending: string[] = [];
   let retainedBytes = 0;
@@ -407,7 +426,7 @@ export function createVolatileProcessingControl(
         );
         controller.signal.throwIfAborted();
         job = await transition(job, 'RESOLVING', correlationId);
-        const result = resultForScan(scan, correlationId);
+        const result = resultForScan(scan, scan.artifact.digest, correlationId);
         results.set(jobId, result);
         await transition(
           job,
@@ -424,6 +443,7 @@ export function createVolatileProcessingControl(
         }
         const source = decodeLocalTextArtifact(artifact.bytes, artifact.format, correlationId);
         const handle = createEphemeralTextArtifactSession(source, localRedactionMaximumOutputBytes);
+        const reviewSnapshot = reviewSnapshots.get(jobId);
         let detachedOutput: Uint8Array | undefined;
         let outputRetained = false;
         try {
@@ -431,6 +451,7 @@ export function createVolatileProcessingControl(
             session: handle.session,
             requirement: textCapabilityRequirement('REDACT'),
             policy,
+            ...(reviewSnapshot === undefined ? {} : { review: reviewSnapshot }),
             signal: controller.signal
           }, { correlationId });
           controller.signal.throwIfAborted();
@@ -462,7 +483,7 @@ export function createVolatileProcessingControl(
             format: artifact.format,
             bytes: detachedOutput
           };
-          const result = resultForScan(redaction, correlationId);
+          const result = resultForScan(redaction, redaction.input.digest, correlationId);
           await transition(
             job,
             'VERIFIED',
@@ -571,48 +592,104 @@ export function createVolatileProcessingControl(
       if (request.schemaVersion === '1.0.0') {
         return jobs.create(request, idempotencyKey, idempotencyScope, correlationId, signal);
       }
-      const policyKey = `${request.policy.id}\u0000${request.policy.version}\u0000${request.policy.digest}`;
-      if (!policyKeys.has(policyKey)) {
-        fail('POLICY_UNSATISFIABLE', 'The requested processing policy is unavailable.', false, correlationId);
-      }
-      const artifactId = parseArtifactId(request.inputArtifactId);
-      const artifact = artifacts.get(artifactId);
-      if (artifact?.metadata.publicationState !== 'IMMUTABLE' || artifact.bytes === undefined) {
-        fail('AUTHORIZATION_DENIED', 'The requested artifact is unavailable.', false, correlationId);
-      }
-      if (request.operation === 'REDACT' && artifacts.size >= maximumArtifacts) {
-        fail('RATE_LIMITED', 'The local processing session has reached its artifact limit.', true, correlationId);
-      }
-      const requestClaim = `${idempotencyScope}\u0000${idempotencyKey}`;
-      const priorArtifactForRequest = artifactClaimByRequest.get(requestClaim);
-      if (priorArtifactForRequest !== undefined && priorArtifactForRequest !== artifactId) {
-        fail('IDEMPOTENCY_CONFLICT', 'The request key was already used for a different artifact.', false, correlationId);
-      }
-      const priorRequestForArtifact = requestClaimByArtifact.get(artifactId);
-      if (priorRequestForArtifact !== undefined && priorRequestForArtifact !== requestClaim) {
-        fail('JOB_CONFLICT', 'The artifact is already bound to a processing job.', false, correlationId);
-      }
-      artifactClaimByRequest.set(requestClaim, artifactId);
-      requestClaimByArtifact.set(artifactId, requestClaim);
-      let result: JobMutationResult;
-      try {
-        result = await jobs.create(request, idempotencyKey, idempotencyScope, correlationId, signal);
-      } catch (error: unknown) {
-        if (artifactClaimByRequest.get(requestClaim) === artifactId) artifactClaimByRequest.delete(requestClaim);
-        if (requestClaimByArtifact.get(artifactId) === requestClaim) requestClaimByArtifact.delete(artifactId);
-        throw error;
-      }
-      const priorArtifact = artifactByJob.get(result.job.id);
-      if (priorArtifact !== undefined && priorArtifact !== artifactId) {
-        fail('IDEMPOTENCY_CONFLICT', 'The request key was already used for a different artifact.', false, correlationId);
-      }
-      if (!result.replayed) {
-        artifactByJob.set(result.job.id, artifactId);
-        controllers.set(result.job.id, new AbortController());
-        pending.push(result.job.id);
-        queueMicrotask(pump);
-      }
-      return result;
+      const createProcessingJob = async (): Promise<JobMutationResult> => {
+        let reviewSnapshot: RedactionReviewSnapshot | undefined;
+        if (request.schemaVersion === '4.0.0') {
+          const sourceJob = await jobs.get(request.review.sourceJobId, correlationId, signal);
+          const sourceResult = results.get(request.review.sourceJobId);
+          if (sourceJob?.operation !== 'SCAN'
+            || (sourceJob.state !== 'SUCCEEDED' && sourceJob.state !== 'NEEDS_REVIEW')
+            || sourceResult === undefined
+            || sourceResult.conflicts !== 0
+            || sourceJob.revision !== request.review.expectedJobRevision
+            || sourceResult.extractionRevision !== request.review.expectedExtractionRevision
+            || sourceJob.policy.id !== request.policy.id
+            || sourceJob.policy.version !== request.policy.version
+            || sourceJob.policy.digest !== request.policy.digest) {
+            fail('JOB_CONFLICT', 'The reviewed scan no longer matches this request.', false, correlationId);
+          }
+          const history = reviewHistories.get(sourceJob.id) ?? [];
+          const reviewSet = createReviewSet(sourceJob, sourceResult, history);
+          if (reviewSet.reviewRevision !== request.review.expectedReviewRevision
+            || reviewSet.digest !== request.review.expectedReviewDigest) {
+            fail('JOB_CONFLICT', 'The reviewed scan no longer matches this request.', false, correlationId);
+          }
+          const targetByDetectionId = new Map(
+            sourceResult.reviewTargets.map(({ detectionId, spanId }) => [detectionId, spanId])
+          );
+          const effective = new Map<string, Readonly<JobsReviewSetContract.DecisionRecord>>();
+          for (const decision of history) effective.set(decision.targetDetectionId, decision);
+          const decisions = [...effective.values()].map((decision) => {
+            const sourceSpanId = targetByDetectionId.get(decision.targetDetectionId);
+            if (sourceSpanId === undefined) {
+              fail('JOB_CONFLICT', 'The reviewed detection is unavailable.', false, correlationId);
+            }
+            return decision.action === 'RETYPE'
+              ? Object.freeze({ sourceSpanId, action: decision.action, entityType: decision.entityType })
+              : Object.freeze({ sourceSpanId, action: decision.action });
+          });
+          reviewSnapshot = Object.freeze({
+            binding: Object.freeze({
+              extractionRevision: parseSha256Digest(reviewSet.extractionRevision),
+              revision: reviewSet.reviewRevision,
+              decisionCount: reviewSet.decisions.length,
+              digest: parseSha256Digest(reviewSet.digest)
+            }),
+            decisions: Object.freeze(decisions)
+          });
+        }
+        const policyKey = `${request.policy.id}\u0000${request.policy.version}\u0000${request.policy.digest}`;
+        if (!policyKeys.has(policyKey)) {
+          fail('POLICY_UNSATISFIABLE', 'The requested processing policy is unavailable.', false, correlationId);
+        }
+        const artifactId = parseArtifactId(request.inputArtifactId);
+        const artifact = artifacts.get(artifactId);
+        if (artifact?.metadata.publicationState !== 'IMMUTABLE' || artifact.bytes === undefined) {
+          fail('AUTHORIZATION_DENIED', 'The requested artifact is unavailable.', false, correlationId);
+        }
+        if (request.schemaVersion === '4.0.0'
+          && reviewSnapshot !== undefined
+          && results.get(request.review.sourceJobId)?.inputDigest !== artifact.metadata.digest) {
+          fail('JOB_CONFLICT', 'The reviewed scan no longer matches this request.', false, correlationId);
+        }
+        if (request.operation === 'REDACT' && artifacts.size >= maximumArtifacts) {
+          fail('RATE_LIMITED', 'The local processing session has reached its artifact limit.', true, correlationId);
+        }
+        const requestClaim = `${idempotencyScope}\u0000${idempotencyKey}`;
+        const priorArtifactForRequest = artifactClaimByRequest.get(requestClaim);
+        if (priorArtifactForRequest !== undefined && priorArtifactForRequest !== artifactId) {
+          fail('IDEMPOTENCY_CONFLICT', 'The request key was already used for a different artifact.', false, correlationId);
+        }
+        const priorRequestForArtifact = requestClaimByArtifact.get(artifactId);
+        if (priorRequestForArtifact !== undefined && priorRequestForArtifact !== requestClaim) {
+          fail('JOB_CONFLICT', 'The artifact is already bound to a processing job.', false, correlationId);
+        }
+        artifactClaimByRequest.set(requestClaim, artifactId);
+        requestClaimByArtifact.set(artifactId, requestClaim);
+        let result: JobMutationResult;
+        try {
+          result = await jobs.create(request, idempotencyKey, idempotencyScope, correlationId, signal);
+        } catch (error: unknown) {
+          if (artifactClaimByRequest.get(requestClaim) === artifactId) artifactClaimByRequest.delete(requestClaim);
+          if (requestClaimByArtifact.get(artifactId) === requestClaim) requestClaimByArtifact.delete(artifactId);
+          throw error;
+        }
+        const priorArtifact = artifactByJob.get(result.job.id);
+        if (priorArtifact !== undefined && priorArtifact !== artifactId) {
+          fail('IDEMPOTENCY_CONFLICT', 'The request key was already used for a different artifact.', false, correlationId);
+        }
+        if (!result.replayed) {
+          artifactByJob.set(result.job.id, artifactId);
+          if (reviewSnapshot !== undefined) reviewSnapshots.set(result.job.id, reviewSnapshot);
+          controllers.set(result.job.id, new AbortController());
+          pending.push(result.job.id);
+          queueMicrotask(pump);
+        }
+        return result;
+      };
+      return request.schemaVersion === '4.0.0'
+        ? mutateReview(createProcessingJob)
+        : createProcessingJob();
     },
 
     get(jobId, correlationId, signal) {
@@ -776,6 +853,7 @@ export function createVolatileProcessingControl(
       requestClaimByArtifact.clear();
       results.clear();
       reviewHistories.clear();
+      reviewSnapshots.clear();
       pending.splice(0);
     }
   };
@@ -784,6 +862,6 @@ export function createVolatileProcessingControl(
 
 export function isProcessingJobRequest(
   request: CreateJobRequest
-): request is ProcessingJobRequest | LocalProcessingJobRequest {
-  return request.schemaVersion === '2.0.0' || request.schemaVersion === '3.0.0';
+): request is ProcessingJobRequest | LocalProcessingJobRequest | ReviewedLocalRedactionJobRequest {
+  return request.schemaVersion === '2.0.0' || request.schemaVersion === '3.0.0' || request.schemaVersion === '4.0.0';
 }

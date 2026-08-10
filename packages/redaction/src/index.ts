@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { parseDetectionId, parseSha256Digest, type EntityType, type Sha256Digest } from '@local-pii/domain';
+import { entityTypes, parseDetectionId, parseSha256Digest, type EntityType, type Sha256Digest } from '@local-pii/domain';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 
 export const typedLabelTransformationCapabilityDescriptor = {
@@ -39,13 +39,40 @@ export interface TypedLabelPlanBinding {
   readonly detectorBundleVersion: string;
   readonly policy: TypedLabelPolicyBinding;
   readonly writer: TypedLabelWriterBinding;
+  readonly review?: TypedLabelReviewBinding;
 }
 
-export interface TypedLabelPlan {
-  readonly schemaVersion: '1.0.0';
+export interface TypedLabelReviewProvenance {
+  readonly extractionRevision: Sha256Digest;
+  readonly revision: number;
+  readonly decisionCount: number;
+  readonly digest: Sha256Digest;
+}
+
+export type TypedLabelReviewDecision =
+  | {
+    readonly sourceSpanId: string;
+    readonly action: 'ACCEPT' | 'REJECT';
+    readonly entityType: EntityType;
+    readonly start: number;
+    readonly end: number;
+  }
+  | {
+    readonly sourceSpanId: string;
+    readonly action: 'RETYPE';
+    readonly entityType: EntityType;
+    readonly reviewedEntityType: EntityType;
+    readonly start: number;
+    readonly end: number;
+  };
+
+export interface TypedLabelReviewBinding extends TypedLabelReviewProvenance {
+  readonly decisions: readonly TypedLabelReviewDecision[];
+}
+
+interface TypedLabelPlanBase {
   readonly id: string;
   readonly strategy: 'TYPED_LABEL';
-  readonly strategyVersion: '0.1.0';
   readonly inputDigest: Sha256Digest;
   readonly extractionRevision: Sha256Digest;
   readonly resolutionDigest: Sha256Digest;
@@ -57,6 +84,19 @@ export interface TypedLabelPlan {
   readonly actions: readonly TypedLabelAction[];
   readonly digest: Sha256Digest;
 }
+
+export interface TypedLabelPlanV1 extends TypedLabelPlanBase {
+  readonly schemaVersion: '1.0.0';
+  readonly strategyVersion: '0.1.0';
+}
+
+export interface TypedLabelPlanV2 extends TypedLabelPlanBase {
+  readonly schemaVersion: '2.0.0';
+  readonly strategyVersion: '0.2.0';
+  readonly review: TypedLabelReviewBinding;
+}
+
+export type TypedLabelPlan = TypedLabelPlanV1 | TypedLabelPlanV2;
 
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/u;
@@ -112,6 +152,62 @@ function validatedWriterBinding(writer: TypedLabelWriterBinding): TypedLabelWrit
   return Object.freeze({ id: writer.id, version: writer.version });
 }
 
+function validatedReviewBinding(review: TypedLabelReviewBinding): TypedLabelReviewBinding {
+  if (!Number.isSafeInteger(review.revision)
+    || review.revision < 0
+    || review.revision > 1000
+    || !Number.isSafeInteger(review.decisionCount)
+    || review.decisionCount !== review.revision
+    || review.decisions.length > review.decisionCount) {
+    throw new TypeError('The typed-label review binding is invalid.');
+  }
+  const sourceSpanIds = new Set<string>();
+  let previousEnd = -1;
+  const decisions = review.decisions.map((decision) => {
+    if (!resolvedSpanIdPattern.test(decision.sourceSpanId)
+      || sourceSpanIds.has(decision.sourceSpanId)
+      || !['ACCEPT', 'REJECT', 'RETYPE'].includes(decision.action)
+      || !entityTypes.includes(decision.entityType)
+      || !Number.isSafeInteger(decision.start)
+      || !Number.isSafeInteger(decision.end)
+      || decision.start < 0
+      || decision.end <= decision.start
+      || decision.start < previousEnd) {
+      throw new TypeError('The typed-label review decision is invalid.');
+    }
+    sourceSpanIds.add(decision.sourceSpanId);
+    previousEnd = decision.end;
+    const entityType = decision.entityType;
+    if (decision.action === 'RETYPE') {
+      if (!entityTypes.includes(decision.reviewedEntityType)) {
+        throw new TypeError('The typed-label review decision is invalid.');
+      }
+      return Object.freeze({
+        sourceSpanId: decision.sourceSpanId,
+        action: decision.action,
+        entityType,
+        reviewedEntityType: decision.reviewedEntityType,
+        start: decision.start,
+        end: decision.end
+      });
+    }
+    return Object.freeze({
+      sourceSpanId: decision.sourceSpanId,
+      action: decision.action,
+      entityType,
+      start: decision.start,
+      end: decision.end
+    });
+  });
+  return Object.freeze({
+    extractionRevision: parseSha256Digest(review.extractionRevision),
+    revision: review.revision,
+    decisionCount: review.decisionCount,
+    digest: parseSha256Digest(review.digest),
+    decisions: Object.freeze(decisions)
+  });
+}
+
 function validatedPlanBinding(binding: TypedLabelPlanBinding): TypedLabelPlanBinding {
   if (
     typeof binding.detectorBundleVersion !== 'string'
@@ -125,7 +221,8 @@ function validatedPlanBinding(binding: TypedLabelPlanBinding): TypedLabelPlanBin
     capabilityDigest: parseSha256Digest(binding.capabilityDigest),
     detectorBundleVersion: binding.detectorBundleVersion,
     policy: validatedPolicyBinding(binding.policy),
-    writer: validatedWriterBinding(binding.writer)
+    writer: validatedWriterBinding(binding.writer),
+    ...(binding.review === undefined ? {} : { review: validatedReviewBinding(binding.review) })
   });
 }
 
@@ -139,6 +236,10 @@ export function compileTypedLabelPlan(
   }
   const binding = validatedPlanBinding(planBinding);
   const resolutionDigest = parseSha256Digest(approvedResolution.digest);
+  if (binding.review !== undefined
+    && binding.review.extractionRevision !== approvedResolution.extractionRevision) {
+    throw new TypeError('The review set targets a different extraction revision.');
+  }
   const counters = new Map<EntityType, number>();
   const sourceSpanIds = new Set<string>();
   const actions = approvedResolution.spans.map((span) => {
@@ -165,16 +266,15 @@ export function compileTypedLabelPlan(
       id: stableIdentifier('act', {
         resolutionDigest,
         policyDigest: binding.policy.digest,
+        ...(binding.review === undefined ? {} : { reviewDigest: binding.review.digest }),
         action: actionWithoutId
       }),
       ...actionWithoutId
     } satisfies TypedLabelAction);
   });
   const frozenActions = Object.freeze(actions);
-  const planWithoutIdentity = {
-    schemaVersion: '1.0.0' as const,
+  const commonPlan = {
     strategy: 'TYPED_LABEL' as const,
-    strategyVersion: '0.1.0' as const,
     inputDigest: binding.inputDigest,
     extractionRevision: approvedResolution.extractionRevision,
     resolutionDigest,
@@ -185,6 +285,18 @@ export function compileTypedLabelPlan(
     expectedActionCount: frozenActions.length,
     actions: frozenActions
   };
+  const planWithoutIdentity = binding.review === undefined
+    ? {
+      schemaVersion: '1.0.0' as const,
+      strategyVersion: '0.1.0' as const,
+      ...commonPlan
+    }
+    : {
+      schemaVersion: '2.0.0' as const,
+      strategyVersion: '0.2.0' as const,
+      ...commonPlan,
+      review: binding.review
+    };
   const id = stableIdentifier('plan', planWithoutIdentity);
   return Object.freeze({
     id,
@@ -201,6 +313,15 @@ export function assertTypedLabelPlanIntegrity(plan: TypedLabelPlan): void {
   parseSha256Digest(plan.capabilityDigest);
   validatedPolicyBinding(plan.policy);
   validatedWriterBinding(plan.writer);
+  const strategyVersion: string = plan.strategyVersion;
+  if ((plan.schemaVersion === '1.0.0' && strategyVersion !== '0.1.0')
+    || (plan.schemaVersion === '2.0.0' && strategyVersion !== '0.2.0')) {
+    throw new TypeError('The typed-label plan version is invalid.');
+  }
+  const review = plan.schemaVersion === '2.0.0' ? validatedReviewBinding(plan.review) : undefined;
+  if (review !== undefined && review.extractionRevision !== plan.extractionRevision) {
+    throw new TypeError('The typed-label plan review binding is invalid.');
+  }
   if (plan.expectedActionCount !== plan.actions.length) {
     throw new TypeError('The typed-label plan action count is invalid.');
   }
@@ -220,6 +341,7 @@ export function assertTypedLabelPlanIntegrity(plan: TypedLabelPlan): void {
     if (id !== stableIdentifier('act', {
       resolutionDigest: plan.resolutionDigest,
       policyDigest: plan.policy.digest,
+      ...(review === undefined ? {} : { reviewDigest: review.digest }),
       action: actionWithoutId
     })) {
       throw new TypeError('The typed-label plan action identity is invalid.');

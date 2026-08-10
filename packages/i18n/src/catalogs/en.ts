@@ -89,7 +89,7 @@ export const englishCatalog = {
   'review.stale': 'This review changed in another request. Rescan the document before reconciling or saving more decisions.',
   'review.pending': 'Unsaved review decisions are selected.',
   'review.scope': 'Accept, reject, and category-change decisions are available now. Boundary edits and manual additions are still being built.',
-  'review.redactionPending': 'Saved review decisions are not bound into the redaction plan yet. Reviewed redaction is the next pipeline slice, so redaction is disabled for this scan.',
+  'review.redactionBound': 'Saved review decisions will be bound into the exact redaction plan used for preview and download.',
   'redaction.title': 'Create a redacted copy',
   'redaction.body': 'Apply the selected policy through the verified local redaction pipeline. Your original file is not changed.',
   'redaction.action': 'Redact and preview',

@@ -9,6 +9,8 @@ capability preflight.
 - Coordinates cancellation-aware processing without depending on a CLI, HTTP server, filesystem,
   or model implementation.
 - Applies capability and policy preflight before work begins.
+- Applies exact review snapshots after deterministic resolution: accept, reject, and retype remain
+  bound to the scan extraction revision and immutable plan digest.
 - Enforces the stage, reopen, verify, publish, and cleanup workflow for redaction.
 
 ## Boundary

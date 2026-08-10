@@ -116,6 +116,40 @@ describe('typed-label redaction', () => {
     })).toThrow('identity');
   });
 
+  it('binds an exact value-free review set into a v2 plan', () => {
+    const text = 'Contact alpha@example.test or 555-123-4567.';
+    const resolution = resolveEvidence(detectDeterministic(text, revision), revision, unicodeCodePointLength(text));
+    const email = resolution.spans.find(({ entityType }) => entityType === 'EMAIL');
+    const phone = resolution.spans.find(({ entityType }) => entityType === 'PHONE');
+    if (email === undefined || phone === undefined) throw new Error('Expected reviewable spans.');
+    const reviewDigest = parseSha256Digest(`sha256:${'4'.repeat(64)}`);
+    const review = {
+      extractionRevision: revision,
+      revision: 2,
+      decisionCount: 2,
+      digest: reviewDigest,
+      decisions: [
+        { sourceSpanId: email.id, action: 'ACCEPT' as const, entityType: email.entityType, start: email.start, end: email.end },
+        { sourceSpanId: phone.id, action: 'REJECT' as const, entityType: phone.entityType, start: phone.start, end: phone.end }
+      ]
+    };
+    const plan = compileTypedLabelPlan({ ...resolution, spans: [email] }, { ...planBinding, review });
+
+    expect(plan.schemaVersion).toBe('2.0.0');
+    if (plan.schemaVersion !== '2.0.0') throw new Error('Expected a reviewed plan.');
+    expect(plan.strategyVersion).toBe('0.2.0');
+    expect(plan.review).toEqual(review);
+    expect(applyTypedLabelPlan(text, plan)).toBe('Contact [EMAIL_1] or 555-123-4567.');
+    expect(compileTypedLabelPlan({ ...resolution, spans: [email] }, {
+      ...planBinding,
+      review: { ...review, digest: parseSha256Digest(`sha256:${'5'.repeat(64)}`) }
+    }).digest).not.toBe(plan.digest);
+    expect(() => applyTypedLabelPlan(text, {
+      ...plan,
+      review: { ...plan.review, revision: 1 }
+    })).toThrow(TypeError);
+  });
+
   it('rejects unbound, conflicted, or provenance-free approved inputs', () => {
     const text = 'Contact alpha@example.test.';
     const resolution = resolveEvidence(detectDeterministic(text, revision), revision, unicodeCodePointLength(text));

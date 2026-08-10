@@ -41,9 +41,10 @@ bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code po
 explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the
-current application launch. Any saved decision deliberately disables redaction until the next
-reviewed-redaction slice can bind the review digest into the output plan; review history is never
-silently ignored. Boundary edits, manual additions, conflict decisions, durable resume/history,
+current application launch. Redaction always sends the exact current scan job, extraction revision,
+review revision, and review digest. Saved accept/reject/retype decisions are applied by the shared
+core and bound into the verified output plan; a stale or mismatched set fails closed. Boundary edits,
+manual additions, conflict decisions, durable resume/history,
 retained reports, and lifecycle deletion remain unavailable. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.
 

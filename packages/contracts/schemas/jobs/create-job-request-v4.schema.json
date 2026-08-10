@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/jobs/create-job-request/4.0.0",
+  "title": "Create reviewed local redaction job request",
+  "description": "Creates a session-only redaction job bound to an immutable input, pinned policy, completed scan, and exact append-only review-set revision.",
+  "schemaVersion": "4.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "inputArtifactId", "policy", "review"],
+  "properties": {
+    "schemaVersion": { "const": "4.0.0" },
+    "operation": { "const": "REDACT" },
+    "inputArtifactId": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
+        "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceJobId", "expectedJobRevision", "expectedExtractionRevision", "expectedReviewRevision", "expectedReviewDigest"],
+      "properties": {
+        "sourceJobId": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId" },
+        "expectedJobRevision": { "type": "integer", "minimum": 1 },
+        "expectedExtractionRevision": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "expectedReviewRevision": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "expectedReviewDigest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+      }
+    }
+  },
+  "examples": [{
+    "schemaVersion": "4.0.0",
+    "operation": "REDACT",
+    "inputArtifactId": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "policy": {
+      "id": "development-labels",
+      "version": "0.1.0",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "review": {
+      "sourceJobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+      "expectedJobRevision": 6,
+      "expectedExtractionRevision": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "expectedReviewRevision": 1,
+      "expectedReviewDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  }]
+}

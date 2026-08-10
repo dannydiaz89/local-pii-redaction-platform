@@ -12,7 +12,7 @@ import {
 } from '@local-pii/contracts';
 import { compileTypedLabelPlan } from '@local-pii/redaction';
 import { resolveEvidence } from '@local-pii/span-resolution';
-import { compileCapabilityRequirement, evaluateAcceptedSpan } from '@local-pii/policy';
+import { compileCapabilityRequirement, evaluateAcceptedSpan, evaluateReviewedEntity } from '@local-pii/policy';
 
 import { assertCapabilityManifest, assertCapabilities, digestCapabilityManifest } from './preflight.js';
 import type {
@@ -20,6 +20,7 @@ import type {
   CapabilityManifest,
   BoundTextVerificationRequest,
   RedactTextCommand,
+  RedactionReviewDecision,
   TextCommand,
   TextProcessingApplication,
   TextProcessingApplicationDependencies,
@@ -29,7 +30,10 @@ import type {
 } from './ports.js';
 
 const fallbackCorrelationId = 'cor_core_application';
-const redactionPlanSchemaId = 'https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0';
+const redactionPlanSchemaIds = {
+  '1.0.0': 'https://local-pii.dev/schemas/redaction/redaction-plan/1.0.0',
+  '2.0.0': 'https://local-pii.dev/schemas/redaction/redaction-plan/2.0.0'
+} as const;
 const writerReceiptSchemaId = 'https://local-pii.dev/schemas/redaction/writer-receipt/1.0.0';
 const verificationAttestationSchemaId = 'https://local-pii.dev/schemas/verification/verification-report/2.0.0';
 
@@ -53,6 +57,50 @@ function internalFailure(requestCorrelationId: CorrelationId): SafeError {
     retryable: false,
     correlationId: requestCorrelationId
   });
+}
+
+function reviewPlanConflict(requestCorrelationId: CorrelationId): SafeError {
+  return new SafeError({
+    code: 'REDACTION_PLAN_CONFLICT',
+    message: 'The saved review no longer matches this scan.',
+    retryable: false,
+    correlationId: requestCorrelationId
+  });
+}
+
+function validatedReviewDecisions(
+  command: RedactTextCommand,
+  extractionRevision: string,
+  availableSpanIds: ReadonlySet<string>,
+  requestCorrelationId: CorrelationId
+): ReadonlyMap<string, RedactionReviewDecision> {
+  const review = command.review;
+  if (review === undefined) return new Map();
+  try {
+    if (parseSha256Digest(review.binding.extractionRevision) !== extractionRevision
+      || parseSha256Digest(review.binding.digest) !== review.binding.digest
+      || !Number.isSafeInteger(review.binding.revision)
+      || review.binding.revision < 0
+      || review.binding.revision > 1000
+      || review.binding.decisionCount !== review.binding.revision
+      || review.decisions.length > review.binding.decisionCount) {
+      throw new TypeError('Invalid review binding.');
+    }
+    const decisions = new Map<string, RedactionReviewDecision>();
+    for (const decision of review.decisions) {
+      if (!availableSpanIds.has(decision.sourceSpanId) || decisions.has(decision.sourceSpanId)) {
+        throw new TypeError('Invalid review target.');
+      }
+      if (decision.action === 'RETYPE'
+        && !command.policy.entities.some(({ entityType }) => entityType === decision.entityType)) {
+        throw new TypeError('Invalid review entity type.');
+      }
+      decisions.set(decision.sourceSpanId, decision);
+    }
+    return decisions;
+  } catch {
+    throw reviewPlanConflict(requestCorrelationId);
+  }
 }
 
 async function invoke<Result>(
@@ -422,14 +470,45 @@ export function createTextProcessingApplication(
           throw unresolvedConflict(requestCorrelationId, scanned.resolution.conflicts.length);
         }
 
-        const policyDecisions = scanned.resolution.spans.map((span) => ({
-          spanId: span.id,
-          evidenceIds: [...span.evidenceIds],
-          ...evaluateAcceptedSpan(command.policy, {
-            ...span,
-            extractionRevision: scanned.resolution.extractionRevision
-          }, scanned.evidence)
-        }));
+        const reviewDecisions = validatedReviewDecisions(
+          command,
+          scanned.resolution.extractionRevision,
+          new Set(scanned.resolution.spans.map(({ id }) => id)),
+          requestCorrelationId
+        );
+        const reviewedSpans = scanned.resolution.spans.map((span) => {
+          const review = reviewDecisions.get(span.id);
+          return review?.action === 'RETYPE' ? { ...span, entityType: review.entityType } : span;
+        });
+        const policyDecisions = reviewedSpans.map((span) => {
+          const review = reviewDecisions.get(span.id);
+          if (review?.action === 'REJECT') {
+            return {
+              spanId: span.id,
+              evidenceIds: [...span.evidenceIds],
+              entityType: span.entityType,
+              action: 'KEEP' as const,
+              explanationCode: 'REVIEW_REJECTED' as const,
+              reviewAction: review.action
+            };
+          }
+          const decision = review === undefined
+            ? evaluateAcceptedSpan(command.policy, {
+              ...span,
+              extractionRevision: scanned.resolution.extractionRevision
+            }, scanned.evidence)
+            : evaluateReviewedEntity(
+              command.policy,
+              span.entityType,
+              review.action === 'RETYPE' ? 'REVIEW_RETYPED' : 'REVIEW_ACCEPTED'
+            );
+          return {
+            spanId: span.id,
+            evidenceIds: [...span.evidenceIds],
+            ...decision,
+            ...(review === undefined ? {} : { reviewAction: review.action })
+          };
+        });
         if (policyDecisions.some(({ action }) => action === 'BLOCK')) {
           throw policyDecisionBlocked(requestCorrelationId, 'POLICY_BLOCKED');
         }
@@ -441,8 +520,27 @@ export function createTextProcessingApplication(
           .map(({ spanId }) => spanId));
         const approvedResolution = {
           ...scanned.resolution,
-          spans: scanned.resolution.spans.filter(({ id }) => approvedSpanIds.has(id))
+          spans: reviewedSpans.filter(({ id }) => approvedSpanIds.has(id))
         };
+        const spansById = new Map(scanned.resolution.spans.map((span) => [span.id, span] as const));
+        const planReview = command.review === undefined ? undefined : {
+          ...command.review.binding,
+          decisions: [...reviewDecisions.values()]
+            .map((decision) => {
+              const span = spansById.get(decision.sourceSpanId);
+              if (span === undefined) throw reviewPlanConflict(requestCorrelationId);
+              const common = {
+                sourceSpanId: span.id,
+                entityType: span.entityType,
+                start: span.start,
+                end: span.end
+              };
+              return decision.action === 'RETYPE'
+                ? { ...common, action: decision.action, reviewedEntityType: decision.entityType }
+                : { ...common, action: decision.action };
+            })
+            .sort((left, right) => left.start - right.start || left.sourceSpanId.localeCompare(right.sourceSpanId))
+        } as const;
         const policy = {
           id: command.policy.id,
           version: command.policy.version,
@@ -454,9 +552,10 @@ export function createTextProcessingApplication(
           capabilityDigest,
           detectorBundleVersion: scanned.detectorBundleVersion,
           policy,
-          writer: command.session.writer
+          writer: command.session.writer,
+          ...(planReview === undefined ? {} : { review: planReview })
         });
-        assertContract(redactionPlanSchemaId, plan);
+        assertContract(redactionPlanSchemaIds[plan.schemaVersion], plan);
         let staged: Awaited<ReturnType<RedactTextCommand['session']['stage']>> | undefined;
         try {
           staged = await command.session.stage(plan, command.signal);

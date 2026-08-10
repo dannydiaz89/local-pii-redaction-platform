@@ -7,6 +7,8 @@ Deterministic residual-PII verification and bound verification attestations for 
 - Re-scans canonical output using the pinned verification detector bundle.
 - Produces privacy-minimized findings without detected source values.
 - Binds verification to input, output, policy, plan, writer receipt, and component identities.
+- Permits an intentionally retained reviewed match only when its type and mapped output offsets
+  exactly match the value-free rejected-span provenance in a valid reviewed plan.
 - Computes canonical attestation digests and reports pass/fail/uncertain outcomes.
 - Publishes the current text verification capability descriptor.
 

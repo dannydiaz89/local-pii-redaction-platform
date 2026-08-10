@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "4.0.0",
+  "operation": "REDACT",
+  "inputArtifactId": "art_01J4M91NJK8WAPJ7J95K73CB2M",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "review": {
+    "sourceJobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+    "expectedJobRevision": 6,
+    "expectedExtractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expectedReviewRevision": 1
+  }
+}

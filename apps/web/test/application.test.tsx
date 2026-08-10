@@ -16,6 +16,7 @@ const firstDetectionId = '123e4567-e89b-42d3-a456-426614174011';
 const secondDetectionId = '123e4567-e89b-42d3-a456-426614174012';
 const extractionRevision = `sha256:${'d'.repeat(64)}`;
 const emptyReview = {
+  schemaVersion: '1.0.0',
   jobId: scanJobId,
   jobRevision: 6,
   extractionRevision,
@@ -278,13 +279,14 @@ describe('web application foundation', () => {
     expect(screen.queryByText('Characters 21–30')).toBeNull();
   });
 
-  it('saves an accessible category-change decision and blocks unreviewed redaction semantics', async () => {
+  it('saves an accessible category-change decision and enables review-bound redaction', async () => {
     const user = userEvent.setup();
     const appendReviewDecisions = vi.fn<LocalJobClient['appendReviewDecisions']>(
       (jobId, jobRevision, expectedExtractionRevision, _reviewRevision, decisions) => {
         const decision = decisions[0];
         if (decision === undefined) return Promise.reject(new Error('Review decision missing'));
         return Promise.resolve({
+        schemaVersion: '1.0.0',
         jobId,
         jobRevision,
         extractionRevision: expectedExtractionRevision,
@@ -328,8 +330,8 @@ describe('web application foundation', () => {
       })],
       expect.any(AbortSignal)
     );
-    expect(screen.getByText(/Saved review decisions are not bound into the redaction plan yet/u)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Redact and preview' })).toBeNull();
+    expect(screen.getByText(/Saved review decisions will be bound into the exact redaction plan/u)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Redact and preview' })).toBeTruthy();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 

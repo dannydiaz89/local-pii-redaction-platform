@@ -3,7 +3,7 @@ import type {
   EntityType,
   Sha256Digest
 } from '@local-pii/domain';
-import type { TypedLabelPlan } from '@local-pii/redaction';
+import type { TypedLabelPlan, TypedLabelReviewProvenance } from '@local-pii/redaction';
 import type { ResolutionSet } from '@local-pii/span-resolution';
 import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
 import type { RedactionWriterReceiptContract } from '@local-pii/contracts';
@@ -189,7 +189,18 @@ export interface RedactTextCommand {
   readonly requirement: CapabilityRequirement;
   /** The immutable compiled policy that governs this entire redaction. */
   readonly policy: EffectivePolicy;
+  /** Optional exact human-review snapshot applied after deterministic resolution. */
+  readonly review?: RedactionReviewSnapshot;
   readonly signal?: AbortSignal;
+}
+
+export type RedactionReviewDecision =
+  | { readonly sourceSpanId: string; readonly action: 'ACCEPT' | 'REJECT' }
+  | { readonly sourceSpanId: string; readonly action: 'RETYPE'; readonly entityType: EntityType };
+
+export interface RedactionReviewSnapshot {
+  readonly binding: TypedLabelReviewProvenance;
+  readonly decisions: readonly RedactionReviewDecision[];
 }
 
 export interface PolicyBinding {
@@ -202,6 +213,7 @@ export interface PolicyBinding {
 export interface PolicySpanDecision extends PolicyDecision {
   readonly spanId: string;
   readonly evidenceIds: readonly string[];
+  readonly reviewAction?: RedactionReviewDecision['action'];
 }
 
 export interface TextInspectionResult {

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "2.0.0",
+  "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+  "strategy": "TYPED_LABEL",
+  "strategyVersion": "0.2.0",
+  "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "resolutionDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "review": {
+    "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "revision": 1,
+    "decisionCount": 1,
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "decisions": [{
+      "sourceSpanId": "rsp_11111111111141118111111111111111",
+      "action": "ACCEPT",
+      "entityType": "EMAIL",
+      "start": 8,
+      "end": 25
+    }]
+  },
+  "capabilityDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "detectorBundleVersion": "0.1.0",
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "riskTier": "LOW"
+  },
+  "writer": { "id": "text-adapter", "version": "0.1.0" },
+  "expectedActionCount": 1,
+  "actions": [{
+    "id": "act_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "action": "TYPED_LABEL",
+    "sourceSpanId": "rsp_11111111111141118111111111111111",
+    "evidenceIds": ["11111111-1111-4111-8111-111111111111"],
+    "entityType": "EMAIL",
+    "start": 8,
+    "end": 25,
+    "replacement": "[EMAIL_1]"
+  }],
+  "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+}

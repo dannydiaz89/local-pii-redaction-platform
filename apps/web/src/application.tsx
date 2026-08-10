@@ -289,7 +289,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const effectiveReviews = useMemo(() => effectiveReviewDecisions(
     scan.kind === 'complete' ? scan.summary.review.decisions : []
   ), [scan]);
-  const reviewBlocksRedaction = scan.kind === 'complete' && scan.summary.review.reviewRevision > 0;
   const reviewDraftCount = Object.keys(reviewDrafts).length;
   const supportedReviewEntityTypes = preflight.kind === 'ready'
     ? preflight.summary.supportedEntityTypes
@@ -798,9 +797,10 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                 <section className="redaction-panel" aria-labelledby="redaction-title">
                   <h3 id="redaction-title">{t('redaction.title')}</h3>
                   <p>{t('redaction.body')}</p>
-                  {reviewBlocksRedaction ? (
-                    <Callout>{t('review.redactionPending')}</Callout>
-                  ) : redaction.kind !== 'complete' ? (
+                  {scan.summary.review.reviewRevision > 0 ? (
+                    <Callout tone="positive">{t('review.redactionBound')}</Callout>
+                  ) : null}
+                  {redaction.kind !== 'complete' ? (
                     <Button
                       disabled={redaction.kind === 'redacting' || reviewDraftCount > 0}
                       onClick={() => {
@@ -811,6 +811,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         void jobClient.redact(
                           selectedFile,
                           defaultPolicy,
+                          scan.summary.review,
                           (progress) => {
                             if (!controller.signal.aborted) setRedaction({ kind: 'redacting', progress });
                           },

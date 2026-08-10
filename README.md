@@ -118,9 +118,14 @@ reliably zeroized. Completed scan jobs now also expose a process-local append-on
 authenticated GET/POST review-decision routes accept only stable detection IDs, canonical actions,
 bounded reason codes, and extraction/job/review revisions. Exact retries replay idempotently and
 stale review revisions return `409`; document values and free-form notes are not accepted. This
-first slice supports accept, reject, and category change. It does not yet bind review history into
-the redaction plan, so the UI disables redaction after any saved decision. Boundary edits,
-manual additions, durable artifact/review persistence, reports, and restart/resume remain disabled.
+slice supports accept, reject, and category change. Reviewed redaction now snapshots the exact
+conflict-free scan, policy, extraction revision, review revision, and review digest into a v4 job
+and v2 immutable plan. Accept applies the configured policy action, reject keeps only that exact
+reviewed span, and category change applies the selected supported type. The verifier permits an
+intentional rejected residual only at its digest-bound mapped location; any new or shifted residual
+still blocks publication. Plans, reports, and API records contain offsets and provenance but never
+matched values. Boundary edits, manual additions, durable artifact/review persistence, reports,
+and restart/resume remain disabled.
 
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
@@ -160,8 +165,8 @@ text hidden by default. An explicit reveal reads only the bounded matches for th
 the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
 never added to an API response or review record and is released from UI state when hidden, the page
 changes, or the file changes; JavaScript strings cannot be reliably zeroized. For a conflict-free completed scan
-with no saved review decisions, the UI can start a
-second process-local job that applies the selected pinned policy, reopens and verifies the derived
+with an exact current review set, the UI can start a second process-local job that applies the
+selected pinned policy plus saved accept/reject/retype decisions, reopens and verifies the derived
 bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original
 file remains unchanged. The preview is bounded to the first 4,096 Unicode code points, and the user
 explicitly downloads the complete output afterward through a generic link. Because the preview is
@@ -171,9 +176,9 @@ retains the output only for the current application launch. It retains nothing i
 persistence and sends no filename or matched value back in JSON responses. This is session-only
 processing, not the durable review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
-state. Review is partially implemented: accept/reject/retype persistence is active, while applying
-those changes to redaction, boundary/manual actions, durable resume/history, retained reports, and
-lifecycle deletion remain intentionally open.
+state. Review is partially implemented: accept/reject/retype persistence and reviewed redaction are
+active, while boundary/manual actions, durable resume/history, retained reports, and lifecycle
+deletion remain intentionally open.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a

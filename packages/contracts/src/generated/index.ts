@@ -20,6 +20,7 @@ export * as ExtractionExtractedDocumentContract from './extraction-extracted-doc
 export * as JobsCancelJobRequestContract from './jobs-cancel-job-request.js';
 export * as JobsCreateJobRequestV2Contract from './jobs-create-job-request-v2.js';
 export * as JobsCreateJobRequestV3Contract from './jobs-create-job-request-v3.js';
+export * as JobsCreateJobRequestV4Contract from './jobs-create-job-request-v4.js';
 export * as JobsCreateJobRequestContract from './jobs-create-job-request.js';
 export * as JobsDetectionPageContract from './jobs-detection-page.js';
 export * as JobsJobEventPageContract from './jobs-job-event-page.js';
@@ -33,6 +34,7 @@ export * as JobsReviewSetContract from './jobs-review-set.js';
 export * as ModelsModelManifestContract from './models-model-manifest.js';
 export * as PolicyPolicyCatalogContract from './policy-policy-catalog.js';
 export * as PolicyRedactionPolicyContract from './policy-redaction-policy.js';
+export * as RedactionRedactionPlanV2Contract from './redaction-redaction-plan-v2.js';
 export * as RedactionRedactionPlanContract from './redaction-redaction-plan.js';
 export * as RedactionWriterReceiptContract from './redaction-writer-receipt.js';
 export * as VerificationVerificationReportV2Contract from './verification-verification-report-v2.js';

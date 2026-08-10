@@ -7,7 +7,7 @@ import {
 } from '@local-pii/contracts';
 import { detectDeterministic, deterministicDetectorBundleVersion } from '@local-pii/detectors';
 import type { EntityType, Sha256Digest } from '@local-pii/domain';
-import { parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
+import { entityTypes, parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
 import { resolveEvidence } from '@local-pii/span-resolution';
 
 export const textVerificationCapabilityDescriptor = {
@@ -110,7 +110,37 @@ export interface VerificationPlanBinding {
   };
   readonly writer: { readonly id: string; readonly version: string };
   readonly expectedActionCount: number;
-  readonly actions: readonly { readonly id: string }[];
+  readonly actions: readonly {
+    readonly id: string;
+    readonly sourceSpanId?: string;
+    readonly entityType?: EntityType;
+    readonly start?: number;
+    readonly end?: number;
+    readonly replacement?: string;
+  }[];
+  readonly review?: {
+    readonly extractionRevision: Sha256Digest;
+    readonly revision: number;
+    readonly decisionCount: number;
+    readonly digest: Sha256Digest;
+    readonly decisions: readonly (
+      | {
+        readonly sourceSpanId: string;
+        readonly action: 'ACCEPT' | 'REJECT';
+        readonly entityType: EntityType;
+        readonly start: number;
+        readonly end: number;
+      }
+      | {
+        readonly sourceSpanId: string;
+        readonly action: 'RETYPE';
+        readonly entityType: EntityType;
+        readonly reviewedEntityType: EntityType;
+        readonly start: number;
+        readonly end: number;
+      }
+    )[];
+  };
 }
 
 export interface VerificationPolicyBinding {
@@ -164,6 +194,7 @@ const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
 const textMediaTypes = new Set(['text/plain', 'text/markdown']);
+const resolvedSpanIdPattern = /^rsp_[a-f0-9]{32}$/u;
 
 function isDigest(value: unknown): value is Sha256Digest {
   try {
@@ -319,7 +350,7 @@ function hasValidReceiptShape(receipt: WriterReceipt): boolean {
 }
 
 function hasValidPlanShape(plan: VerificationPlanBinding): boolean {
-  return planIdPattern.test(plan.id)
+  const baseIsValid = planIdPattern.test(plan.id)
     && isDigest(plan.digest)
     && isDigest(plan.inputDigest)
     && isDigest(plan.extractionRevision)
@@ -333,6 +364,91 @@ function hasValidPlanShape(plan: VerificationPlanBinding): boolean {
     && plan.expectedActionCount === plan.actions.length
     && plan.actions.every(({ id }) => typeof id === 'string' && actionIdPattern.test(id))
     && new Set(plan.actions.map(({ id }) => id)).size === plan.actions.length;
+  if (!baseIsValid || plan.review === undefined) return baseIsValid;
+  const review = plan.review;
+  const actionSpans = new Map<string, {
+    readonly entityType: EntityType;
+    readonly start: number;
+    readonly end: number;
+  }>();
+  let priorActionEnd = -1;
+  for (const action of [...plan.actions].sort((left, right) => (left.start ?? -1) - (right.start ?? -1))) {
+    if (typeof action.sourceSpanId !== 'string'
+      || !resolvedSpanIdPattern.test(action.sourceSpanId)
+      || actionSpans.has(action.sourceSpanId)
+      || !entityTypes.includes(action.entityType as EntityType)
+      || typeof action.start !== 'number'
+      || !Number.isSafeInteger(action.start)
+      || typeof action.end !== 'number'
+      || !Number.isSafeInteger(action.end)
+      || action.start < 0
+      || action.end <= action.start
+      || action.start < priorActionEnd
+      || typeof action.replacement !== 'string') return false;
+    actionSpans.set(action.sourceSpanId, {
+      entityType: action.entityType as EntityType,
+      start: action.start,
+      end: action.end
+    });
+    priorActionEnd = action.end;
+  }
+  if (!isDigest(review.extractionRevision)
+    || review.extractionRevision !== plan.extractionRevision
+    || !isDigest(review.digest)
+    || !Number.isSafeInteger(review.revision)
+    || review.revision < 0
+    || review.revision > 1000
+    || review.decisionCount !== review.revision
+    || review.decisions.length > review.decisionCount) return false;
+  const reviewSpanIds = new Set<string>();
+  let priorEnd = -1;
+  for (const decision of review.decisions) {
+    if (!resolvedSpanIdPattern.test(decision.sourceSpanId)
+      || reviewSpanIds.has(decision.sourceSpanId)
+      || !Number.isSafeInteger(decision.start)
+      || !Number.isSafeInteger(decision.end)
+      || decision.start < 0
+      || decision.end <= decision.start
+      || decision.start < priorEnd
+      || !entityTypes.includes(decision.entityType)) return false;
+    const actionSpan = actionSpans.get(decision.sourceSpanId);
+    if (decision.action === 'REJECT') {
+      if (actionSpan !== undefined) return false;
+    } else if (actionSpan === undefined
+      || actionSpan.start !== decision.start
+      || actionSpan.end !== decision.end
+      || actionSpan.entityType !== (decision.action === 'RETYPE'
+        ? decision.reviewedEntityType
+        : decision.entityType)) return false;
+    if (decision.action === 'RETYPE' && !entityTypes.includes(decision.reviewedEntityType)) return false;
+    reviewSpanIds.add(decision.sourceSpanId);
+    priorEnd = decision.end;
+  }
+  return true;
+}
+
+function permittedReviewedResiduals(plan: VerificationPlanBinding): ReadonlySet<string> {
+  if (plan.review === undefined) return new Set();
+  const actions = plan.actions
+    .map((action) => ({
+      start: action.start as number,
+      end: action.end as number,
+      replacementLength: unicodeCodePointLength(action.replacement as string)
+    }))
+    .sort((left, right) => left.start - right.start);
+  const allowed = new Set<string>();
+  for (const decision of plan.review.decisions) {
+    if (decision.action !== 'REJECT') continue;
+    let delta = 0;
+    for (const action of actions) {
+      if (action.end > decision.start) break;
+      delta += action.replacementLength - (action.end - action.start);
+    }
+    const start = decision.start + delta;
+    const end = start + (decision.end - decision.start);
+    allowed.add(`${decision.entityType}:${String(start)}:${String(end)}`);
+  }
+  return allowed;
 }
 
 /**
@@ -442,8 +558,10 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
       };
       return { ...unsigned, reportDigest: computeVerificationAttestationDigest(unsigned) };
     }
+    const permittedResiduals = permittedReviewedResiduals(request.plan);
     const residualCounts = new Map<EntityType, number>();
     for (const span of resolution.spans) {
+      if (permittedResiduals.has(`${span.entityType}:${String(span.start)}:${String(span.end)}`)) continue;
       residualCounts.set(span.entityType, (residualCounts.get(span.entityType) ?? 0) + 1);
     }
     for (const [entityType, count] of residualCounts) {

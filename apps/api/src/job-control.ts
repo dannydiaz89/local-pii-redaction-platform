@@ -5,6 +5,7 @@ import type {
   JobsCreateJobRequestContract,
   JobsCreateJobRequestV2Contract,
   JobsCreateJobRequestV3Contract,
+  JobsCreateJobRequestV4Contract,
   JobsJobContract,
   JobsJobEventPageContract
 } from '@local-pii/contracts';
@@ -17,7 +18,8 @@ import {
 export type MetadataJobRequest = Readonly<JobsCreateJobRequestContract.CreateJobRequest>;
 export type ProcessingJobRequest = Readonly<JobsCreateJobRequestV2Contract.CreateProcessingJobRequest>;
 export type LocalProcessingJobRequest = Readonly<JobsCreateJobRequestV3Contract.CreateLocalProcessingJobRequest>;
-export type CreateJobRequest = MetadataJobRequest | ProcessingJobRequest | LocalProcessingJobRequest;
+export type ReviewedLocalRedactionJobRequest = Readonly<JobsCreateJobRequestV4Contract.CreateReviewedLocalRedactionJobRequest>;
+export type CreateJobRequest = MetadataJobRequest | ProcessingJobRequest | LocalProcessingJobRequest | ReviewedLocalRedactionJobRequest;
 export type CancelJobRequest = Readonly<JobsCancelJobRequestContract.CancelJobRequest>;
 export type Job = Readonly<JobsJobContract.Job>;
 export type JobEventPage = Readonly<Omit<JobsJobEventPageContract.JobEventPage, 'events'>> & {
@@ -85,7 +87,14 @@ function requestDigest(request: CreateJobRequest): string {
     request.policy.id,
     request.policy.version,
     request.policy.digest,
-    ...(request.schemaVersion === '1.0.0' ? [] : [request.inputArtifactId])
+    ...(request.schemaVersion === '1.0.0' ? [] : [request.inputArtifactId]),
+    ...(request.schemaVersion === '4.0.0' ? [
+      request.review.sourceJobId,
+      request.review.expectedJobRevision,
+      request.review.expectedExtractionRevision,
+      request.review.expectedReviewRevision,
+      request.review.expectedReviewDigest
+    ] : [])
   ]);
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }

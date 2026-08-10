@@ -8,6 +8,8 @@ Validation, compilation, capability evaluation, and execution semantics for reda
 - Compiles immutable effective policies and capability requirements.
 - Explains whether a capability manifest can satisfy a policy and operation.
 - Evaluates accepted spans into deterministic policy decisions.
+- Applies configured terminal actions for explicit accepted/retyped review decisions while keeping
+  rejected spans as value-free, plan-bound review outcomes.
 - Publishes the bundled development example policies.
 
 ## Boundary

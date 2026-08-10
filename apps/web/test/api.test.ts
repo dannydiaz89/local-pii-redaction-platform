@@ -483,9 +483,23 @@ describe('browser policy and job client', () => {
     });
     const client = createLocalJobClient(session, fetchImplementation);
     const sourceName = 'private-redaction-source.txt';
+    const review = projectReviewSet({
+      schemaVersion: '1.0.0', jobId, jobRevision: 6,
+      extractionRevision: `sha256:${'d'.repeat(64)}`,
+      reviewRevision: 1,
+      digest: `sha256:${'e'.repeat(64)}`,
+      decisions: [{
+        revision: 1,
+        clientDecisionId: '123e4567-e89b-42d3-a456-426614174000',
+        targetDetectionId: '123e4567-e89b-42d3-a456-426614174001',
+        action: 'REJECT', reasonCode: 'FALSE_POSITIVE', principal: 'LOCAL_SESSION',
+        occurredAt: '2026-08-09T18:00:00Z'
+      }]
+    }, jobId);
     const result = await client.redact(
       new File(['Synthetic contact: browser-redaction@example.test'], sourceName, { type: 'text/plain' }),
       policy,
+      review,
       () => undefined,
       new AbortController().signal
     );
@@ -505,7 +519,14 @@ describe('browser policy and job client', () => {
     expect(serialized).not.toContain(sourceName);
     const createBody = fetchImplementation.mock.calls[2]?.[1]?.body;
     expect(typeof createBody === 'string' ? JSON.parse(createBody) : undefined).toMatchObject({
-      schemaVersion: '3.0.0', operation: 'REDACT', inputArtifactId
+      schemaVersion: '4.0.0', operation: 'REDACT', inputArtifactId,
+      review: {
+        sourceJobId: jobId,
+        expectedJobRevision: 6,
+        expectedExtractionRevision: `sha256:${'d'.repeat(64)}`,
+        expectedReviewRevision: 1,
+        expectedReviewDigest: `sha256:${'e'.repeat(64)}`
+      }
     });
   });
 

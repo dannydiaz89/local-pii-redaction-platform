@@ -187,9 +187,10 @@ paths:
                 - $ref: "./schemas/jobs/create-job-request.schema.json"
                 - $ref: "./schemas/jobs/create-job-request-v2.schema.json"
                 - $ref: "./schemas/jobs/create-job-request-v3.schema.json"
+                - $ref: "./schemas/jobs/create-job-request-v4.schema.json"
       responses:
         "201":
-          description: A new metadata-only, process-local scan, or process-local redaction job was created
+          description: A new metadata-only, process-local scan, process-local redaction, or review-bound redaction job was created
           content:
             application/json:
               schema:

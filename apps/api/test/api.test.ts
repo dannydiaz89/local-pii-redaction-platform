@@ -760,6 +760,122 @@ describe('local API composition', () => {
     expect(unauthorized.body).not.toContain(outputArtifactId);
   });
 
+  it('redacts from the exact saved review set and preserves an explicitly rejected match', async () => {
+    const sourceValue = 'reviewed-false-positive@example.test';
+    const bytes = Buffer.from(`Synthetic identifier: ${sourceValue}`, 'utf8');
+    const catalog = createLocalPolicyCatalog();
+    const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
+    const instance = server(dependencies({
+      jobs: processing,
+      processing,
+      policies: { get: () => Promise.resolve(catalog) }
+    }));
+    const upload = async (content: Buffer = bytes) => {
+      const contentDigest = `sha256:${createHash('sha256').update(content).digest('hex')}`;
+      const initiated = await instance.inject({
+        method: 'POST', url: '/v1/artifacts', headers: authorization(),
+        payload: {
+          schemaVersion: '1.0.0', mediaType: 'text/plain', byteLength: content.length, digest: contentDigest
+        }
+      });
+      const artifactId = initiated.json<{ readonly id: string }>().id;
+      expect((await instance.inject({
+        method: 'PUT', url: `/v1/artifacts/${artifactId}/content`,
+        headers: { ...authorization(), 'content-type': 'application/octet-stream' }, payload: content
+      })).statusCode).toBe(200);
+      return artifactId;
+    };
+    const policyBinding = {
+      id: catalog.defaultPolicyId,
+      version: catalog.policies[0].version,
+      digest: catalog.policies[0].digest
+    };
+    const scan = await instance.inject({
+      method: 'POST', url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': '723e4567-e89b-42d3-a456-426614174001' },
+      payload: { schemaVersion: '2.0.0', operation: 'SCAN', inputArtifactId: await upload(), policy: policyBinding }
+    });
+    const scanJobId = scan.json<{ readonly id: string }>().id;
+    let scanJob = scan.json<{ readonly state: string; readonly revision: number }>();
+    for (let attempt = 0; attempt < 20 && scanJob.state !== 'SUCCEEDED'; attempt += 1) {
+      scanJob = (await instance.inject({
+        method: 'GET', url: `/v1/jobs/${scanJobId}`, headers: authorization()
+      })).json<typeof scanJob>();
+    }
+    expect(scanJob.state).toBe('SUCCEEDED');
+    const detections = (await instance.inject({
+      method: 'GET', url: `/v1/jobs/${scanJobId}/detections`, headers: authorization()
+    })).json<{ readonly detections: readonly { readonly id: string }[] }>();
+    const initialReview = (await instance.inject({
+      method: 'GET', url: `/v1/jobs/${scanJobId}/review-decisions`, headers: authorization()
+    })).json<{ readonly extractionRevision: string; readonly digest: string }>();
+    const reviewed = await instance.inject({
+      method: 'POST', url: `/v1/jobs/${scanJobId}/review-decisions`, headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', expectedJobRevision: scanJob.revision,
+        expectedExtractionRevision: initialReview.extractionRevision, expectedReviewRevision: 0,
+        decisions: [{
+          clientDecisionId: '723e4567-e89b-42d3-a456-426614174002',
+          targetDetectionId: detections.detections[0]?.id,
+          action: 'REJECT', reasonCode: 'FALSE_POSITIVE'
+        }]
+      }
+    });
+    expect(reviewed.statusCode).toBe(200);
+    const reviewSet = reviewed.json<{
+      readonly jobRevision: number;
+      readonly extractionRevision: string;
+      readonly reviewRevision: number;
+      readonly digest: string;
+    }>();
+    const reviewBinding = {
+      sourceJobId: scanJobId,
+      expectedJobRevision: reviewSet.jobRevision,
+      expectedExtractionRevision: reviewSet.extractionRevision,
+      expectedReviewRevision: reviewSet.reviewRevision,
+      expectedReviewDigest: reviewSet.digest
+    };
+    const mismatched = await instance.inject({
+      method: 'POST', url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': '723e4567-e89b-42d3-a456-426614174004' },
+      payload: {
+        schemaVersion: '4.0.0', operation: 'REDACT',
+        inputArtifactId: await upload(Buffer.from(`${bytes.toString('utf8')} changed`, 'utf8')),
+        policy: policyBinding, review: reviewBinding
+      }
+    });
+    expect(mismatched.statusCode).toBe(409);
+    expect(mismatched.json()).toMatchObject({ error: { code: 'JOB_CONFLICT' } });
+    expect(mismatched.body).not.toContain(sourceValue);
+    const redaction = await instance.inject({
+      method: 'POST', url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': '723e4567-e89b-42d3-a456-426614174003' },
+      payload: {
+        schemaVersion: '4.0.0', operation: 'REDACT', inputArtifactId: await upload(), policy: policyBinding,
+        review: reviewBinding
+      }
+    });
+    expect(redaction.statusCode).toBe(201);
+    const redactionJobId = redaction.json<{ readonly id: string }>().id;
+    let redactionJob = redaction.json<{ readonly state: string }>();
+    for (let attempt = 0; attempt < 20 && redactionJob.state !== 'VERIFIED'; attempt += 1) {
+      redactionJob = (await instance.inject({
+        method: 'GET', url: `/v1/jobs/${redactionJobId}`, headers: authorization()
+      })).json<typeof redactionJob>();
+    }
+    expect(redactionJob.state).toBe('VERIFIED');
+    const output = (await instance.inject({
+      method: 'GET', url: `/v1/jobs/${redactionJobId}/output`, headers: authorization()
+    })).json<{ readonly id: string }>();
+    const downloaded = await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${output.id}/content`, headers: authorization()
+    });
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.body).toBe(`Synthetic identifier: ${sourceValue}`);
+    expect(redaction.body).not.toContain(sourceValue);
+    expect(reviewed.body).not.toContain(sourceValue);
+  });
+
   it('rejects mismatched artifact bytes without creating a scanable artifact', async () => {
     const catalog = policyCatalog();
     const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
