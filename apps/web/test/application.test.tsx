@@ -123,7 +123,8 @@ function readyJobClient(): LocalJobClient {
     create: unavailable,
     get: unavailable,
     listEvents: unavailable,
-    cancel: unavailable
+    cancel: unavailable,
+    expire: () => Promise.resolve()
   };
 }
 
@@ -250,6 +251,48 @@ describe('web application foundation', () => {
 
     unmount();
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:local-verified-output');
+  });
+
+  it('confirms and expires redaction before scan when clearing the current workflow', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:local-output') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const base = readyJobClient();
+    const redactionJobId = 'job_01J4M91NJK8WAPJ7J95K73CB2N';
+    const expire = vi.fn<LocalJobClient['expire']>(() => Promise.resolve());
+    const jobs: LocalJobClient = {
+      ...base,
+      redact: async (...parameters) => {
+        const summary = await base.redact(...parameters);
+        return { ...summary, job: { ...summary.job, id: redactionJobId } };
+      },
+      expire
+    };
+    const user = userEvent.setup();
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await screen.findByText('1 potential item found.');
+    await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
+    await screen.findByRole('link', { name: 'Download verified redacted copy' });
+
+    await user.click(screen.getByRole('button', { name: 'Clear current workflow' }));
+    expect(screen.getByRole('heading', { name: 'Clear this document workflow now?' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Keep workflow' }));
+    expect(expire).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Download verified redacted copy' })).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Clear current workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Clear now' }));
+    expect(await screen.findByText('The current workflow was cleared from this application session.')).toBeTruthy();
+    expect(expire.mock.calls.map(([jobId]) => jobId)).toEqual([redactionJobId, scanJobId]);
+    expect(screen.getByText('No document is selected.')).toBeTruthy();
+    const resetFileInput = screen.getByLabelText('Document file');
+    if (!(resetFileInput instanceof HTMLInputElement)) throw new TypeError('The file control is unavailable.');
+    expect(resetFileInput.files?.length).toBe(0);
+    expect(screen.queryByText('1 potential item found.')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Download verified redacted copy' })).toBeNull();
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
   it('renders and filters a keyboard-scrollable native detection table', async () => {

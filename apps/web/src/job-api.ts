@@ -187,6 +187,7 @@ export interface LocalJobClient {
   get(jobId: string, signal: AbortSignal): Promise<JobStatusSummary>;
   listEvents(jobId: string, afterCursor: number, limit: number, signal: AbortSignal): Promise<JobEventPageSummary>;
   cancel(jobId: string, expectedRevision: number, signal: AbortSignal): Promise<JobStatusSummary>;
+  expire(jobId: string, signal: AbortSignal): Promise<void>;
 }
 
 const maximumPolicyResponseBytes = 64 * 1024;
@@ -817,6 +818,25 @@ async function requestJson(
   return readBoundedJsonResponse(response, maximumResponseBytes, invalidResponseCode);
 }
 
+async function requestEmpty(
+  origin: URL,
+  bearerToken: string,
+  fetchImplementation: typeof fetch,
+  url: URL,
+  signal: AbortSignal
+): Promise<void> {
+  const response = await fetchImplementation(url, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${bearerToken}` },
+    credentials: 'omit',
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+    signal
+  });
+  if (url.origin !== origin.origin || response.status !== 204) throw new Error('JOB_EXPIRATION_FAILED');
+}
+
 export function createLocalJobClient(
   session: LocalApiSession,
   fetchImplementation: typeof fetch = fetch,
@@ -1119,6 +1139,12 @@ export function createLocalJobClient(
         { method: 'POST', body: JSON.stringify({ schemaVersion: '1.0.0', expectedRevision }) },
         operationSignal, maximumJobResponseBytes, 'JOB_RESPONSE_INVALID'
       )));
+    },
+
+    expire(jobId, signal) {
+      return invoke(signal, (operationSignal) => requestEmpty(
+        origin, session.bearerToken, fetchImplementation, jobUrl(jobId), operationSignal
+      ));
     }
   };
   return Object.freeze(client);
@@ -1137,6 +1163,7 @@ export function createDisconnectedJobClient(): LocalJobClient {
     create: unavailable,
     get: unavailable,
     listEvents: unavailable,
-    cancel: unavailable
+    cancel: unavailable,
+    expire: unavailable
   };
 }

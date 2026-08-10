@@ -524,6 +524,16 @@ describe('local API composition', () => {
         'access-control-request-headers': 'authorization, content-type, idempotency-key'
       }
     });
+    const acceptedDelete = await instance.inject({
+      method: 'OPTIONS',
+      url: '/v1/jobs/job_01J4M91NJK8WAPJ7J95K73CB2M',
+      headers: {
+        host: loopbackHost,
+        origin: allowedOrigin,
+        'access-control-request-method': 'DELETE',
+        'access-control-request-headers': 'authorization'
+      }
+    });
     const rejected = await instance.inject({
       method: 'OPTIONS',
       url: '/v1/capabilities',
@@ -537,9 +547,10 @@ describe('local API composition', () => {
 
     expect(accepted.statusCode).toBe(204);
     expect(accepted.headers['access-control-allow-origin']).toBe(allowedOrigin);
-    expect(accepted.headers['access-control-allow-methods']).toBe('GET, POST, PUT, OPTIONS');
+    expect(accepted.headers['access-control-allow-methods']).toBe('GET, POST, PUT, DELETE, OPTIONS');
     expect(accepted.headers['access-control-allow-headers']).toBe('authorization, content-type, idempotency-key');
     expect(accepted.body).not.toContain(sessionToken);
+    expect(acceptedDelete.statusCode).toBe(204);
     expect(rejected.statusCode).toBe(403);
     expect(rejected.body).not.toContain('x-alpha-canary');
     expectCanonicalError(rejected);
@@ -758,6 +769,27 @@ describe('local API composition', () => {
     });
     expect(unauthorized.statusCode).toBe(401);
     expect(unauthorized.body).not.toContain(outputArtifactId);
+
+    const expired = await instance.inject({
+      method: 'DELETE', url: `/v1/jobs/${jobId}`, headers: authorization()
+    });
+    expect(expired.statusCode).toBe(204);
+    expect(expired.body).toBe('');
+    expect((await instance.inject({
+      method: 'DELETE', url: `/v1/jobs/${jobId}`, headers: authorization()
+    })).statusCode).toBe(204);
+    const lifecycleEvidence = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}`, headers: authorization()
+    });
+    expect(lifecycleEvidence.statusCode).toBe(200);
+    expect(lifecycleEvidence.json()).toMatchObject({ id: jobId, state: 'EXPIRED', revision: 9 });
+    expect((await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/output`, headers: authorization()
+    })).statusCode).toBe(409);
+    expect((await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${outputArtifactId}/content`, headers: authorization()
+    })).statusCode).toBe(404);
+    expect(`${expired.body}${lifecycleEvidence.body}`).not.toContain(sourceValue);
   });
 
   it('redacts from the exact saved review set and preserves an explicitly rejected match', async () => {
@@ -922,8 +954,13 @@ describe('local API composition', () => {
     expect(validateContract(jobSchemaId, first.json()).valid).toBe(true);
     expect(first.json()).toMatchObject({ operation: 'SCAN', state: 'QUEUED', revision: 1 });
     expect(first.json<{ readonly id: string }>().id).toMatch(/^job_[0-9A-HJKMNP-TV-Z]{26}$/u);
+    const activeExpiration = await instance.inject({
+      method: 'DELETE', url: `/v1/jobs/${first.json<{ readonly id: string }>().id}`, headers: authorization()
+    });
+    expect(activeExpiration.statusCode).toBe(409);
+    expect(activeExpiration.json()).toMatchObject({ error: { code: 'JOB_CONFLICT' } });
     for (const prohibited of ['filename', 'path', 'content', 'excerpt', 'sourceValue']) {
-      expect(first.body).not.toContain(prohibited);
+      expect(`${first.body}${activeExpiration.body}`).not.toContain(prohibited);
     }
   });
 

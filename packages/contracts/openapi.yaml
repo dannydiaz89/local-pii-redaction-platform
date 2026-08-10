@@ -167,6 +167,24 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/common/errors.schema.json"
+    delete:
+      operationId: expireJob
+      description: Expires a completed process-local job and releases its session artifacts, results, and review data. Minimized lifecycle evidence remains until the local session closes.
+      responses:
+        "204":
+          description: The job was expired, or had already been expired
+        "404":
+          description: Job is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+        "409":
+          description: The job is still active and cannot be expired directly
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
   /v1/jobs:
     post:
       operationId: createJob

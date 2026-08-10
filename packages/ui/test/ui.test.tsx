@@ -21,11 +21,13 @@ describe('design-system primitives', () => {
           </SelectField>
           <FileField id="document" label="Document" hint="TXT files only" accept=".txt" onChange={vi.fn()} />
           <Button>Retry</Button>
+          <Button tone="critical">Delete</Button>
         </Card>
       </main>
     );
 
     expect(getByRole('button', { name: 'Retry' }).getAttribute('type')).toBe('button');
+    expect(getByRole('button', { name: 'Delete' }).getAttribute('data-tone')).toBe('critical');
     expect(getByLabelText('Language').tagName).toBe('SELECT');
     expect(getByLabelText('Document').getAttribute('type')).toBe('file');
     expect(getByLabelText('Document').getAttribute('aria-describedby')).toBe('document-hint');

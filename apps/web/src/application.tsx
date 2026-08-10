@@ -67,6 +67,7 @@ interface ReviewDraft {
   readonly entityType?: PreviewEntityType;
 }
 type ReviewSaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'stale';
+type WorkflowClearState = 'idle' | 'confirming' | 'clearing' | 'cleared' | 'failed';
 type DetectedTextState =
   | { readonly kind: 'idle' | 'loading' | 'unavailable' }
   | { readonly kind: 'ready'; readonly values: ReadonlyMap<string, string> };
@@ -177,6 +178,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [showDetectedText, setShowDetectedText] = useState(false);
   const [detectedText, setDetectedText] = useState<DetectedTextState>({ kind: 'idle' });
   const [sourceContext, setSourceContext] = useState<SourceContextState>({ kind: 'idle' });
+  const [workflowClearState, setWorkflowClearState] = useState<WorkflowClearState>('idle');
+  const [fileInputKey, setFileInputKey] = useState(0);
   const previewController = useRef<AbortController | undefined>(undefined);
   const sourceContextController = useRef<AbortController | undefined>(undefined);
   const sourceContextRegion = useRef<HTMLDivElement | null>(null);
@@ -212,6 +215,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setShowDetectedText(false);
     setDetectedText({ kind: 'idle' });
     setSourceContext({ kind: 'idle' });
+    setWorkflowClearState('idle');
     previewController.current?.abort();
     sourceContextController.current?.abort();
     void Promise.all([
@@ -439,6 +443,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
             <p className="muted">{t('intake.body')}</p>
             {preflight.kind === 'ready' ? (
               <FileField
+                key={fileInputKey}
                 id="document-file"
                 label={t('intake.label')}
                 hint={message(locale, 'intake.hint', {
@@ -463,6 +468,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setDetectedText({ kind: 'idle' });
                   sourceContextController.current?.abort();
                   setSourceContext({ kind: 'idle' });
+                  setWorkflowClearState('idle');
                 }}
               />
             ) : (
@@ -983,7 +989,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   ) : null}
                   {redaction.kind !== 'complete' ? (
                     <Button
-                      disabled={redaction.kind === 'redacting' || reviewDraftCount > 0}
+                      disabled={redaction.kind === 'redacting' || reviewDraftCount > 0
+                        || workflowClearState === 'confirming' || workflowClearState === 'clearing'}
                       onClick={() => {
                         const controller = new AbortController();
                         previewController.current?.abort();
@@ -1055,6 +1062,68 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   <p className="preview-details-privacy">{t('redaction.privacy')}</p>
                 </section>
               ) : null}
+            {scan.kind === 'complete' ? (
+              <section className="workflow-clear" aria-labelledby="workflow-clear-title">
+                <h3 id="workflow-clear-title">{t('workflow.clearTitle')}</h3>
+                <p>{t('workflow.clearBody')}</p>
+                {workflowClearState === 'confirming' ? (
+                  <div className="workflow-clear-confirmation" role="group" aria-labelledby="workflow-clear-confirm-title">
+                    <h4 id="workflow-clear-confirm-title">{t('workflow.clearConfirmTitle')}</h4>
+                    <p>{t('workflow.clearConfirmBody')}</p>
+                    <div className="workflow-clear-actions">
+                      <Button onClick={() => { setWorkflowClearState('idle'); }}>{t('workflow.keep')}</Button>
+                      <Button
+                        tone="critical"
+                        onClick={() => {
+                          const controller = new AbortController();
+                          previewController.current?.abort();
+                          previewController.current = controller;
+                          setWorkflowClearState('clearing');
+                          const scanJobId = scan.summary.job.id;
+                          const redactionJobId = redaction.kind === 'complete'
+                            ? redaction.summary.job.id
+                            : undefined;
+                          void (async () => {
+                            if (redactionJobId !== undefined) await jobClient.expire(redactionJobId, controller.signal);
+                            await jobClient.expire(scanJobId, controller.signal);
+                          })().then(() => {
+                            if (controller.signal.aborted) return;
+                            setSelectedFile(undefined);
+                            setFilePreflight({ kind: 'none' });
+                            setScan({ kind: 'idle' });
+                            setRedaction({ kind: 'idle' });
+                            setDetectionFilter('ALL');
+                            setReviewDrafts({});
+                            setReviewSaveState('idle');
+                            setShowDetectedText(false);
+                            setDetectedText({ kind: 'idle' });
+                            sourceContextController.current?.abort();
+                            setSourceContext({ kind: 'idle' });
+                            setFileInputKey((key) => key + 1);
+                            setWorkflowClearState('cleared');
+                          }, () => {
+                            if (!controller.signal.aborted) setWorkflowClearState('failed');
+                          });
+                        }}
+                      >{t('workflow.clearNow')}</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    tone="critical"
+                    disabled={redaction.kind === 'redacting' || reviewSaveState === 'saving'
+                      || workflowClearState === 'clearing'}
+                    onClick={() => { setWorkflowClearState('confirming'); }}
+                  >{workflowClearState === 'clearing' ? t('workflow.clearing') : t('workflow.clearAction')}</Button>
+                )}
+                {workflowClearState === 'failed' ? (
+                  <Callout tone="critical">{t('workflow.clearFailed')}</Callout>
+                ) : null}
+              </section>
+            ) : null}
+            {workflowClearState === 'cleared' ? (
+              <div role="status" aria-live="polite"><Callout tone="positive">{t('workflow.cleared')}</Callout></div>
+            ) : null}
             <p className="intake-privacy">{t('intake.privacy')}</p>
             <p className="coming-soon">{t('intake.next')}</p>
           </Card>

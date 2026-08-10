@@ -48,6 +48,7 @@ export interface JobControlPort {
     correlationId: string,
     signal?: AbortSignal
   ): Promise<JobMutationResult | undefined>;
+  expire(jobId: string, correlationId: string, signal?: AbortSignal): Promise<Job | undefined>;
 }
 
 export interface JobControlOptions {
@@ -171,6 +172,30 @@ export function createJobControl(
         eventId: createEventId(),
         correlationId
       }, signal);
+    },
+
+    async expire(jobId: string, correlationId: string, signal?: AbortSignal) {
+      const found = await store.get(jobId, correlationId, signal);
+      if (found === undefined || found.state === 'EXPIRED') return found;
+      let job: Job = found;
+      const advance = async (to: 'CANCELLING' | 'CANCELLED' | 'EXPIRED'): Promise<void> => {
+        const expectedRevision = job.revision;
+        const changed = await store.transition({
+          jobId,
+          expectedRevision,
+          to,
+          now: now().toISOString(),
+          eventId: createEventId(),
+          correlationId
+        }, signal);
+        job = changed.job;
+      };
+      if (job.state === 'NEEDS_REVIEW') {
+        await advance('CANCELLING');
+        await advance('CANCELLED');
+      }
+      await advance('EXPIRED');
+      return job;
     }
   });
 }

@@ -101,7 +101,7 @@ conflict rows. Detection rows contain only entity type, Unicode code-point offse
 confidence, and bounded evidence-source enums. Conflict rows contain only the overlapping range,
 possible entity types, and source enums; evidence IDs and matched values remain server-side. The
 aggregate endpoint remains available for clients that do not need locations.
-Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
+Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`, idempotent `DELETE /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
 only pinned operational metadata. The storage-neutral
 [`@local-pii/job-store`](./packages/job-store) boundary provides revision, idempotency, transition,
@@ -113,8 +113,11 @@ redaction through the shared application core. Only an output that reaches `VERI
 `GET /v1/jobs/{jobId}/output` and the authenticated artifact-content download. One worker runs at a
 time; scan input buffers are overwritten and released after processing. A verified redacted output
 is retained only until application shutdown, and uses a generic download name. Artifact
-metadata and result pages also disappear when the application closes. JavaScript strings cannot be
-reliably zeroized. Completed scan jobs now also expose a process-local append-only review set:
+metadata and result pages also disappear when the application closes. Explicit deletion expires a
+completed job and releases its process-local input/output artifacts, result pages, review history,
+and review snapshot; minimized `EXPIRED` job/event evidence remains until shutdown. Active jobs
+return `409` instead of being silently destroyed. JavaScript strings cannot be reliably zeroized.
+Completed scan jobs now also expose a process-local append-only review set:
 authenticated GET/POST review-decision routes accept only stable detection IDs, canonical actions,
 bounded reason codes, and extraction/job/review revisions. Exact retries replay idempotently and
 stale review revisions return `409`; document values and free-form notes are not accepted. This
@@ -179,13 +182,18 @@ file remains unchanged. The preview is bounded to the first 4,096 Unicode code p
 explicitly downloads the complete output afterward through a generic link. Because the preview is
 derived document content, it may contain sensitive values a detector missed; it is not a declaration
 that the file is safe. The browser uses a temporary Blob URL for the current page and the server
-retains the output only for the current application launch. It retains nothing in browser
+retains the output only for the current application launch. A two-step “Clear current workflow”
+action expires a completed redaction before its source scan, clears the native file control and UI
+references only after both requests succeed, and can be retried idempotently. Files already
+downloaded remain user-owned; browser/runtime/OS copies are outside this session-cleanup guarantee.
+It retains nothing in browser
 persistence and sends no filename or matched value back in JSON responses. This is session-only
 processing, not the durable review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
-state. Review is partially implemented: accept/reject/retype persistence and reviewed redaction are
-active, while boundary/manual actions, durable resume/history, retained reports, and lifecycle
-deletion remain intentionally open.
+state. Review is partially implemented: accept/reject/retype persistence, reviewed redaction, and
+completed-session workflow expiration are active, while boundary/manual actions, durable
+resume/history, retained reports, deletion queues/reconciliation, and backup-aware deletion remain
+intentionally open.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a
@@ -315,17 +323,17 @@ output collisions.
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
 - There is no durable upload or retained asynchronous job-processing HTTP API, activated durable job-store
-  profile, qualified contextual model, or review workflow yet. A metadata-only SQLite prototype
+  profile, qualified contextual model, or durable review workflow yet. A metadata-only SQLite prototype
   exercises restart and transaction semantics but remains disabled and unqualified for production.
-  The authenticated ephemeral
-  preview accepts bounded raw bytes in memory and returns aggregate counts plus at most 100
-  value-free detection locations. Metadata-only job create/status/events/
-  cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
-  store no document content.
+  The authenticated development profile accepts bounded raw bytes in memory and returns aggregate
+  counts plus server-owned pages of at most 100 value-free detection locations. Job create/status/
+  events/cancellation/expiration routes use volatile process-local stores, retain nothing after
+  process exit, and do not durably store document content.
   The implemented web shell is limited to secured capability/policy preflight, process-local
   rules-only scan/review, and a verified session redaction download. Its design-system and
   localization foundations are active, but durable review decisions, restart/resume, retention,
-  reports, and lifecycle deletion remain unavailable.
+  reports, and durable lifecycle deletion remain unavailable; explicit completed-session workflow
+  expiration is implemented.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
   launch and packaged-install path qualification remain open. The OS opener receives no secret in
   its process arguments. The external-browser handoff does not defend against an adversarial local

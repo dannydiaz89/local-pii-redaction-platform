@@ -117,7 +117,7 @@ function isNumericLoopbackAuthority(host: string | undefined): boolean {
 
 function setCorsHeaders(reply: FastifyReply, origin: string): void {
   reply.header('access-control-allow-origin', origin);
-  reply.header('access-control-allow-methods', 'GET, POST, PUT, OPTIONS');
+  reply.header('access-control-allow-methods', 'GET, POST, PUT, DELETE, OPTIONS');
   reply.header('access-control-allow-headers', 'authorization, content-type, idempotency-key');
   reply.header('access-control-max-age', '300');
   reply.header('vary', 'Origin');
@@ -200,7 +200,8 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       const requestedMethod = request.headers['access-control-request-method'];
       if (
         origin === undefined
-        || (requestedMethod !== 'GET' && requestedMethod !== 'POST' && requestedMethod !== 'PUT')
+        || (requestedMethod !== 'GET' && requestedMethod !== 'POST'
+          && requestedMethod !== 'PUT' && requestedMethod !== 'DELETE')
         || !requestedHeadersAreAllowed(request.headers['access-control-request-headers'])
       ) {
         throw originFailure(request);

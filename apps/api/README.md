@@ -14,6 +14,8 @@ Loopback-only HTTP composition root for the local web application.
   extraction, or review bindings fail closed instead of silently redacting a different decision set.
 - Authorizes a verified redacted output only after the shared core reopens and verifies it, then
   serves its exact bytes under a generic attachment name.
+- Expires completed jobs idempotently, releasing their process-local artifacts, results, review
+  history, and snapshots while retaining minimized `EXPIRED` lifecycle evidence until shutdown.
 - Runs an authenticated 8 MiB process-local TXT/Markdown preview scan that returns aggregate counts
   or at most 100 value-free detection rows and 100 value-free conflict rows through separate
   versioned contracts.
@@ -27,15 +29,17 @@ This is a development scaffold. Its browser profile admits at most eight process
 and 32 MiB of retained input bytes, accepts each byte sequence once against a declared digest, and
 runs one real rules scan or redaction worker at a time. Scan inputs are overwritten and released
 after processing; a verified redacted output is retained only for authenticated download during the
-current application launch. All artifact metadata, job metadata, value-free results, and output
-bytes disappear at shutdown. JavaScript strings cannot be reliably zeroized. The older preview
+current application launch. Explicit job expiration releases job-owned artifacts/results/review
+state and rejects active jobs with `409`; minimized expired job/event metadata remains until the
+launcher closes. All remaining process-local state disappears at shutdown. This is not secure
+erasure of JavaScript/runtime/OS copies, downloaded files, or host diagnostics. The older preview
 routes remain for compatibility. Review history supports existing resolved detections and is
 consumed by reviewed redaction: accept confirms the policy action, reject retains that exact
 reviewed span, and retype applies the selected supported category. The v2 plan and verifier bind
 only value-free span provenance and the review digest; boundary/manual decisions and conflict
 resolution remain open. It
-does not expose durable uploads, durable review persistence, reports, retained downloads, or durable
-storage. Detection/conflict locations and review records never include matched
+does not expose durable uploads, durable review persistence, reports, retained downloads, deletion
+queues/reconciliation, or durable storage. Detection/conflict locations and review records never include matched
 values, excerpts, or evidence IDs. The
 external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.

@@ -207,8 +207,9 @@ describe('browser policy and job client', () => {
   });
 
   it('uses a bounded metadata-only request matrix for jobs and events', async () => {
-    const fetchImplementation = vi.fn<typeof fetch>((input) => {
+    const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
       const url = requestUrl(input);
+      if (init?.method === 'DELETE') return Promise.resolve(new Response(null, { status: 204 }));
       if (url.pathname === '/v1/policies') return Promise.resolve(jsonResponse(policyResponse()));
       if (url.pathname === '/v1/preview/review') {
         return Promise.resolve(jsonResponse({
@@ -253,6 +254,7 @@ describe('browser policy and job client', () => {
     await expect(client.get(jobId, signal)).resolves.toMatchObject({ id: jobId });
     await expect(client.listEvents(jobId, 0, 25, signal)).resolves.toMatchObject({ nextCursor: 1 });
     await expect(client.cancel(jobId, 1, signal)).resolves.toMatchObject({ state: 'CANCELLING' });
+    await expect(client.expire(jobId, signal)).resolves.toBeUndefined();
 
     const normalizedCalls = fetchImplementation.mock.calls.map(([input, init]) => ({
       url: requestUrl(input).href,
@@ -270,7 +272,8 @@ describe('browser policy and job client', () => {
       'http://127.0.0.1:4174/v1/jobs',
       `http://127.0.0.1:4174/v1/jobs/${jobId}`,
       `http://127.0.0.1:4174/v1/jobs/${jobId}/events?after=0&limit=25`,
-      `http://127.0.0.1:4174/v1/jobs/${jobId}/cancellation`
+      `http://127.0.0.1:4174/v1/jobs/${jobId}/cancellation`,
+      `http://127.0.0.1:4174/v1/jobs/${jobId}`
     ]);
     expect(normalizedCalls.every(({ credentials, cache, redirect, referrerPolicy }) =>
       credentials === 'omit' && cache === 'no-store' && redirect === 'error' && referrerPolicy === 'no-referrer'
@@ -282,6 +285,7 @@ describe('browser policy and job client', () => {
     expect(normalizedCalls[1]?.body).toBe(previewFile);
     expect(normalizedCalls[1]?.headers).toMatchObject({ 'content-type': 'application/octet-stream' });
     expect(normalizedCalls[1]?.url).not.toContain(previewFile.name);
+    expect(normalizedCalls.at(-1)).toMatchObject({ method: 'DELETE', body: undefined });
     const createBody = normalizedCalls[2]?.body;
     if (typeof createBody !== 'string') throw new TypeError('The job request body was not serialized.');
     expect(JSON.parse(createBody) as unknown).toEqual({

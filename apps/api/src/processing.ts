@@ -378,6 +378,32 @@ export function createVolatileProcessingControl(
     artifact.bytes = undefined;
   };
 
+  const removeArtifact = (artifactId: string | undefined): void => {
+    if (artifactId === undefined) return;
+    const artifact = artifacts.get(artifactId);
+    if (artifact !== undefined) releaseArtifactBytes(artifact);
+    artifacts.delete(artifactId);
+    const requestClaim = requestClaimByArtifact.get(artifactId);
+    requestClaimByArtifact.delete(artifactId);
+    if (requestClaim !== undefined && artifactClaimByRequest.get(requestClaim) === artifactId) {
+      artifactClaimByRequest.delete(requestClaim);
+    }
+  };
+
+  const releaseJobResources = (jobId: string): void => {
+    removeArtifact(outputByJob.get(jobId));
+    removeArtifact(artifactByJob.get(jobId));
+    outputByJob.delete(jobId);
+    artifactByJob.delete(jobId);
+    results.delete(jobId);
+    reviewHistories.delete(jobId);
+    reviewSnapshots.delete(jobId);
+    controllers.delete(jobId);
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      if (pending[index] === jobId) pending.splice(index, 1);
+    }
+  };
+
   const finishCancelledOrFailed = async (
     jobId: string,
     correlationId: string,
@@ -704,6 +730,16 @@ export function createVolatileProcessingControl(
       const result = await jobs.cancel(jobId, request, correlationId, signal);
       if (result !== undefined) controllers.get(jobId)?.abort();
       return result;
+    },
+
+    expire(jobId, correlationId, signal) {
+      return mutateReview(async () => {
+        signal?.throwIfAborted();
+        if (closed) fail('STORAGE_UNAVAILABLE', 'The local processing session is unavailable.', true, correlationId);
+        const job = await jobs.expire(jobId, correlationId, signal);
+        if (job?.state === 'EXPIRED') releaseJobResources(jobId);
+        return job;
+      });
     },
 
     async listDetections(jobId, cursor, limit, correlationId, signal) {

@@ -22,6 +22,8 @@ Accessible, localized React shell for the future local review workflow.
   selected match in escaped TXT/Markdown text, and moves focus into the keyboard-scrollable context.
 - Creates and verifies a session-only redacted copy through the real shared application core, shows
   its bounded preview, then offers a generic authenticated download without changing the source.
+- Provides a two-step accessible clear-workflow action that expires a verified redaction before its
+  source scan and resets the file control/UI only after idempotent server cleanup succeeds.
 - Renders only the first 4,096 Unicode code points of the verified output as escaped plain text;
   document markup is never executed and the complete downloaded file remains the final output.
 - Keeps wide result tables keyboard-scrollable on narrow viewports.
@@ -48,13 +50,15 @@ bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code po
 explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the
-current application launch. Redaction always sends the exact current scan job, extraction revision,
+current application launch. Explicit workflow cleanup revokes that page reference and asks the API
+to release known process-local artifacts/results/review state; downloaded files and browser/runtime/
+OS copies are not erased by that action. Redaction always sends the exact current scan job, extraction revision,
 review revision, and review digest. Saved accept/reject/retype decisions are applied by the shared
 core and bound into the verified output plan; a stale or mismatched set fails closed. The progress
 summary counts unique detection targets rather than append-only history entries, and it does not
 misrepresent unsaved drafts as decisions already bound into redaction. Boundary edits,
 manual additions, conflict decisions, durable resume/history,
-retained reports, and lifecycle deletion remain unavailable. Running Vite directly intentionally shows the disconnected state
+retained reports, durable deletion queues/reconciliation, and backup-aware deletion remain unavailable. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.
 
 ## Development

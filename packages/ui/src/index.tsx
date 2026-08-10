@@ -6,8 +6,13 @@ import type {
   ReactNode
 } from 'react';
 
-export function Button({ className = '', type = 'button', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button className={`ui-button ${className}`.trim()} type={type} {...props} />;
+export function Button({
+  className = '',
+  tone = 'default',
+  type = 'button',
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: 'default' | 'critical' }) {
+  return <button className={`ui-button ${className}`.trim()} data-tone={tone} type={type} {...props} />;
 }
 
 export function Card({ className = '', ...props }: HTMLAttributes<HTMLElement>) {

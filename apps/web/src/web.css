@@ -114,6 +114,11 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .redacted-preview-scroll { max-block-size: 24rem; overflow: auto; border: 1px solid var(--color-border); border-radius: .5rem; background: var(--color-surface); }
 .redacted-preview-scroll:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .2rem; }
 .redacted-preview-scroll pre { margin: 0; padding: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-ink); font: .92rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; unicode-bidi: plaintext; }
+.workflow-clear { display: grid; justify-items: start; gap: var(--space-3); margin-block-start: var(--space-4); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-4); }
+.workflow-clear h3, .workflow-clear h4, .workflow-clear p { margin: 0; }
+.workflow-clear > p, .workflow-clear-confirmation > p { color: var(--color-muted); line-height: 1.55; }
+.workflow-clear-confirmation { display: grid; gap: var(--space-3); inline-size: 100%; border: 1px solid var(--color-critical); border-radius: .5rem; padding: var(--space-4); background: var(--color-surface); }
+.workflow-clear-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
 

@@ -54,6 +54,14 @@ export function registerJobRoutes(server: FastifyInstance, context: ApiRouteCont
     return sendCanonical(reply, apiContractIds.job, job);
   });
 
+  server.delete('/v1/jobs/:jobId', async (request, reply) => {
+    const job = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
+      dependencies.jobs.expire(jobIdParameter(request), requestCorrelationId(request), signal)
+    );
+    if (job === undefined) throw unavailableJob(request);
+    return reply.status(204).send();
+  });
+
   server.get('/v1/jobs/:jobId/events', async (request, reply) => {
     const correlationId = requestCorrelationId(request);
     const jobId = jobIdParameter(request);

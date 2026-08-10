@@ -45,6 +45,8 @@ button, input, select { font: inherit; }
   cursor: pointer;
 }
 .ui-button:hover { background: var(--color-accent-strong); }
+.ui-button[data-tone="critical"] { background: var(--color-critical); }
+.ui-button[data-tone="critical"]:hover { filter: brightness(.9); }
 .ui-button:disabled { cursor: not-allowed; opacity: .6; }
 
 .ui-card {
