@@ -3,7 +3,7 @@ info:
   title: Local PII Redaction API
   version: 0.1.0
   description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
-x-implementation-status: ephemeral-preview-and-metadata-job-control
+x-implementation-status: session-artifact-scan-job-and-metadata-control
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -91,6 +91,44 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/jobs/preview-review-report-v2.schema.json"
+  /v1/artifacts:
+    post:
+      operationId: createSessionArtifact
+      description: Creates bounded process-local input-artifact metadata. No filename or storage locator is accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./schemas/artifacts/create-artifact-request.schema.json"
+      responses:
+        "201":
+          description: A staged session artifact was created
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/artifacts/artifact.schema.json"
+  /v1/artifacts/{artifactId}/content:
+    parameters:
+      - name: artifactId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^art_[0-9A-HJKMNP-TV-Z]{26}$' }
+    put:
+      operationId: uploadSessionArtifactContent
+      description: Supplies bounded bytes once and verifies them against the declared length and digest.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, contentMediaType: application/octet-stream, maxLength: 8388608 }
+      responses:
+        "200":
+          description: Artifact bytes were accepted as immutable for this process-local session
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/artifacts/artifact.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId
@@ -128,10 +166,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "./schemas/jobs/create-job-request.schema.json"
+              oneOf:
+                - $ref: "./schemas/jobs/create-job-request.schema.json"
+                - $ref: "./schemas/jobs/create-job-request-v2.schema.json"
       responses:
         "201":
-          description: A new metadata-only queued job was created
+          description: A new metadata-only or process-local scan job was created
           content:
             application/json:
               schema:
@@ -176,6 +216,28 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/common/errors.schema.json"
+  /v1/jobs/{jobId}/detections:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    get:
+      operationId: listJobDetections
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+      responses:
+        "200":
+          description: Bounded value-free resolved detection and conflict page for a completed scan
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/detection-page.schema.json"
   /v1/jobs/{jobId}/cancellation:
     parameters:
       - name: jobId

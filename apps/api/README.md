@@ -6,7 +6,8 @@ Loopback-only HTTP composition root for the local web application.
 
 - Builds the Fastify server around injected application and readiness ports.
 - Exposes privacy-minimized liveness, readiness, capability, and pinned-policy catalog endpoints.
-- Exposes authenticated metadata-only job creation, status, event pagination, and cancellation.
+- Exposes authenticated metadata-only job control plus a bounded process-local artifact and real
+  asynchronous rules-scan worker with value-free detection pagination.
 - Runs an authenticated 8 MiB process-local TXT/Markdown preview scan that returns aggregate counts
   or at most 100 value-free detection rows and 100 value-free conflict rows through separate
   versioned contracts.
@@ -16,12 +17,14 @@ Loopback-only HTTP composition root for the local web application.
 
 ## Current scope
 
-This is a development scaffold. Its preview route accepts raw bytes without a filename, scans them
-in memory through the core rules application, and creates no artifact or job record. Metadata jobs
-remain volatile and accept no bytes, paths, or artifact references. It does not yet expose durable
-upload, asynchronous processing, editable review decisions, report, download, or durable-storage
-routes. Preview detection/conflict locations are ephemeral Unicode code-point metadata and never
-include matched values, excerpts, or evidence IDs. The external-browser handoff also does not protect against an
+This is a development scaffold. Its browser profile admits at most eight process-local artifacts
+and 32 MiB of retained input bytes, accepts each byte sequence once against a declared digest, and
+runs one real rules-scan worker at a time. The worker overwrites and releases its byte buffer after
+processing; all artifact metadata, job metadata, and value-free results disappear at shutdown.
+JavaScript strings cannot be reliably zeroized. The older preview routes remain for compatibility.
+It does not yet expose durable uploads, editable review decisions, reports, downloads, or durable
+storage. Detection/conflict locations never include matched values, excerpts, or evidence IDs. The
+external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.
 
 The unlistened server factory is in `src/application.ts`; lifecycle and binding are in

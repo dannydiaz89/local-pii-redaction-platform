@@ -90,8 +90,41 @@ export interface PreviewConflictSummary {
   readonly sources: readonly PreviewDetectionSource[];
 }
 
+export type ScanProgressState = 'UPLOADING' | JobState;
+
+export interface DetectionPageSummary {
+  readonly jobId: string;
+  readonly jobRevision: number;
+  readonly detections: number;
+  readonly conflicts: number;
+  readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;
+  readonly cursor: number;
+  readonly nextCursor: number | null;
+  readonly details: readonly PreviewDetectionSummary[];
+  readonly conflictDetails: readonly PreviewConflictSummary[];
+  readonly conflictDetailsLimited: boolean;
+}
+
+export interface ProcessingScanSummary extends DetectionPageSummary {
+  readonly outcome: PreviewOutcome;
+  readonly job: JobStatusSummary;
+  readonly events: readonly JobEventSummary[];
+}
+
 export interface LocalJobClient {
   loadPolicies(signal: AbortSignal): Promise<PolicyCatalogSummary>;
+  scan(
+    file: File,
+    policy: PolicyReference,
+    onProgress: (state: ScanProgressState) => void,
+    signal: AbortSignal
+  ): Promise<ProcessingScanSummary>;
+  listDetections(
+    jobId: string,
+    cursor: number,
+    limit: number,
+    signal: AbortSignal
+  ): Promise<DetectionPageSummary>;
   scanPreview(file: File, signal: AbortSignal): Promise<PreviewScanSummary>;
   create(
     operation: JobOperation,
@@ -108,11 +141,14 @@ const maximumPolicyResponseBytes = 64 * 1024;
 const maximumJobResponseBytes = 64 * 1024;
 const maximumEventResponseBytes = 128 * 1024;
 const maximumPreviewResponseBytes = 128 * 1024;
+const maximumDetectionResponseBytes = 128 * 1024;
 export const jobRequestTimeoutMs = 5_000;
+export const scanWorkflowTimeoutMs = 30_000;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/u;
 const digestPattern = /^sha256:[a-f0-9]{64}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
+const artifactIdPattern = /^art_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const dateTimePattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$/u;
 const operations = new Set<JobOperation>(['SCAN', 'REDACT', 'VERIFY', 'INSPECT']);
@@ -403,13 +439,184 @@ function projectEventPage(value: unknown, expectedJobId: string, afterCursor: nu
   return Object.freeze({ jobId: expectedJobId, nextCursor: value.nextCursor, events });
 }
 
+interface ArtifactSummary {
+  readonly id: string;
+  readonly mediaType: 'text/plain' | 'text/markdown';
+  readonly byteLength: number;
+  readonly digest: string;
+  readonly publicationState: 'STAGED' | 'IMMUTABLE';
+}
+
+function projectArtifact(value: unknown): ArtifactSummary {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'id', 'kind', 'mediaType', 'byteLength', 'digest', 'displayName',
+      'publicationState', 'createdAt', 'expiresAt'
+    ])
+    || value.schemaVersion !== '1.0.0'
+    || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
+    || value.kind !== 'INPUT'
+    || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
+    || !safeInteger(value.byteLength, 1, webPreviewMaximumInputBytes)
+    || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
+    || typeof value.displayName !== 'string' || value.displayName.length > 255
+    || (value.publicationState !== 'STAGED' && value.publicationState !== 'IMMUTABLE')
+    || !dateTime(value.createdAt)
+    || (value.expiresAt !== undefined && !dateTime(value.expiresAt))) {
+    throw new Error('ARTIFACT_RESPONSE_INVALID');
+  }
+  return Object.freeze({
+    id: value.id,
+    mediaType: value.mediaType,
+    byteLength: value.byteLength,
+    digest: value.digest,
+    publicationState: value.publicationState
+  });
+}
+
+export function projectDetectionPage(value: unknown, expectedJobId: string): DetectionPageSummary {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'jobId', 'jobRevision', 'total', 'conflicts', 'byEntity',
+      'cursor', 'nextCursor', 'detections', 'conflictDetails', 'conflictDetailsLimited'
+    ])
+    || value.schemaVersion !== '1.0.0'
+    || value.jobId !== expectedJobId
+    || !safeInteger(value.jobRevision, 1)
+    || !safeInteger(value.total, 0, 10_000)
+    || !safeInteger(value.conflicts, 0, 10_000)
+    || !safeInteger(value.cursor, 0, 10_000)
+    || (value.nextCursor !== null && !safeInteger(value.nextCursor, value.cursor + 1, 10_000))
+    || !isRecord(value.byEntity)
+    || Object.keys(value.byEntity).length > entityTypes.size
+    || !Array.isArray(value.detections)
+    || value.detections.length > 100
+    || !Array.isArray(value.conflictDetails)
+    || value.conflictDetails.length > 100
+    || typeof value.conflictDetailsLimited !== 'boolean') {
+    throw new Error('DETECTION_RESPONSE_INVALID');
+  }
+  const byEntity: Partial<Record<PreviewEntityType, number>> = {};
+  let total = 0;
+  for (const [entityType, count] of Object.entries(value.byEntity)) {
+    if (!entityTypes.has(entityType as PreviewEntityType) || !safeInteger(count, 1, 10_000)) {
+      throw new Error('DETECTION_RESPONSE_INVALID');
+    }
+    byEntity[entityType as PreviewEntityType] = count;
+    total += count;
+  }
+  if (total !== value.total || value.cursor + value.detections.length > value.total
+    || (value.nextCursor === null) !== (value.cursor + value.detections.length >= value.total)
+    || (value.nextCursor !== null && value.nextCursor !== value.cursor + value.detections.length)) {
+    throw new Error('DETECTION_RESPONSE_INVALID');
+  }
+  const details = value.detections.map((item): PreviewDetectionSummary => {
+    if (!isRecord(item)
+      || !hasOnlyKeys(item, ['id', 'entityType', 'start', 'end', 'offsetUnit', 'confidence', 'sources'])
+      || typeof item.id !== 'string' || !uuidPattern.test(item.id)
+      || typeof item.entityType !== 'string' || !entityTypes.has(item.entityType as PreviewEntityType)
+      || !safeInteger(item.start, 0, 10_000_000)
+      || !safeInteger(item.end, 1, 10_000_000) || item.start >= item.end
+      || item.offsetUnit !== 'UNICODE_CODE_POINT'
+      || typeof item.confidence !== 'number' || !Number.isFinite(item.confidence)
+      || item.confidence < 0 || item.confidence > 1
+      || !Array.isArray(item.sources) || item.sources.length < 1 || item.sources.length > detectionSources.size
+      || item.sources.some((source) => typeof source !== 'string'
+        || !detectionSources.has(source as PreviewDetectionSource))
+      || new Set(item.sources).size !== item.sources.length) {
+      throw new Error('DETECTION_RESPONSE_INVALID');
+    }
+    return Object.freeze({
+      entityType: item.entityType as PreviewEntityType,
+      start: item.start,
+      end: item.end,
+      confidence: item.confidence,
+      sources: Object.freeze(item.sources as PreviewDetectionSource[])
+    });
+  });
+  const conflictDetails = value.conflictDetails.map((item): PreviewConflictSummary => {
+    if (!isRecord(item)
+      || !hasOnlyKeys(item, ['code', 'start', 'end', 'offsetUnit', 'entityTypes', 'sources'])
+      || item.code !== 'INCOMPATIBLE_OVERLAP'
+      || !safeInteger(item.start, 0, 10_000_000)
+      || !safeInteger(item.end, 1, 10_000_000) || item.start >= item.end
+      || item.offsetUnit !== 'UNICODE_CODE_POINT'
+      || !Array.isArray(item.entityTypes) || item.entityTypes.length < 1 || item.entityTypes.length > entityTypes.size
+      || item.entityTypes.some((entityType) => typeof entityType !== 'string'
+        || !entityTypes.has(entityType as PreviewEntityType))
+      || new Set(item.entityTypes).size !== item.entityTypes.length
+      || !Array.isArray(item.sources) || item.sources.length < 1 || item.sources.length > detectionSources.size
+      || item.sources.some((source) => typeof source !== 'string'
+        || !detectionSources.has(source as PreviewDetectionSource))
+      || new Set(item.sources).size !== item.sources.length) {
+      throw new Error('DETECTION_RESPONSE_INVALID');
+    }
+    return Object.freeze({
+      code: item.code,
+      start: item.start,
+      end: item.end,
+      entityTypes: Object.freeze(item.entityTypes as PreviewEntityType[]),
+      sources: Object.freeze(item.sources as PreviewDetectionSource[])
+    });
+  });
+  if (conflictDetails.length !== Math.min(value.conflicts, 100)
+    || value.conflictDetailsLimited !== (value.conflicts > 100)) {
+    throw new Error('DETECTION_RESPONSE_INVALID');
+  }
+  return Object.freeze({
+    jobId: expectedJobId,
+    jobRevision: value.jobRevision,
+    detections: value.total,
+    conflicts: value.conflicts,
+    byEntity: Object.freeze(byEntity),
+    cursor: value.cursor,
+    nextCursor: value.nextCursor,
+    details: Object.freeze(details),
+    conflictDetails: Object.freeze(conflictDetails),
+    conflictDetailsLimited: value.conflictDetailsLimited
+  });
+}
+
+function mediaTypeForFile(file: File): 'text/plain' | 'text/markdown' {
+  const separator = file.name.lastIndexOf('.');
+  const extension = separator < 1 ? '' : file.name.slice(separator).toLowerCase();
+  if (extension === '.txt') return 'text/plain';
+  if (extension === '.md' || extension === '.markdown') return 'text/markdown';
+  throw new TypeError('The scan file is invalid.');
+}
+
+function createIdempotencyKey(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+async function sha256Digest(bytes: ArrayBuffer): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+async function waitForPoll(signal: AbortSignal, milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+      reject(new Error('JOB_REQUEST_CANCELLED'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
+
 async function requestJson(
   origin: URL,
   bearerToken: string,
   fetchImplementation: typeof fetch,
   url: URL,
   init: Readonly<{
-    readonly method: 'GET' | 'POST';
+    readonly method: 'GET' | 'POST' | 'PUT';
     readonly body?: BodyInit;
     readonly contentType?: string;
     readonly idempotencyKey?: string;
@@ -459,6 +666,96 @@ export function createLocalJobClient(
         origin, session.bearerToken, fetchImplementation, new URL('/v1/policies', origin),
         { method: 'GET' }, operationSignal, maximumPolicyResponseBytes, 'POLICY_RESPONSE_INVALID'
       )));
+    },
+
+    async scan(file, policy, onProgress, signal) {
+      const mediaType = mediaTypeForFile(file);
+      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > webPreviewMaximumInputBytes) {
+        throw new TypeError('The scan file is invalid.');
+      }
+      const trustedPolicy = projectPolicy(policy);
+      const bytes = await file.arrayBuffer();
+      if (signal.aborted) throw new Error('JOB_REQUEST_CANCELLED');
+      if (bytes.byteLength !== file.size) throw new Error('ARTIFACT_REQUEST_FAILED');
+      const digest = await sha256Digest(bytes);
+      onProgress('UPLOADING');
+      const artifact = projectArtifact(await invoke(signal, async (operationSignal) => requestJson(
+        origin, session.bearerToken, fetchImplementation, new URL('/v1/artifacts', origin),
+        {
+          method: 'POST',
+          body: JSON.stringify({ schemaVersion: '1.0.0', mediaType, byteLength: bytes.byteLength, digest })
+        },
+        operationSignal,
+        maximumJobResponseBytes,
+        'ARTIFACT_RESPONSE_INVALID',
+        'ARTIFACT_REQUEST_FAILED'
+      )));
+      if (artifact.mediaType !== mediaType || artifact.byteLength !== bytes.byteLength
+        || artifact.digest !== digest || artifact.publicationState !== 'STAGED') {
+        throw new Error('ARTIFACT_RESPONSE_INVALID');
+      }
+      const immutableArtifact = projectArtifact(await invoke(signal, async (operationSignal) => requestJson(
+        origin,
+        session.bearerToken,
+        fetchImplementation,
+        new URL(`/v1/artifacts/${artifact.id}/content`, origin),
+        { method: 'PUT', body: bytes, contentType: 'application/octet-stream' },
+        operationSignal,
+        maximumJobResponseBytes,
+        'ARTIFACT_RESPONSE_INVALID',
+        'ARTIFACT_REQUEST_FAILED'
+      )));
+      if (immutableArtifact.id !== artifact.id || immutableArtifact.mediaType !== mediaType
+        || immutableArtifact.byteLength !== bytes.byteLength || immutableArtifact.digest !== digest
+        || immutableArtifact.publicationState !== 'IMMUTABLE') {
+        throw new Error('ARTIFACT_RESPONSE_INVALID');
+      }
+      const body = JSON.stringify({
+        schemaVersion: '2.0.0',
+        operation: 'SCAN',
+        inputArtifactId: artifact.id,
+        policy: { id: trustedPolicy.id, version: trustedPolicy.version, digest: trustedPolicy.digest }
+      });
+      let job = projectJob(await invoke(signal, async (operationSignal) => requestJson(
+        origin, session.bearerToken, fetchImplementation, new URL('/v1/jobs', origin),
+        { method: 'POST', body, idempotencyKey: createIdempotencyKey() },
+        operationSignal, maximumJobResponseBytes, 'JOB_RESPONSE_INVALID'
+      )));
+      onProgress(job.state);
+      const workflowDeadline = Date.now() + scanWorkflowTimeoutMs;
+      while (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW') {
+        if (job.state === 'FAILED' || job.state === 'CANCELLED' || job.state === 'EXPIRED') {
+          throw new Error('JOB_PROCESSING_FAILED');
+        }
+        if (Date.now() >= workflowDeadline) throw new Error('JOB_PROCESSING_TIMEOUT');
+        await waitForPoll(signal, 75);
+        job = await client.get(job.id, signal);
+        onProgress(job.state);
+      }
+      const [eventPage, detectionPage] = await Promise.all([
+        client.listEvents(job.id, 0, 100, signal),
+        client.listDetections(job.id, 0, 100, signal)
+      ]);
+      if (detectionPage.jobRevision !== job.revision) throw new Error('DETECTION_RESPONSE_INVALID');
+      return Object.freeze({
+        ...detectionPage,
+        outcome: job.state,
+        job,
+        events: eventPage.events
+      });
+    },
+
+    listDetections(jobId, cursor, limit, signal) {
+      if (!safeInteger(cursor, 0, 10_000) || !safeInteger(limit, 1, 100)) {
+        throw new TypeError('The detection page query is invalid.');
+      }
+      const url = jobUrl(jobId, '/detections');
+      url.searchParams.set('cursor', String(cursor));
+      url.searchParams.set('limit', String(limit));
+      return invoke(signal, async (operationSignal) => projectDetectionPage(await requestJson(
+        origin, session.bearerToken, fetchImplementation, url,
+        { method: 'GET' }, operationSignal, maximumDetectionResponseBytes, 'DETECTION_RESPONSE_INVALID'
+      ), jobId));
     },
 
     scanPreview(file, signal) {
@@ -536,6 +833,8 @@ export function createDisconnectedJobClient(): LocalJobClient {
   const unavailable = (): Promise<never> => Promise.reject(new Error('LOCAL_SESSION_MISSING'));
   return {
     loadPolicies: unavailable,
+    scan: unavailable,
+    listDetections: unavailable,
     scanPreview: unavailable,
     create: unavailable,
     get: unavailable,

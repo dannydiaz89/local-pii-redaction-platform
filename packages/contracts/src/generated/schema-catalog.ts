@@ -89,6 +89,48 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/artifacts/create-artifact-request/1.0.0",
+    "title": "Create local artifact request",
+    "description": "Initiates one bounded process-local input artifact without accepting a filename or locator.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "mediaType",
+      "byteLength",
+      "digest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "mediaType": {
+        "enum": [
+          "text/plain",
+          "text/markdown"
+        ]
+      },
+      "byteLength": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8388608
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "mediaType": "text/plain",
+        "byteLength": 42,
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/audit/audit-summary/1.0.0",
     "title": "Audit summary",
     "description": "Privacy-minimized processing provenance and bounded aggregate counts.",
@@ -2893,6 +2935,67 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/create-job-request/2.0.0",
+    "title": "Create processing job request",
+    "description": "Creates a scan job bound to one immutable server-owned input artifact and pinned policy.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "inputArtifactId",
+      "policy"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "operation": {
+        "const": "SCAN"
+      },
+      "inputArtifactId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/ArtifactId"
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "operation": "SCAN",
+        "inputArtifactId": "art_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/jobs/create-job-request/1.0.0",
     "title": "Create job request",
     "description": "Metadata-only request for a pinned local job. Document bytes and locators are not accepted.",
@@ -2949,6 +3052,177 @@ export const schemaCatalog = [
           "version": "0.1.0",
           "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/detection-page/1.0.0",
+    "title": "Job detection page",
+    "description": "Bounded server-authoritative page of value-free resolved detections for one completed scan job.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "jobId",
+      "jobRevision",
+      "total",
+      "conflicts",
+      "byEntity",
+      "cursor",
+      "nextCursor",
+      "detections",
+      "conflictDetails",
+      "conflictDetailsLimited"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "jobId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "jobRevision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "conflicts": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "byEntity": {
+        "type": "object",
+        "maxProperties": 24,
+        "propertyNames": {
+          "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+        },
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "cursor": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "nextCursor": {
+        "oneOf": [
+          {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "detections": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "entityType",
+            "start",
+            "end",
+            "offsetUnit",
+            "confidence",
+            "sources"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+            },
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000000
+            },
+            "offsetUnit": {
+              "const": "UNICODE_CODE_POINT"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "REGEX",
+                  "CHECKSUM",
+                  "STRUCTURED",
+                  "DICTIONARY",
+                  "MODEL",
+                  "MANUAL"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "conflictDetails": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/jobs/preview-review-report/2.0.0#/properties/conflicts/items"
+        }
+      },
+      "conflictDetailsLimited": {
+        "type": "boolean"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "jobRevision": 6,
+        "total": 1,
+        "conflicts": 0,
+        "byEntity": {
+          "EMAIL": 1
+        },
+        "cursor": 0,
+        "nextCursor": null,
+        "detections": [
+          {
+            "id": "abcdefab-cdef-5abc-abcd-abcdefabcdef",
+            "entityType": "EMAIL",
+            "start": 10,
+            "end": 31,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "confidence": 0.99,
+            "sources": [
+              "REGEX"
+            ]
+          }
+        ],
+        "conflictDetails": [],
+        "conflictDetailsLimited": false
       }
     ]
   },

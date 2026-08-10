@@ -56,9 +56,9 @@ cross-platform evidence.
 
 ## Try the CLI
 
-User-facing document processing currently runs through the local CLI. The repository also contains
-a production-bounded HTTP composition scaffold with volatile metadata-only job control, but it does
-not yet expose uploads or execute processing jobs.
+User-facing document processing runs through the local CLI and the development browser profile. The
+browser can now execute a bounded session-only rules scan; the CLI remains the only interface for
+redaction, verification, and machine-oriented workflows.
 
 ```sh
 pnpm build
@@ -104,10 +104,13 @@ Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
 only pinned operational metadata. The storage-neutral
 [`@local-pii/job-store`](./packages/job-store) boundary provides revision, idempotency, transition,
-and minimized-event semantics; the development API composes its volatile reference adapter, so jobs
-execute no work and disappear when the process exits. Durable uploads, artifact persistence,
-asynchronous processing, review, redaction, and downloads remain disabled until their durable
-implementations and authorization gates are implemented.
+and minimized-event semantics. The development browser profile now adds a bounded process-local
+artifact/worker composition: `POST /v1/artifacts` admits digest-bound metadata, a one-use binary
+`PUT` supplies at most 8 MiB without a filename, `POST /v1/jobs` starts the real rules scan, and
+`GET /v1/jobs/{jobId}/detections` pages value-free results. One worker runs at a time; input byte
+buffers are overwritten and released after processing, while artifact metadata and result pages
+exist only until the application closes. JavaScript strings cannot be reliably zeroized. Durable
+artifact persistence, retained jobs, editable decisions, redaction, and downloads remain disabled.
 
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
@@ -133,17 +136,17 @@ The capability preflight accepts only a numeric-loopback API origin and a per-la
 in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
 secrets, local/session storage, cookies, or remote catalogs. Its bounded client denies redirects,
 credentials, referrers, and caching, then projects only aggregate values from the capability
-response. A separate bounded, typed client now discovers the pinned policy catalog and implements
-the metadata-only job create/status/events/cancellation request boundary; the shell renders only the
-localized default-policy name and does not invoke durable job actions yet. Once connected, the
-document intake admits TXT/Markdown files up to 8 MiB and can send their raw bytes to the
-authenticated same-origin loopback endpoint for an ephemeral rules-only scan. The UI displays only
-localized aggregate counts plus native filterable tables containing at most 100 value-free
-detection locations and 100 unresolved conflict locations. Wide tables remain keyboard-scrollable
-at narrow viewports. It retains nothing in browser persistence and sends no filename or matched
-value back in the response. Until the
+response. A separate bounded, typed client now discovers the pinned policy catalog, creates a
+process-local artifact and real asynchronous rules-scan job, observes its state/events, and requests
+value-free detection pages. Once connected, document intake admits TXT/Markdown files up to 8 MiB.
+The UI displays the server-owned completion state/event count plus aggregate categories and a
+native, filterable detection table with server-owned 100-row page controls. Up to 100 unresolved
+conflict locations remain visible in a separate native table. Wide tables remain
+keyboard-scrollable at narrow viewports. It retains nothing in browser persistence and sends no
+filename or matched value back in responses. This is session-only processing, not the durable
+review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
-state. Durable upload, review, redaction, and download remain intentionally absent.
+state. Editable review decisions, durable resume, redaction, and download remain intentionally absent.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a

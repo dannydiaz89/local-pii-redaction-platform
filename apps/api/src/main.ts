@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profile-local';
 
 import { runTrustedLocalLauncher } from './launcher.js';
-import { createVolatileJobControl } from './job-control.js';
 import { createLocalPreviewScan } from './preview-scan.js';
+import { createVolatileProcessingControl } from './processing.js';
 
 const webRoot = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 
@@ -20,9 +20,11 @@ async function main(): Promise<void> {
   process.once('SIGTERM', terminate);
   try {
     const policyCatalog = createLocalPolicyCatalog();
+    const processing = createVolatileProcessingControl(localTextApplication, policyCatalog.policies);
     await runTrustedLocalLauncher({
       application: localTextApplication,
-      jobs: createVolatileJobControl(),
+      jobs: processing,
+      processing,
       policies: { get: (signal) => { signal?.throwIfAborted(); return Promise.resolve(policyCatalog); } },
       preview: createLocalPreviewScan(localTextApplication),
       readiness: { check: (signal) => { signal?.throwIfAborted(); return Promise.resolve(); } }

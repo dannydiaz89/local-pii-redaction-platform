@@ -30,6 +30,24 @@ function readyClient(): CapabilityClient {
 
 function readyJobClient(): LocalJobClient {
   const unavailable = (): Promise<never> => Promise.reject(new Error('NOT_IMPLEMENTED'));
+  const completedJob = {
+    id: 'job_01J4M91NJK8WAPJ7J95K73CB2M', operation: 'SCAN' as const, state: 'SUCCEEDED' as const,
+    revision: 6,
+    policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
+    createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
+  };
+  const page = {
+    jobId: completedJob.id,
+    jobRevision: 6,
+    detections: 1,
+    conflicts: 0,
+    byEntity: { EMAIL: 1 } as const,
+    cursor: 0,
+    nextCursor: null,
+    details: [{ entityType: 'EMAIL' as const, start: 19, end: 46, confidence: 0.99, sources: ['REGEX' as const] }],
+    conflictDetails: [],
+    conflictDetailsLimited: false
+  };
   return {
     loadPolicies: () => Promise.resolve({
       defaultPolicy: {
@@ -41,6 +59,14 @@ function readyJobClient(): LocalJobClient {
         riskTier: 'LOW', example: true
       }]
     }),
+    scan: () => Promise.resolve({
+      ...page, outcome: 'SUCCEEDED', job: completedJob,
+      events: [{
+        id: '123e4567-e89b-42d3-a456-426614174000', cursor: 1, revision: 1,
+        type: 'JOB_CREATED', occurredAt: completedJob.createdAt
+      }]
+    }),
+    listDetections: () => Promise.resolve(page),
     scanPreview: () => Promise.resolve({
       outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
       details: [{ entityType: 'EMAIL', start: 19, end: 46, confidence: 0.99, sources: ['REGEX'] }],
@@ -78,7 +104,7 @@ describe('web application foundation', () => {
 
     expect(screen.getByText('MD file, 1 KiB, passes the local preflight checks.')).toBeTruthy();
     expect(screen.queryByText('private-customer-record.md')).toBeNull();
-    expect(screen.getByText(/not kept in browser persistence/u)).toBeTruthy();
+    expect(screen.getByText(/Browser persistence and durable artifact storage remain disabled/u)).toBeTruthy();
   });
 
   it('runs an ephemeral local scan and renders only minimized localized counts', async () => {
@@ -93,6 +119,8 @@ describe('web application foundation', () => {
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
 
     expect(await screen.findByText('1 potential item found.')).toBeTruthy();
+    expect(screen.getByText('Job activity')).toBeTruthy();
+    expect(screen.getByText('Job created')).toBeTruthy();
     expect(screen.getAllByText('Email addresses').length).toBeGreaterThan(1);
     expect(screen.getByRole('heading', { level: 3, name: 'Detection details' })).toBeTruthy();
     expect(screen.getByLabelText('Filter detections')).toBeTruthy();
@@ -113,13 +141,20 @@ describe('web application foundation', () => {
     const user = userEvent.setup();
     const jobs: LocalJobClient = {
       ...readyJobClient(),
-      scanPreview: () => Promise.resolve({
+      scan: () => Promise.resolve({
         outcome: 'SUCCEEDED', detections: 2, conflicts: 0, byEntity: { EMAIL: 1, PHONE: 1 },
+        jobId: 'job_01J4M91NJK8WAPJ7J95K73CB2M', jobRevision: 6, cursor: 0, nextCursor: null,
         details: [
           { entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] },
           { entityType: 'PHONE', start: 20, end: 30, confidence: 0.96, sources: ['REGEX'] }
         ],
-        detailsLimited: false, conflictDetails: [], conflictDetailsLimited: false
+        conflictDetails: [], conflictDetailsLimited: false,
+        job: {
+          id: 'job_01J4M91NJK8WAPJ7J95K73CB2M', operation: 'SCAN', state: 'SUCCEEDED', revision: 6,
+          policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
+          createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
+        },
+        events: []
       })
     };
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
@@ -138,20 +173,68 @@ describe('web application foundation', () => {
     expect(screen.queryByText('Characters 21–30')).toBeNull();
   });
 
+  it('keeps the table and uses server-owned pages when more results are available', async () => {
+    const user = userEvent.setup();
+    const base = readyJobClient();
+    const first = await base.scan(
+      new File(['synthetic'], 'synthetic.txt'),
+      (await base.loadPolicies(new AbortController().signal)).defaultPolicy,
+      () => undefined,
+      new AbortController().signal
+    );
+    const jobs: LocalJobClient = {
+      ...base,
+      scan: () => Promise.resolve({
+        ...first,
+        detections: 2,
+        byEntity: { EMAIL: 1, PHONE: 1 },
+        nextCursor: 1
+      }),
+      listDetections: (_jobId, cursor) => Promise.resolve(cursor === 0
+        ? { ...first, detections: 2, byEntity: { EMAIL: 1, PHONE: 1 }, nextCursor: 1 }
+        : {
+          ...first,
+          detections: 2,
+          byEntity: { EMAIL: 1, PHONE: 1 },
+          cursor,
+          nextCursor: null,
+          details: [{ entityType: 'PHONE', start: 50, end: 60, confidence: 0.96, sources: ['REGEX'] }]
+        })
+    };
+    render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+
+    expect(await screen.findByText('Showing 1–1 of 2')).toBeTruthy();
+    expect(screen.getByRole('table')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('Characters 51–60')).toBeTruthy();
+    expect(screen.getByText('Showing 2–2 of 2')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Previous page' }));
+    expect(await screen.findByText('Characters 20–46')).toBeTruthy();
+  });
+
   it('renders conflict locations and evidence without returning the planted value', async () => {
     const user = userEvent.setup();
     const plantedValue = '+378282246310005';
     const jobs: LocalJobClient = {
       ...readyJobClient(),
-      scanPreview: () => Promise.resolve({
+      scan: () => Promise.resolve({
         outcome: 'NEEDS_REVIEW', detections: 1, conflicts: 1, byEntity: { PHONE: 1 },
+        jobId: 'job_01J4M91NJK8WAPJ7J95K73CB2M', jobRevision: 6, cursor: 0, nextCursor: null,
         details: [{ entityType: 'PHONE', start: 29, end: 45, confidence: 0.86, sources: ['REGEX'] }],
-        detailsLimited: false,
         conflictDetails: [{
           code: 'INCOMPATIBLE_OVERLAP', start: 29, end: 45,
           entityTypes: ['CREDIT_CARD', 'PHONE'], sources: ['CHECKSUM', 'REGEX']
         }],
-        conflictDetailsLimited: false
+        conflictDetailsLimited: false,
+        job: {
+          id: 'job_01J4M91NJK8WAPJ7J95K73CB2M', operation: 'SCAN', state: 'NEEDS_REVIEW', revision: 6,
+          policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
+          createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
+        },
+        events: []
       })
     };
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);

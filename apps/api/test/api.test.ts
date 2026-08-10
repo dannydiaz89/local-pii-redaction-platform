@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -17,6 +18,7 @@ import {
   apiMaximumBodyBytes,
   buildApi,
   createLocalPreviewScan,
+  createVolatileProcessingControl,
   createVolatileJobControl,
   generateLocalSessionToken,
   localApiHostname,
@@ -35,6 +37,8 @@ const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
 const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
+const artifactSchemaId = 'https://local-pii.dev/schemas/artifacts/artifact/1.0.0';
+const detectionPageSchemaId = 'https://local-pii.dev/schemas/jobs/detection-page/1.0.0';
 const servers: ReturnType<typeof buildApi>[] = [];
 
 function capabilityManifest(): CapabilityManifest {
@@ -532,12 +536,117 @@ describe('local API composition', () => {
 
     expect(accepted.statusCode).toBe(204);
     expect(accepted.headers['access-control-allow-origin']).toBe(allowedOrigin);
-    expect(accepted.headers['access-control-allow-methods']).toBe('GET, POST, OPTIONS');
+    expect(accepted.headers['access-control-allow-methods']).toBe('GET, POST, PUT, OPTIONS');
     expect(accepted.headers['access-control-allow-headers']).toBe('authorization, content-type, idempotency-key');
     expect(accepted.body).not.toContain(sessionToken);
     expect(rejected.statusCode).toBe(403);
     expect(rejected.body).not.toContain('x-alpha-canary');
     expectCanonicalError(rejected);
+  });
+
+  it('runs a bounded artifact through a real asynchronous scan job and paginated value-free results', async () => {
+    const bytes = Buffer.from('Synthetic contacts: first@example.test and second@example.test', 'utf8');
+    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    const catalog = policyCatalog();
+    const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
+    const instance = server(dependencies({
+      jobs: processing,
+      processing,
+      policies: { get: () => Promise.resolve(catalog) }
+    }));
+
+    const initiated = await instance.inject({
+      method: 'POST',
+      url: '/v1/artifacts',
+      headers: authorization(),
+      payload: { schemaVersion: '1.0.0', mediaType: 'text/plain', byteLength: bytes.length, digest }
+    });
+    expect(initiated.statusCode).toBe(201);
+    expect(validateContract(artifactSchemaId, initiated.json()).valid).toBe(true);
+    expect(initiated.json()).toMatchObject({ publicationState: 'STAGED', displayName: 'document.txt' });
+    const artifactId = initiated.json<{ readonly id: string }>().id;
+
+    const uploaded = await instance.inject({
+      method: 'PUT',
+      url: `/v1/artifacts/${artifactId}/content`,
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: bytes
+    });
+    expect(uploaded.statusCode).toBe(200);
+    expect(uploaded.json()).toMatchObject({ id: artifactId, publicationState: 'IMMUTABLE', digest });
+
+    const created = await instance.inject({
+      method: 'POST',
+      url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': idempotencyKey },
+      payload: {
+        schemaVersion: '2.0.0',
+        operation: 'SCAN',
+        inputArtifactId: artifactId,
+        policy: {
+          id: catalog.policies[0].id,
+          version: catalog.policies[0].version,
+          digest: catalog.policies[0].digest
+        }
+      }
+    });
+    expect(created.statusCode).toBe(201);
+    const jobId = created.json<{ readonly id: string }>().id;
+    let current = created.json<{ readonly state: string; readonly revision: number }>();
+    for (let attempt = 0; attempt < 20 && current.state !== 'SUCCEEDED'; attempt += 1) {
+      const response = await instance.inject({
+        method: 'GET', url: `/v1/jobs/${jobId}`, headers: authorization()
+      });
+      expect(response.statusCode).toBe(200);
+      current = response.json<typeof current>();
+    }
+    expect(current).toMatchObject({ state: 'SUCCEEDED', revision: 6 });
+
+    const events = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/events`, headers: authorization()
+    });
+    expect(events.statusCode).toBe(200);
+    expect(events.json<{ readonly events: readonly unknown[] }>().events).toHaveLength(6);
+
+    const firstPage = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/detections?cursor=0&limit=1`, headers: authorization()
+    });
+    expect(firstPage.statusCode).toBe(200);
+    expect(validateContract(detectionPageSchemaId, firstPage.json()).valid).toBe(true);
+    expect(firstPage.json()).toMatchObject({ jobId, jobRevision: 6, total: 2, cursor: 0, nextCursor: 1 });
+    const secondPage = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/detections?cursor=1&limit=1`, headers: authorization()
+    });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json()).toMatchObject({ jobId, total: 2, cursor: 1, nextCursor: null });
+    const serialized = `${initiated.body}${uploaded.body}${created.body}${events.body}${firstPage.body}${secondPage.body}`;
+    expect(serialized).not.toContain('first@example.test');
+    expect(serialized).not.toContain('second@example.test');
+  });
+
+  it('rejects mismatched artifact bytes without creating a scanable artifact', async () => {
+    const catalog = policyCatalog();
+    const processing = createVolatileProcessingControl(localTextApplication, catalog.policies);
+    const instance = server(dependencies({ jobs: processing, processing }));
+    const initiated = await instance.inject({
+      method: 'POST',
+      url: '/v1/artifacts',
+      headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', mediaType: 'text/plain', byteLength: 9,
+        digest: `sha256:${'a'.repeat(64)}`
+      }
+    });
+    const artifactId = initiated.json<{ readonly id: string }>().id;
+    const rejected = await instance.inject({
+      method: 'PUT',
+      url: `/v1/artifacts/${artifactId}/content`,
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from('synthetic', 'utf8')
+    });
+    expect(rejected.statusCode).toBe(409);
+    expect(rejected.json()).toMatchObject({ schemaVersion: '2.0.0', error: { code: 'ARTIFACT_DIGEST_MISMATCH' } });
+    expect(rejected.body).not.toContain(artifactId);
   });
 
   it('creates and exactly replays a canonical metadata-only job', async () => {

@@ -20,6 +20,7 @@ import type { ApplicationContext } from '@local-pii/core';
 import { SafeError } from '@local-pii/domain';
 
 import type { CancelJobRequest, CreateJobRequest, JobControlPort } from './job-control.js';
+import type { CreateArtifactRequest, ProcessingControlPort } from './processing.js';
 import type { PreviewFormat, PreviewScanPort } from './preview-scan.js';
 import {
   isLocalWebShellRoute,
@@ -54,6 +55,7 @@ export interface ApiDependencies {
   readonly jobs: JobControlPort;
   readonly policies: PolicyCatalogPort;
   readonly preview: PreviewScanPort;
+  readonly processing?: ProcessingControlPort;
   readonly readiness: ApiReadinessPort;
 }
 
@@ -74,8 +76,12 @@ export const apiMaximumBodyBytes = 16 * 1024;
 export const apiDefaultHandlerTimeoutMs = 5_000;
 
 const capabilitySchemaId = 'https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0';
+const artifactSchemaId = 'https://local-pii.dev/schemas/artifacts/artifact/1.0.0';
+const createArtifactRequestSchemaId = 'https://local-pii.dev/schemas/artifacts/create-artifact-request/1.0.0';
 const cancelJobRequestSchemaId = 'https://local-pii.dev/schemas/jobs/cancel-job-request/1.0.0';
 const createJobRequestSchemaId = 'https://local-pii.dev/schemas/jobs/create-job-request/1.0.0';
+const createProcessingJobRequestSchemaId = 'https://local-pii.dev/schemas/jobs/create-job-request/2.0.0';
+const detectionPageSchemaId = 'https://local-pii.dev/schemas/jobs/detection-page/1.0.0';
 const errorSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
 const errorSchemaV2Id = 'https://local-pii.dev/schemas/common/errors/2.0.0';
 const errorSchemaV3Id = 'https://local-pii.dev/schemas/common/errors/3.0.0';
@@ -87,6 +93,7 @@ const previewReviewSchemaId = 'https://local-pii.dev/schemas/jobs/preview-review
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
+const artifactIdPattern = /^art_[0-9A-HJKMNP-TV-Z]{26}$/u;
 
 class HttpSafeError extends SafeError {
   public readonly httpStatusCode: number;
@@ -221,6 +228,7 @@ function statusFor(error: SafeError): number {
   if (error.code === 'INPUT_TOO_LARGE') return 413;
   if (error.code === 'FORMAT_CORRUPT') return 422;
   if (error.code === 'FORMAT_UNSUPPORTED') return 415;
+  if (error.code === 'ARTIFACT_DIGEST_MISMATCH') return 409;
   if (error.code === 'POLICY_UNSATISFIABLE') return 422;
   if (error.code === 'AUTHORIZATION_DENIED') return 403;
   if (error.code === 'IDEMPOTENCY_CONFLICT' || error.code === 'JOB_CONFLICT') return 409;
@@ -325,6 +333,18 @@ function jobIdParameter(request: FastifyRequest): string {
   return record.jobId;
 }
 
+function artifactIdParameter(request: FastifyRequest): string {
+  const params = request.params;
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) throw requestFailure(request);
+  const record = params as Record<string, unknown>;
+  if (Object.keys(record).length !== 1
+    || typeof record.artifactId !== 'string'
+    || !artifactIdPattern.test(record.artifactId)) {
+    throw requestFailure(request);
+  }
+  return record.artifactId;
+}
+
 function parseBoundedInteger(value: unknown, minimum: number, maximum: number): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(value)) return undefined;
@@ -341,6 +361,17 @@ function eventQuery(request: FastifyRequest): { readonly afterCursor: number; re
   const limit = record.limit === undefined ? 100 : parseBoundedInteger(record.limit, 1, 100);
   if (afterCursor === undefined || limit === undefined) throw requestFailure(request);
   return { afterCursor, limit };
+}
+
+function detectionQuery(request: FastifyRequest): { readonly cursor: number; readonly limit: number } {
+  const query = request.query;
+  if (query === null || typeof query !== 'object' || Array.isArray(query)) throw requestFailure(request);
+  const record = query as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== 'cursor' && key !== 'limit')) throw requestFailure(request);
+  const cursor = record.cursor === undefined ? 0 : parseBoundedInteger(record.cursor, 0, 10_000);
+  const limit = record.limit === undefined ? 100 : parseBoundedInteger(record.limit, 1, 100);
+  if (cursor === undefined || limit === undefined) throw requestFailure(request);
+  return { cursor, limit };
 }
 
 function previewFormat(request: FastifyRequest): PreviewFormat {
@@ -429,7 +460,7 @@ async function invokeBounded<Result>(
 
 function setCorsHeaders(reply: FastifyReply, origin: string): void {
   reply.header('access-control-allow-origin', origin);
-  reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+  reply.header('access-control-allow-methods', 'GET, POST, PUT, OPTIONS');
   reply.header('access-control-allow-headers', 'authorization, content-type, idempotency-key');
   reply.header('access-control-max-age', '300');
   reply.header('vary', 'Origin');
@@ -505,8 +536,9 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     }));
   });
 
-  server.addHook('preClose', () => {
+  server.addHook('preClose', async () => {
     lifecycle.abort();
+    await dependencies.processing?.close();
   });
 
   server.addHook('onRequest', async (request, reply) => {
@@ -523,7 +555,7 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       const requestedMethod = request.headers['access-control-request-method'];
       if (
         origin === undefined
-        || (requestedMethod !== 'GET' && requestedMethod !== 'POST')
+        || (requestedMethod !== 'GET' && requestedMethod !== 'POST' && requestedMethod !== 'PUT')
         || !requestedHeadersAreAllowed(request.headers['access-control-request-headers'])
       ) {
         throw originFailure(request);
@@ -573,6 +605,31 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     );
     return sendCanonical(reply, policyCatalogSchemaId, catalog);
   });
+  server.post('/v1/artifacts', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const body = canonicalBody(request, createArtifactRequestSchemaId) as CreateArtifactRequest;
+    const artifact = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      processing.initiateArtifact(body, requestCorrelationId(request), signal)
+    );
+    return sendCanonical(reply.status(201), artifactSchemaId, artifact);
+  });
+  server.put('/v1/artifacts/:artifactId/content', {
+    bodyLimit: localPreviewMaximumInputBytes
+  }, async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    if (!Buffer.isBuffer(request.body)) throw requestFailure(request);
+    const artifact = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      processing.uploadArtifact(
+        artifactIdParameter(request),
+        request.body as Buffer,
+        requestCorrelationId(request),
+        signal
+      )
+    );
+    return sendCanonical(reply, artifactSchemaId, artifact);
+  });
   server.post('/v1/preview/scan', {
     bodyLimit: localPreviewMaximumInputBytes,
     onRequest: (request, _reply, done) => { reservePreview(request); done(); },
@@ -607,10 +664,19 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     return sendCanonical(reply, previewReviewSchemaId, report);
   });
   server.post('/v1/jobs', async (request, reply) => {
-    const body = canonicalBody(request, createJobRequestSchemaId) as CreateJobRequest;
+    const processingRequest = request.body !== null
+      && typeof request.body === 'object'
+      && !Array.isArray(request.body)
+      && (request.body as Record<string, unknown>).schemaVersion === '2.0.0';
+    const jobs = processingRequest ? dependencies.processing : dependencies.jobs;
+    if (jobs === undefined) throw unavailableJob(request);
+    const body = canonicalBody(
+      request,
+      processingRequest ? createProcessingJobRequestSchemaId : createJobRequestSchemaId
+    ) as CreateJobRequest;
     const correlationId = requestCorrelationId(request);
     const result = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
-      dependencies.jobs.create(body, idempotencyKey(request), jobIdempotencyScope, correlationId, signal)
+      jobs.create(body, idempotencyKey(request), jobIdempotencyScope, correlationId, signal)
     );
     return sendCanonical(reply.status(result.replayed ? 200 : 201), jobSchemaId, result.job);
   });
@@ -631,6 +697,23 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     );
     if (page === undefined) throw unavailableJob(request);
     return sendCanonical(reply, jobEventPageSchemaId, page);
+  });
+  server.get('/v1/jobs/:jobId/detections', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const correlationId = requestCorrelationId(request);
+    const query = detectionQuery(request);
+    const page = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      processing.listDetections(
+        jobIdParameter(request),
+        query.cursor,
+        query.limit,
+        correlationId,
+        signal
+      )
+    );
+    if (page === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, detectionPageSchemaId, page);
   });
   server.post('/v1/jobs/:jobId/cancellation', async (request, reply) => {
     const body = canonicalBody(request, cancelJobRequestSchemaId) as CancelJobRequest;

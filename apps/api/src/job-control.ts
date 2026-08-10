@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type {
   JobsCancelJobRequestContract,
   JobsCreateJobRequestContract,
+  JobsCreateJobRequestV2Contract,
   JobsJobContract,
   JobsJobEventPageContract
 } from '@local-pii/contracts';
@@ -12,7 +13,9 @@ import {
   type JobMutationResult
 } from '@local-pii/job-store';
 
-export type CreateJobRequest = Readonly<JobsCreateJobRequestContract.CreateJobRequest>;
+export type MetadataJobRequest = Readonly<JobsCreateJobRequestContract.CreateJobRequest>;
+export type ProcessingJobRequest = Readonly<JobsCreateJobRequestV2Contract.CreateProcessingJobRequest>;
+export type CreateJobRequest = MetadataJobRequest | ProcessingJobRequest;
 export type CancelJobRequest = Readonly<JobsCancelJobRequestContract.CancelJobRequest>;
 export type Job = Readonly<JobsJobContract.Job>;
 export type JobEventPage = Readonly<Omit<JobsJobEventPageContract.JobEventPage, 'events'>> & {
@@ -79,7 +82,8 @@ function requestDigest(request: CreateJobRequest): string {
     request.operation,
     request.policy.id,
     request.policy.version,
-    request.policy.digest
+    request.policy.digest,
+    ...(request.schemaVersion === '2.0.0' ? [request.inputArtifactId] : [])
   ]);
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }

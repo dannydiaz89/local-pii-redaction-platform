@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/artifacts/create-artifact-request/1.0.0",
+  "title": "Create local artifact request",
+  "description": "Initiates one bounded process-local input artifact without accepting a filename or locator.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mediaType", "byteLength", "digest"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "mediaType": { "enum": ["text/plain", "text/markdown"] },
+    "byteLength": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+    "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0",
+    "mediaType": "text/plain",
+    "byteLength": 42,
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }]
+}

@@ -4,3 +4,4 @@ export * from './launcher.js';
 export * from './server.js';
 export * from './web-shell.js';
 export * from './preview-scan.js';
+export * from './processing.js';

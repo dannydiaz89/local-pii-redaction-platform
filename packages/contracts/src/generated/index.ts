@@ -1,6 +1,7 @@
 // Generated from canonical JSON Schemas by tooling/generate-typescript.ts. Do not edit.
 
 export * as ArtifactsArtifactContract from './artifacts-artifact.js';
+export * as ArtifactsCreateArtifactRequestContract from './artifacts-create-artifact-request.js';
 export * as AuditAuditSummaryContract from './audit-audit-summary.js';
 export * as CapabilitiesCapabilityManifestContract from './capabilities-capability-manifest.js';
 export * as CliCliReportContract from './cli-cli-report.js';
@@ -17,7 +18,9 @@ export * as DetectionDetectResponseContract from './detection-detect-response.js
 export * as DetectionDetectionContract from './detection-detection.js';
 export * as ExtractionExtractedDocumentContract from './extraction-extracted-document.js';
 export * as JobsCancelJobRequestContract from './jobs-cancel-job-request.js';
+export * as JobsCreateJobRequestV2Contract from './jobs-create-job-request-v2.js';
 export * as JobsCreateJobRequestContract from './jobs-create-job-request.js';
+export * as JobsDetectionPageContract from './jobs-detection-page.js';
 export * as JobsJobEventPageContract from './jobs-job-event-page.js';
 export * as JobsJobEventContract from './jobs-job-event.js';
 export * as JobsJobContract from './jobs-job.js';

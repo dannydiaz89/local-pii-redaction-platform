@@ -278,6 +278,84 @@ describe('browser policy and job client', () => {
     expect(createBody).not.toMatch(/file|content|path|name/iu);
   });
 
+  it('runs the real session artifact and scan-job request matrix without sending a filename', async () => {
+    const artifactId = 'art_01J4M91NJK8WAPJ7J95K73CB2M';
+    let jobReads = 0;
+    let declaredDigest = '';
+    const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname === '/v1/artifacts' && init?.method === 'POST') {
+        if (typeof init.body !== 'string') throw new TypeError('The artifact request was not serialized.');
+        const request = JSON.parse(init.body) as { byteLength: number; digest: string };
+        declaredDigest = request.digest;
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'text/plain',
+          byteLength: request.byteLength, digest: request.digest, displayName: 'document.txt',
+          publicationState: 'STAGED', createdAt: '2026-08-09T18:00:00Z'
+        }));
+      }
+      if (url.pathname === `/v1/artifacts/${artifactId}/content`) {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'text/plain',
+          byteLength: 38, digest: declaredDigest, displayName: 'document.txt',
+          publicationState: 'IMMUTABLE', createdAt: '2026-08-09T18:00:00Z'
+        }));
+      }
+      if (url.pathname === '/v1/jobs' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(jobResponse('QUEUED', 1)));
+      }
+      if (url.pathname === `/v1/jobs/${jobId}`) {
+        jobReads += 1;
+        return Promise.resolve(jsonResponse(jobResponse('SUCCEEDED', 6)));
+      }
+      if (url.pathname.endsWith('/events')) {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', jobId, nextCursor: 1,
+          events: [{
+            schemaVersion: '1.0.0', id: '603df129-c778-4b13-8b2a-0fe745593c8f', jobId,
+            cursor: 1, revision: 1, type: 'JOB_CREATED', occurredAt: '2026-08-09T18:00:00Z'
+          }]
+        }));
+      }
+      if (url.pathname.endsWith('/detections')) {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', jobId, jobRevision: 6, total: 1, conflicts: 0,
+          byEntity: { EMAIL: 1 }, cursor: 0, nextCursor: null,
+          detections: [{
+            id: '123e4567-e89b-52d3-a456-426614174000', entityType: 'EMAIL', start: 5, end: 27,
+            offsetUnit: 'UNICODE_CODE_POINT', confidence: 0.99, sources: ['REGEX']
+          }],
+          conflictDetails: [], conflictDetailsLimited: false
+        }));
+      }
+      return Promise.reject(new Error('UNEXPECTED_REQUEST'));
+    });
+    const client = createLocalJobClient(session, fetchImplementation);
+    const signal = new AbortController().signal;
+    const privateName = 'private-customer-list.txt';
+    const states: string[] = [];
+    const result = await client.scan(
+      new File(['Synthetic contact: person@example.test'], privateName, { type: 'text/plain' }),
+      policy,
+      (state) => { states.push(state); },
+      signal
+    );
+
+    expect(result).toMatchObject({ outcome: 'SUCCEEDED', detections: 1, details: [{ entityType: 'EMAIL' }] });
+    expect(states).toEqual(['UPLOADING', 'QUEUED', 'SUCCEEDED']);
+    expect(jobReads).toBe(1);
+    expect(fetchImplementation.mock.calls.map(([input]) => requestUrl(input).pathname)).toEqual([
+      '/v1/artifacts', `/v1/artifacts/${artifactId}/content`, '/v1/jobs',
+      `/v1/jobs/${jobId}`, `/v1/jobs/${jobId}/events`, `/v1/jobs/${jobId}/detections`
+    ]);
+    const serialized = fetchImplementation.mock.calls.map(([input, init]) =>
+      `${requestUrl(input).href}\n${typeof init?.body === 'string' ? init.body : ''}`).join('\n');
+    expect(serialized).not.toContain(privateName);
+    expect(fetchImplementation.mock.calls[1]?.[1]).toMatchObject({
+      method: 'PUT', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
+    });
+  });
+
   it('fails closed on invalid requests, invalid responses, and a non-cooperative transport', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       ...jobResponse(), summary: { detections: 0, sensitiveLabel: 1 }

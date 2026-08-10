@@ -6,7 +6,12 @@ import {
   type JobsPreviewReviewReportV2Contract,
   type JobsPreviewScanReportContract
 } from '@local-pii/contracts';
-import type { ApplicationContext, TextArtifact, TextProcessingApplication } from '@local-pii/core';
+import type {
+  ApplicationContext,
+  TextArtifact,
+  TextProcessingApplication,
+  TextScanResult
+} from '@local-pii/core';
 import { parseSha256Digest, SafeError, type EntityType } from '@local-pii/domain';
 import { textCapabilityRequirement } from '@local-pii/profile-local';
 
@@ -74,6 +79,23 @@ function decodeArtifact(bytes: Uint8Array, format: PreviewFormat, correlationId:
   });
 }
 
+/** Executes the real shared rules pipeline over one bounded process-local byte sequence. */
+export function scanLocalTextBytes(
+  application: TextProcessingApplication,
+  bytes: Uint8Array,
+  format: PreviewFormat,
+  context: ApplicationContext,
+  signal?: AbortSignal
+): Promise<TextScanResult> {
+  signal?.throwIfAborted();
+  const artifact = decodeArtifact(bytes, format, context.correlationId);
+  return application.scan({
+    session: { input: () => Promise.resolve(artifact) },
+    requirement: textCapabilityRequirement('SCAN'),
+    ...(signal === undefined ? {} : { signal })
+  }, context);
+}
+
 function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Record<EntityType, number>>> {
   const counts: Partial<Record<EntityType, number>> = {};
   for (const entityType of entityTypes) counts[entityType] = (counts[entityType] ?? 0) + 1;
@@ -88,12 +110,7 @@ export function createLocalPreviewScan(application: TextProcessingApplication): 
   const port: PreviewScanPort = {
     async scan(bytes, format, context, signal) {
       signal?.throwIfAborted();
-      const artifact = decodeArtifact(bytes, format, context.correlationId);
-      const result = await application.scan({
-        session: { input: () => Promise.resolve(artifact) },
-        requirement: textCapabilityRequirement('SCAN'),
-        ...(signal === undefined ? {} : { signal })
-      }, context);
+      const result = await scanLocalTextBytes(application, bytes, format, context, signal);
       signal?.throwIfAborted();
       const evidenceById = new Map<string, (typeof result.evidence)[number]>(
         result.evidence.map((item) => [item.id, item])

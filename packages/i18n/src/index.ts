@@ -24,6 +24,9 @@ export interface MessageParameters {
   readonly 'preview.conflictTypes': { readonly types: string };
   readonly 'preview.conflictSources': { readonly sources: string };
   readonly 'preview.conflictsLimited': { readonly count: string };
+  readonly 'job.progress': { readonly state: string };
+  readonly 'job.events': { readonly count: string };
+  readonly 'job.pageRange': { readonly start: string; readonly end: string; readonly total: string };
 }
 
 type ParameterizedMessageId = keyof MessageParameters;

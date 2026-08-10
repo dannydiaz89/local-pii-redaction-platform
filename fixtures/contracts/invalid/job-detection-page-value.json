@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+  "jobRevision": 6,
+  "total": 1,
+  "conflicts": 0,
+  "byEntity": { "EMAIL": 1 },
+  "cursor": 0,
+  "nextCursor": null,
+  "detections": [{
+    "id": "123e4567-e89b-52d3-a456-426614174000",
+    "entityType": "EMAIL",
+    "start": 10,
+    "end": 31,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "confidence": 0.99,
+    "sources": ["REGEX"],
+    "matchedValue": "private@example.test"
+  }],
+  "conflictDetails": [],
+  "conflictDetailsLimited": false
+}

@@ -15,10 +15,12 @@ import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
 import type {
   LocalJobClient,
+  JobEventType,
   PolicyCatalogSummary,
   PreviewDetectionSource,
   PreviewEntityType,
-  PreviewScanSummary
+  ProcessingScanSummary,
+  ScanProgressState
 } from './job-api.js';
 import { webPreviewMaximumInputBytes } from './preview-limit.js';
 
@@ -34,10 +36,15 @@ export interface WebApplicationProps {
   readonly initialLocale?: AppLocale;
 }
 
-type PreviewState =
+type ScanState =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'scanning' }
-  | { readonly kind: 'complete'; readonly summary: PreviewScanSummary }
+  | { readonly kind: 'scanning'; readonly progress: ScanProgressState }
+  | {
+    readonly kind: 'complete';
+    readonly summary: ProcessingScanSummary;
+    readonly pageHistory: readonly number[];
+    readonly loadingPage: boolean;
+  }
   | { readonly kind: 'failed' };
 
 function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
@@ -72,6 +79,35 @@ function sourceMessage(source: PreviewDetectionSource): PlainMessageId {
   return messages[source];
 }
 
+function jobStateMessage(state: ScanProgressState): PlainMessageId {
+  const messages: Partial<Record<ScanProgressState, PlainMessageId>> = {
+    UPLOADING: 'job.state.uploading',
+    QUEUED: 'job.state.queued',
+    VALIDATING: 'job.state.validating',
+    EXTRACTING: 'job.state.extracting',
+    DETECTING: 'job.state.detecting',
+    RESOLVING: 'job.state.resolving',
+    NEEDS_REVIEW: 'job.state.review',
+    SUCCEEDED: 'job.state.complete',
+    CANCELLING: 'job.state.cancelling',
+    CANCELLED: 'job.state.cancelled',
+    FAILED: 'job.state.failed'
+  };
+  return messages[state] ?? 'job.state.failed';
+}
+
+function jobEventMessage(type: JobEventType): PlainMessageId {
+  const messages: Record<JobEventType, PlainMessageId> = {
+    JOB_CREATED: 'job.event.created',
+    STATE_CHANGED: 'job.event.stateChanged',
+    REVIEW_REQUIRED: 'job.event.reviewRequired',
+    JOB_COMPLETED: 'job.event.completed',
+    JOB_FAILED: 'job.event.failed',
+    CANCELLATION_REQUESTED: 'job.event.cancellationRequested'
+  };
+  return messages[type];
+}
+
 function formatByteSize(locale: AppLocale, byteLength: number): string {
   const mebibyte = 1024 * 1024;
   if (byteLength >= mebibyte && byteLength % mebibyte === 0) {
@@ -89,7 +125,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [preflight, setPreflight] = useState<PreflightState>({ kind: 'checking' });
   const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
   const [selectedFile, setSelectedFile] = useState<File>();
-  const [preview, setPreview] = useState<PreviewState>({ kind: 'idle' });
+  const [scan, setScan] = useState<ScanState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
@@ -106,7 +142,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setPreflight({ kind: 'checking' });
     setFilePreflight({ kind: 'none' });
     setSelectedFile(undefined);
-    setPreview({ kind: 'idle' });
+    setScan({ kind: 'idle' });
     setDetectionFilter('ALL');
     previewController.current?.abort();
     void Promise.all([
@@ -151,6 +187,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     preflight.kind === 'ready' ? preflight.summary.maximumInputBytes : webPreviewMaximumInputBytes,
     webPreviewMaximumInputBytes
   );
+  const defaultPolicy = preflight.kind === 'ready' ? preflight.policyCatalog.defaultPolicy : undefined;
   const intakeMessage = filePreflight.kind === 'ready'
     ? message(locale, 'intake.ready', {
       format: filePreflight.extension.slice(1).toUpperCase(),
@@ -161,11 +198,11 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
       : filePreflight.kind === 'unsupported'
         ? t('intake.unsupported')
         : t('intake.none');
-  const detailCategories = preview.kind === 'complete'
-    ? [...new Set(preview.summary.details.map(({ entityType }) => entityType))].sort()
+  const detailCategories = scan.kind === 'complete'
+    ? [...new Set(Object.keys(scan.summary.byEntity) as PreviewEntityType[])].sort()
     : [];
-  const visibleDetails = preview.kind === 'complete'
-    ? preview.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
+  const visibleDetails = scan.kind === 'complete'
+    ? scan.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
     : [];
 
   return (
@@ -191,7 +228,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
           </ul>
         </section>
 
-        <div className={`workspace-grid${preview.kind === 'complete' ? ' has-results' : ''}`}>
+        <div className={`workspace-grid${scan.kind === 'complete' ? ' has-results' : ''}`}>
           <Card aria-labelledby="preflight-title">
             <div className="card-heading">
               <div>
@@ -261,7 +298,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   const result = preflightSelectedFile(selected, previewCapabilities);
                   setFilePreflight(result);
                   setSelectedFile(result.kind === 'ready' ? selected : undefined);
-                  setPreview({ kind: 'idle' });
+                  setScan({ kind: 'idle' });
                   setDetectionFilter('ALL');
                 }}
               />
@@ -281,53 +318,76 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                     : 'neutral'}>{intakeMessage}</Callout>
               </div>
             ) : null}
-            {selectedFile !== undefined && filePreflight.kind === 'ready' ? (
+            {selectedFile !== undefined && filePreflight.kind === 'ready' && defaultPolicy !== undefined ? (
               <Button
-                disabled={preview.kind === 'scanning'}
+                disabled={scan.kind === 'scanning'}
                 onClick={() => {
                   const controller = new AbortController();
                   previewController.current?.abort();
                   previewController.current = controller;
-                  setPreview({ kind: 'scanning' });
-                  void jobClient.scanPreview(selectedFile, controller.signal).then(
+                  setScan({ kind: 'scanning', progress: 'UPLOADING' });
+                  void jobClient.scan(
+                    selectedFile,
+                    defaultPolicy,
+                    (progress) => {
+                      if (!controller.signal.aborted) setScan({ kind: 'scanning', progress });
+                    },
+                    controller.signal
+                  ).then(
                     (summary) => {
                       if (!controller.signal.aborted) {
-                        setPreview({ kind: 'complete', summary });
+                        setScan({ kind: 'complete', summary, pageHistory: [], loadingPage: false });
                         setDetectionFilter('ALL');
                       }
                     },
                     () => {
-                      if (!controller.signal.aborted) setPreview({ kind: 'failed' });
+                      if (!controller.signal.aborted) setScan({ kind: 'failed' });
                     }
                   );
                 }}
-              >{preview.kind === 'scanning' ? t('preview.scanning') : t('preview.scan')}</Button>
+              >{scan.kind === 'scanning' ? t('preview.scanning') : t('preview.scan')}</Button>
             ) : null}
-            {preview.kind !== 'idle' ? (
-              <div role={preview.kind === 'failed' ? 'alert' : 'status'} aria-live="polite">
-                {preview.kind === 'scanning' ? (
-                  <Callout>{t('preview.scanning')}</Callout>
-                ) : preview.kind === 'failed' ? (
+            {scan.kind !== 'idle' ? (
+              <div role={scan.kind === 'failed' ? 'alert' : 'status'} aria-live="polite">
+                {scan.kind === 'scanning' ? (
+                  <Callout>{message(locale, 'job.progress', { state: t(jobStateMessage(scan.progress)) })}</Callout>
+                ) : scan.kind === 'failed' ? (
                   <Callout tone="critical">{t('preview.failed')}</Callout>
                 ) : (
-                  <Callout tone={preview.summary.conflicts === 0 ? 'positive' : 'critical'}>
-                    <p>{preview.summary.detections === 0
+                  <Callout tone={scan.summary.conflicts === 0 ? 'positive' : 'critical'}>
+                    <div className="job-status-line">
+                      <StatusBadge tone={scan.summary.conflicts === 0 ? 'positive' : 'warning'}>
+                        {t(jobStateMessage(scan.summary.job.state))}
+                      </StatusBadge>
+                      <span>{message(locale, 'job.events', {
+                        count: formatInteger(locale, scan.summary.events.length)
+                      })}</span>
+                    </div>
+                    <details className="job-activity">
+                      <summary>{t('job.activity')}</summary>
+                      <ol>
+                        {scan.summary.events.map((event) => (
+                          <li key={event.id}>{t(jobEventMessage(event.type))}</li>
+                        ))}
+                      </ol>
+                    </details>
+                    <p>{scan.summary.detections === 0
                       ? t('preview.clean')
-                      : preview.summary.detections === 1
+                      : scan.summary.detections === 1
                         ? t('preview.completeOne')
                         : message(locale, 'preview.complete', {
-                          count: formatInteger(locale, preview.summary.detections)
+                          count: formatInteger(locale, scan.summary.detections)
                         })}</p>
-                    {preview.summary.conflicts > 0 ? (
+                    {scan.summary.conflicts > 0 ? (
                       <p>{message(locale, 'preview.conflicts', {
-                        count: formatInteger(locale, preview.summary.conflicts)
+                        count: formatInteger(locale, scan.summary.conflicts)
                       })}</p>
                     ) : null}
-                    {Object.keys(preview.summary.byEntity).length > 0 ? (
+                    {Object.keys(scan.summary.byEntity).length > 0 ? (
                       <div>
                         <h3>{t('preview.categories')}</h3>
                         <ul className="preview-categories">
-                          {Object.entries(preview.summary.byEntity).map(([entityType, count]) => (
+                          {Object.entries(scan.summary.byEntity).map(([entityType, count]) => (
                             <li key={entityType}>
                               <span>{t(entityMessage(entityType as PreviewEntityType))}</span>
                               <strong>{formatInteger(locale, count)}</strong>
@@ -336,7 +396,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         </ul>
                       </div>
                     ) : null}
-                    {preview.summary.conflictDetails.length > 0 ? (
+                    {scan.summary.conflictDetails.length > 0 ? (
                       <div className="preview-conflicts">
                         <h3>{t('preview.conflictDetails')}</h3>
                         <p className="preview-conflict-warning">{t('preview.conflictUndecided')}</p>
@@ -350,7 +410,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                               </tr>
                             </thead>
                             <tbody>
-                              {preview.summary.conflictDetails.map((conflict) => (
+                              {scan.summary.conflictDetails.map((conflict) => (
                                 <tr key={`${String(conflict.start)}:${String(conflict.end)}:${conflict.entityTypes.join(':')}`}>
                                   <th scope="row">{message(locale, 'preview.conflictLocation', {
                                     start: formatInteger(locale, conflict.start + 1),
@@ -368,14 +428,14 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </tbody>
                           </table>
                         </div>
-                        {preview.summary.conflictDetailsLimited ? (
+                        {scan.summary.conflictDetailsLimited ? (
                           <p>{message(locale, 'preview.conflictsLimited', {
-                            count: formatInteger(locale, preview.summary.conflictDetails.length)
+                            count: formatInteger(locale, scan.summary.conflictDetails.length)
                           })}</p>
                         ) : null}
                       </div>
                     ) : null}
-                    {preview.summary.details.length > 0 ? (
+                    {scan.summary.details.length > 0 ? (
                       <div className="preview-review">
                         <div className="preview-review-heading">
                           <h3 id="preview-details-heading">{t('preview.details')}</h3>
@@ -432,11 +492,62 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </tbody>
                           </table>
                         </div>
-                        {preview.summary.detailsLimited ? (
-                          <p>{message(locale, 'preview.detailsLimited', {
-                            count: formatInteger(locale, preview.summary.details.length)
-                          })}</p>
-                        ) : null}
+                        <div className="page-controls" aria-label={t('job.pages')}>
+                          <Button
+                            disabled={scan.loadingPage || scan.pageHistory.length === 0}
+                            onClick={() => {
+                              const priorCursor = scan.pageHistory.at(-1);
+                              if (priorCursor === undefined) return;
+                              const controller = previewController.current;
+                              if (controller === undefined) return;
+                              setScan({ ...scan, loadingPage: true });
+                              void jobClient.listDetections(
+                                scan.summary.job.id, priorCursor, 100, controller.signal
+                              ).then((page) => {
+                                if (controller.signal.aborted) return;
+                                if (page.jobRevision !== scan.summary.job.revision) {
+                                  setScan({ kind: 'failed' });
+                                  return;
+                                }
+                                setScan({
+                                  kind: 'complete',
+                                  summary: { ...scan.summary, ...page },
+                                  pageHistory: scan.pageHistory.slice(0, -1),
+                                  loadingPage: false
+                                });
+                              }, () => { if (!controller.signal.aborted) setScan({ kind: 'failed' }); });
+                            }}
+                          >{t('job.previousPage')}</Button>
+                          <span>{message(locale, 'job.pageRange', {
+                            start: formatInteger(locale, scan.summary.cursor + 1),
+                            end: formatInteger(locale, scan.summary.cursor + scan.summary.details.length),
+                            total: formatInteger(locale, scan.summary.detections)
+                          })}</span>
+                          <Button
+                            disabled={scan.loadingPage || scan.summary.nextCursor === null}
+                            onClick={() => {
+                              const nextCursor = scan.summary.nextCursor;
+                              const controller = previewController.current;
+                              if (nextCursor === null || controller === undefined) return;
+                              setScan({ ...scan, loadingPage: true });
+                              void jobClient.listDetections(
+                                scan.summary.job.id, nextCursor, 100, controller.signal
+                              ).then((page) => {
+                                if (controller.signal.aborted) return;
+                                if (page.jobRevision !== scan.summary.job.revision) {
+                                  setScan({ kind: 'failed' });
+                                  return;
+                                }
+                                setScan({
+                                  kind: 'complete',
+                                  summary: { ...scan.summary, ...page },
+                                  pageHistory: [...scan.pageHistory, scan.summary.cursor],
+                                  loadingPage: false
+                                });
+                              }, () => { if (!controller.signal.aborted) setScan({ kind: 'failed' }); });
+                            }}
+                          >{t('job.nextPage')}</Button>
+                        </div>
                         <p className="preview-details-privacy">{t('preview.confidenceHint')}</p>
                         <p className="preview-details-privacy">{t('preview.detailsPrivacy')}</p>
                       </div>
