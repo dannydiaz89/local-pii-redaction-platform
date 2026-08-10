@@ -253,15 +253,22 @@ output collisions.
 
 ## Repository layout
 
-- `packages/contracts`: canonical schemas, OpenAPI, generated TypeScript, runtime validation
-- `packages/domain`: pure identifiers, errors, spans, and job state transitions
-- `packages/policy`: immutable bundled policy validation, compilation, and capability explanations
-- `packages/detectors`: bounded deterministic evidence providers
-- `packages/span-resolution`: deterministic overlap handling and explicit conflicts
-- `packages/redaction`: immutable typed-label plans and application
-- `packages/adapter-text`: strict UTF-8 reading and staged, non-overwriting writes
-- `packages/verification`: privacy-minimized deterministic residual verification
-- `packages/core`: use-case and provider/adapter ports
-- `services/inference-python`: narrow Python contract boundary and generated Pydantic models
+- [`apps/api`](./apps/api): loopback HTTP composition, local web serving, and launcher lifecycle
+- [`apps/cli`](./apps/cli): terminal adapter for inspect, scan, redact, verify, and recovery commands
+- [`apps/web`](./apps/web): accessible, localized React capability and review shell
+- [`packages/contracts`](./packages/contracts): canonical schemas, OpenAPI, generated types, and validation
+- [`packages/domain`](./packages/domain): dependency-free identifiers, errors, evidence, spans, and job states
+- [`packages/policy`](./packages/policy): immutable policy validation, compilation, and capability explanations
+- [`packages/detectors`](./packages/detectors): bounded deterministic and composite evidence providers
+- [`packages/span-resolution`](./packages/span-resolution): deterministic overlap handling and explicit conflicts
+- [`packages/redaction`](./packages/redaction): immutable typed-label plans and application
+- [`packages/adapter-text`](./packages/adapter-text): strict UTF-8 input and staged, non-overwriting writes
+- [`packages/verification`](./packages/verification): privacy-minimized deterministic residual verification
+- [`packages/core`](./packages/core): use-case orchestration and provider/adapter ports
+- [`packages/profile-local`](./packages/profile-local): reusable rules-only and experimental local composition
+- [`packages/provider-ollama`](./packages/provider-ollama): experimental loopback-only contextual provider
+- [`packages/i18n`](./packages/i18n): typed bundled catalogs and locale helpers
+- [`packages/ui`](./packages/ui): accessible React primitives and semantic design tokens
+- [`services/inference-python`](./services/inference-python): Python contract boundary and generated Pydantic models
 - `fixtures/contracts`: synthetic valid and invalid cross-language examples
 - `tooling`: deterministic generation and dependency-boundary checks

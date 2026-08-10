@@ -1,0 +1,29 @@
+# `@local-pii/web`
+
+Accessible, localized React shell for the future local review workflow.
+
+## Responsibilities
+
+- Renders the capability preflight and local-processing disclosure.
+- Consumes the one-time in-memory launcher bootstrap without browser persistence.
+- Uses shared primitives and semantic tokens from `@local-pii/ui`.
+- Resolves all user-facing copy through bundled catalogs in `@local-pii/i18n`.
+- Provides expansion, RTL, reduced-motion, forced-colors, and automated accessibility coverage from
+  the first screen.
+
+## Current scope
+
+The application does not yet upload files, create processing jobs, or provide the detection review
+workspace. Running Vite directly intentionally shows the disconnected state because no trusted API
+bootstrap is present.
+
+## Development
+
+```sh
+pnpm --filter @local-pii/web dev
+pnpm --filter @local-pii/web build
+pnpm exec vitest run apps/web/test packages/ui/test packages/i18n/test
+```
+
+See the [root README](../../README.md#web-foundation) for accessibility, localization, launcher,
+and planned-flow context.
