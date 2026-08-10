@@ -15,9 +15,17 @@ def repository_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def normalize_references(value: Any, current_path: Path, id_to_path: dict[str, Path]) -> Any:
+def normalize_references(
+    value: Any,
+    current_path: Path,
+    id_to_path: dict[str, Path],
+    id_to_schema: dict[str, dict[str, Any]],
+) -> Any:
     if isinstance(value, list):
-        return [normalize_references(item, current_path, id_to_path) for item in value]
+        return [
+            normalize_references(item, current_path, id_to_path, id_to_schema)
+            for item in value
+        ]
     if not isinstance(value, dict):
         return value
 
@@ -29,10 +37,32 @@ def normalize_references(value: Any, current_path: Path, id_to_path: dict[str, P
                 target = id_to_path[schema_id]
             except KeyError as error:
                 raise ValueError(f"Unresolved schema reference: {child}") from error
-            relative_path = Path(os.path.relpath(target, current_path.parent)).as_posix()
-            result[key] = f"{relative_path}{separator}{fragment}"
+            # datamodel-code-generator cannot emit a single file for this
+            # schema when its discriminated union is a whole-schema remote
+            # reference. Inline this small, leaf schema only. Other whole-
+            # schema references may contain local #/$defs references whose
+            # meaning would change if they were copied into the parent.
+            if (
+                separator == ""
+                and schema_id
+                == "https://local-pii.dev/schemas/common/native-location/1.0.0"
+            ):
+                target_schema = {
+                    nested_key: nested_value
+                    for nested_key, nested_value in id_to_schema[schema_id].items()
+                    if nested_key not in {"$schema", "$id", "examples", "schemaVersion"}
+                }
+                result.update(normalize_references(
+                    target_schema,
+                    target,
+                    id_to_path,
+                    id_to_schema,
+                ))
+            else:
+                relative_path = Path(os.path.relpath(target, current_path.parent)).as_posix()
+                result[key] = f"{relative_path}{separator}{fragment}"
         else:
-            result[key] = normalize_references(child, current_path, id_to_path)
+            result[key] = normalize_references(child, current_path, id_to_path, id_to_schema)
     return result
 
 
@@ -48,10 +78,11 @@ def generate(output: Path) -> None:
             schema["$id"]: normalized_root / path.relative_to(schema_root)
             for path, schema in schemas.items()
         }
+        id_to_schema = {schema["$id"]: schema for schema in schemas.values()}
         for path, schema in schemas.items():
             normalized_path = normalized_root / path.relative_to(schema_root)
             normalized_path.parent.mkdir(parents=True, exist_ok=True)
-            normalized = normalize_references(schema, normalized_path, id_to_path)
+            normalized = normalize_references(schema, normalized_path, id_to_path, id_to_schema)
             normalized_path.write_text(json.dumps(normalized, indent=2) + "\n", encoding="utf-8")
 
         if output.exists():

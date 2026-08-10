@@ -45,7 +45,12 @@ export interface CLIRedactionReportV2 {
 }
 export interface ArtifactSummary {
   displayName?: string;
-  mediaType?: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv';
+  mediaType?:
+    | 'text/plain'
+    | 'text/markdown'
+    | 'application/json'
+    | 'text/csv'
+    | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   byteLength: number;
   digest: string;
   extractionRevision?: string;

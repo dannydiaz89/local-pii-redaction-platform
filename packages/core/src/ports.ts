@@ -1,6 +1,7 @@
 import type {
   DetectionEvidence,
   EntityType,
+  CanonicalRegionV1,
   Sha256Digest
 } from '@local-pii/domain';
 import type { TypedLabelPlan, TypedLabelReviewProvenance } from '@local-pii/redaction';
@@ -53,6 +54,8 @@ export interface TextArtifact {
   readonly extractionRevision: Sha256Digest;
   readonly text: string;
   readonly hasUtf8Bom: boolean;
+  /** Complete adapter-owned source regions for structured canonical text. */
+  readonly regions?: readonly CanonicalRegionV1[];
 }
 
 export interface StagedTextArtifact {

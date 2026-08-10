@@ -13,6 +13,8 @@ Canonical, language-neutral data contracts for every process and package boundar
   ceilings for the ephemeral local preview boundary.
 - Defines the bounded append-only review request/set contracts used for value-free optimistic
   decision replay without changing the immutable detector evidence contracts.
+- Retains detection v1 and adds detection v2 plus canonical-region/native-location schemas for
+  typed JSON pointer, CSV cell, and narrow DOCX paragraph provenance.
 - Defines v4 reviewed-redaction admission and v2 redaction-plan contracts that bind an exact scan,
   append-only review revision/digest, effective value-free decisions, policy, and writer provenance.
 

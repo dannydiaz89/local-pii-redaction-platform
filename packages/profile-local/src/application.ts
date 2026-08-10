@@ -12,6 +12,7 @@ import {
 } from '@local-pii/detectors';
 import { defaultMaximumInputBytes } from '@local-pii/adapter-text';
 import { defaultMaximumCsvInputBytes } from '@local-pii/adapter-csv';
+import { defaultMaximumDocxInputBytes } from '@local-pii/adapter-docx';
 import { defaultMaximumJsonInputBytes } from '@local-pii/adapter-json';
 import { parseSha256Digest } from '@local-pii/domain';
 import {
@@ -87,6 +88,22 @@ export function csvCapabilityRequirement(operation: CapabilityOperation): Capabi
     verificationProfile: 'text-rescan-v1',
     maximumInputBytes: defaultMaximumCsvInputBytes,
     minimumQualification: 'DEVELOPMENT'
+  };
+}
+
+export function docxCapabilityRequirement(operation: CapabilityOperation): CapabilityRequirement {
+  const needsDetection = operation !== 'INSPECT';
+  return {
+    contractVersion: '1.0.0',
+    engineModes: ['RULES_ONLY'],
+    formatId: 'docx',
+    operation,
+    detectorIds: needsDetection ? [...detectorIds] : [],
+    detectorKinds: needsDetection ? [...detectorKinds] : [],
+    transformationActions: [],
+    verificationProfile: 'docx-extract-v1',
+    maximumInputBytes: defaultMaximumDocxInputBytes,
+    minimumQualification: 'EXPERIMENTAL'
   };
 }
 

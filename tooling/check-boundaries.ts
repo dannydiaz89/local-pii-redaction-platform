@@ -9,6 +9,7 @@ import { repositoryRoot } from './schema-utils.js';
 type WorkspacePackage =
   | 'adapter-job-sqlite'
   | 'adapter-csv'
+  | 'adapter-docx'
   | 'adapter-json'
   | 'adapter-text'
   | 'contracts'
@@ -44,6 +45,7 @@ export interface BoundaryViolation {
 const workspacePackages: readonly WorkspacePackage[] = [
   'adapter-job-sqlite',
   'adapter-csv',
+  'adapter-docx',
   'adapter-json',
   'adapter-text',
   'contracts',
@@ -69,6 +71,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
 const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
   'adapter-job-sqlite': ['contracts', 'domain', 'job-store'],
   'adapter-csv': ['adapter-text', 'contracts', 'domain', 'redaction'],
+  'adapter-docx': ['adapter-text', 'contracts', 'domain', 'redaction'],
   'adapter-json': ['adapter-text', 'contracts', 'domain', 'redaction'],
   'adapter-text': ['contracts', 'domain', 'redaction'],
   contracts: [],
@@ -77,7 +80,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   i18n: [],
   'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
-  'profile-local': ['adapter-csv', 'adapter-json', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
+  'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
@@ -89,6 +92,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
 const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
   'adapter-job-sqlite': [],
   'adapter-csv': [],
+  'adapter-docx': [],
   'adapter-json': [],
   'adapter-text': [],
   contracts: [],
@@ -108,6 +112,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
 
 const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
   'adapter-csv',
+  'adapter-docx',
   'adapter-json',
   'adapter-text',
   'contracts',

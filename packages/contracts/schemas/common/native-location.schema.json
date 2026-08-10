@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/common/native-location/1.0.0",
+  "title": "Native structured location",
+  "description": "A versioned value-free native location owned by a structured format adapter.",
+  "schemaVersion": "1.0.0",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "pointer"],
+      "properties": {
+        "schemaVersion": { "const": "1.0.0" },
+        "kind": { "const": "JSON_POINTER" },
+        "pointer": { "type": "string", "maxLength": 500, "pattern": "^(?:/(?:[^~]|~[01])*)*$" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "row", "column"],
+      "properties": {
+        "schemaVersion": { "const": "1.0.0" },
+        "kind": { "const": "CSV_CELL" },
+        "row": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "column": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "part", "paragraph"],
+      "properties": {
+        "schemaVersion": { "const": "1.0.0" },
+        "kind": { "const": "DOCX_PART" },
+        "part": {
+          "type": "string",
+          "pattern": "^word/(?:document|header[1-9][0-9]*|footer[1-9][0-9]*|footnotes|endnotes|comments)\\.xml$"
+        },
+        "paragraph": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+      }
+    }
+  ],
+  "examples": [
+    { "schemaVersion": "1.0.0", "kind": "JSON_POINTER", "pointer": "/contacts/0/email" },
+    { "schemaVersion": "1.0.0", "kind": "CSV_CELL", "row": 2, "column": 3 },
+    { "schemaVersion": "1.0.0", "kind": "DOCX_PART", "part": "word/document.xml", "paragraph": 1 }
+  ]
+}

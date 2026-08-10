@@ -50,6 +50,68 @@ describe('span resolution', () => {
     expect(Object.isFrozen(original.spans)).toBe(true);
   });
 
+  it('carries typed native locations and binds them into the resolution digest', () => {
+    const text = 'alpha@example.test';
+    const evidence = detectDeterministic(text, revision).map((item) => ({
+      ...item,
+      nativeLocations: [{
+        schemaVersion: '1.0.0' as const,
+        kind: 'CSV_CELL' as const,
+        row: 2,
+        column: 3
+      }]
+    }));
+    const original = resolveEvidence(evidence, revision, unicodeCodePointLength(text));
+    const moved = resolveEvidence(evidence.map((item) => ({
+      ...item,
+      nativeLocations: item.nativeLocations[0] === undefined
+        ? []
+        : [{ ...item.nativeLocations[0], row: 3 }]
+    })), revision, unicodeCodePointLength(text));
+
+    expect(original.algorithmVersion).toBe('0.2.0');
+    expect(original.spans[0]?.nativeLocations).toEqual([{
+      schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 3
+    }]);
+    expect(moved.digest).not.toBe(original.digest);
+  });
+
+  it('rejects same-span supporting evidence with inconsistent native locations', () => {
+    const text = 'alpha@example.test';
+    const first = detectDeterministic(text, revision)[0];
+    if (first === undefined) throw new Error('Synthetic detector fixture produced no evidence');
+    const locations = [
+      { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/first' },
+      { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/second' }
+    ];
+    const firstLocation = locations[0];
+    const secondLocation = locations[1];
+    if (firstLocation === undefined || secondLocation === undefined) throw new Error('Synthetic locations are absent');
+    const second: DetectionEvidence = {
+      ...first,
+      id: parseDetectionId('33333333-3333-4333-8333-333333333333'),
+      nativeLocations: [secondLocation]
+    };
+    expect(() => resolveEvidence([
+      { ...first, nativeLocations: [firstLocation] }, second
+    ], revision, unicodeCodePointLength(text))).toThrow('Supporting evidence native locations do not match');
+  });
+
+  it('normalizes multiple native locations with locale-independent lexical ordering', () => {
+    const text = 'alpha@example.test';
+    const first = detectDeterministic(text, revision)[0];
+    if (first === undefined) throw new Error('Synthetic detector fixture produced no evidence');
+    const locations = [
+      { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/é' },
+      { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/z' }
+    ];
+    const forward = resolveEvidence([{ ...first, nativeLocations: locations }], revision, unicodeCodePointLength(text));
+    const reverse = resolveEvidence([{ ...first, nativeLocations: [...locations].reverse() }], revision, unicodeCodePointLength(text));
+
+    expect(forward.digest).toBe(reverse.digest);
+    expect(forward.spans[0]?.nativeLocations).toEqual(reverse.spans[0]?.nativeLocations);
+  });
+
   it('retains every supporting evidence identifier for the same resolved span', () => {
     const text = 'alpha@example.test';
     const first = detectDeterministic(text, revision)[0];

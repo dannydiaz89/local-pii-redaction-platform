@@ -2,7 +2,8 @@
 
 This repository contains a local-first PII redaction platform. It includes the contract foundation
 and development TXT/Markdown, JSON, and CSV CLI slices with deterministic scanning, typed-label
-replacement, native reopen/rescan verification, and an explicitly experimental local Ollama scan path.
+replacement, native reopen/rescan verification, an experimental strict DOCX inspect/scan slice,
+and an explicitly experimental local Ollama scan path.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
@@ -82,6 +83,8 @@ pnpm --silent pii-redact inspect ./document.csv --json
 pnpm --silent pii-redact scan ./document.csv --json
 pnpm --silent pii-redact redact ./document.csv \
   --policy development-labels --output ./test-output/document.redacted.csv --json
+pnpm --silent pii-redact inspect ./document.docx --json
+pnpm --silent pii-redact scan ./document.docx --json
 pnpm --silent pii-redact cleanup-stages \
   --output ./test-output/sample.redacted.txt --json
 ```
@@ -275,6 +278,26 @@ open. Formula-like cells are treated as untrusted text: the CLI never evaluates 
 formula tokens are not neutralized for spreadsheet software. CSV redaction requires the selected
 output path to retain a `.csv` extension.
 
+JSON values, CSV cells, and DOCX paragraphs now expose a versioned typed source map internally:
+RFC 6901 JSON pointers, one-based logical CSV row/column coordinates, or an allow-listed DOCX part
+and one-based paragraph. Core validates that every structured detection belongs to exactly one
+declared region, and span resolution binds those native locations into its digest. These locations
+are deliberately omitted from ordinary CLI/API reports because paths and headers can themselves be
+sensitive. Path/cell-aware policy selection and native targets carried directly in a future plan
+contract remain open; this source-map foundation is the durable seam for that work.
+
+The rules-only CLI has an experimental strict `.docx` inspect/scan surface through
+[`@local-pii/adapter-docx`](./packages/adapter-docx). It accepts only bounded, non-encrypted OOXML
+packages whose declared visible content is ordinary `w:t` text in `word/document.xml` body and
+table paragraphs, including text fragmented across formatting runs. It rejects macros, external
+or embedded relationships, metadata and auxiliary parts, headers/footers/notes/comments, images,
+text boxes, fields, revisions, hidden text, custom XML, unknown parts, and unsafe or inconsistent
+ZIP structures instead of silently skipping them. Its `docx-extract-v1` evidence attests bounded
+ZIP structure, the feature allowlist, and native paragraph mapping only. DOCX redaction and
+standalone verification are not exposed: native leakage verification, broader feature coverage,
+sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
+Milestone 4 work.
+
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
 the current rules-only file capabilities without opening a document or contacting Ollama. The
 `development-labels` example is currently satisfiable. `high-risk-disclosure` is deliberately
@@ -333,7 +356,8 @@ output collisions.
 
 ## Current limitations
 
-- The rules-only CLI accepts UTF-8 `.txt`, `.md`, `.markdown`, `.json`, and `.csv` regular files; symbolic
+- The rules-only CLI accepts UTF-8 `.txt`, `.md`, `.markdown`, `.json`, and `.csv` regular files for
+  inspect/scan/redact/verify. Its narrow experimental `.docx` surface is inspect/scan only. Symbolic
   links are rejected. The current browser/API intake remains TXT/Markdown-only.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
@@ -355,7 +379,7 @@ output collisions.
 - Real Linux permission-denied and `RLIMIT_FSIZE`/`EFBIG` subprocess evidence complements the
   deterministic adapter fault seam. Real `ENOSPC`, `EDQUOT`, inode exhaustion, device/I/O failure,
   hostile filesystem races, and equivalent macOS/Windows behavior remain unproven.
-- TXT/Markdown, JSON, and CSV CLI processing currently materialize bounded whole files and are not
+- TXT/Markdown, JSON, CSV, and DOCX CLI processing currently materialize bounded whole files and are not
   streaming implementations. Linux peak-RSS and private-stage byte profiles are regression evidence, not a
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
@@ -393,6 +417,7 @@ output collisions.
 - [`packages/redaction`](./packages/redaction): immutable typed-label plans and application
 - [`packages/adapter-text`](./packages/adapter-text): strict UTF-8 input and staged, non-overwriting writes
 - [`packages/adapter-csv`](./packages/adapter-csv): native CSV cell extraction, dialect mapping, and cell-only writes
+- [`packages/adapter-docx`](./packages/adapter-docx): strict experimental DOCX paragraph extraction and source mapping
 - [`packages/adapter-json`](./packages/adapter-json): native JSON value extraction, mapping, and value-only writes
 - [`packages/verification`](./packages/verification): privacy-minimized deterministic residual verification
 - [`packages/core`](./packages/core): use-case orchestration and provider/adapter ports

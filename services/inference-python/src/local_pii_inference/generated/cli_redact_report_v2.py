@@ -24,6 +24,7 @@ class MediaType(Enum):
     text_markdown = 'text/markdown'
     application_json = 'application/json'
     text_csv = 'text/csv'
+    application_vnd_openxmlformats_officedocument_wordprocessingml_document = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 
 class Digest(RootModel[constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)]):

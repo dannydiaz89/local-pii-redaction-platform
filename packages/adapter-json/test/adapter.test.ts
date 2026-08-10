@@ -34,7 +34,7 @@ function planFor(
 ) {
   return compileTypedLabelPlan({
     extractionRevision: source.extractionRevision,
-    algorithmVersion: '0.1.0',
+    algorithmVersion: '0.2.0',
     digest: parseSha256Digest(`sha256:${'1'.repeat(64)}`),
     spans: spans.map((span, index) => ({
       id: `rsp_${String(index + 1).padStart(32, '0')}`,
@@ -77,6 +77,11 @@ describe('JSON adapter extraction', () => {
     expect(artifact.mediaType).toBe('application/json');
     expect(artifact.text).toBe(['alpha@example.test', '☎️ +1 202-555-0147', 'safe'].join('\n\u0000\n'));
     expect(artifact.text).not.toContain('key@example.test');
+    expect(artifact.regions.map(({ location }) => location)).toEqual([
+      { schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/key@example.test' },
+      { schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/nested/3' },
+      { schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/a~1b~0c/label' }
+    ]);
     expect(await readFile(path, 'utf8')).toBe(raw);
     const after = await stat(path, { bigint: true });
     expect({ mode: after.mode, size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs }).toEqual({
@@ -92,6 +97,14 @@ describe('JSON adapter extraction', () => {
     const artifact = await readJsonArtifact(path);
     expect(artifact.text).toBe('prefix 😀 alpha@example.test\nend');
     expect(artifact.extractionRevision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(artifact.regions).toEqual([{
+      schemaVersion: '1.0.0',
+      start: 0,
+      end: unicodeCodePointLength(artifact.text),
+      offsetUnit: 'UNICODE_CODE_POINT',
+      role: 'VALUE',
+      location: { schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '' }
+    }]);
   });
 
   it.each([
@@ -124,7 +137,7 @@ describe('JSON adapter extraction', () => {
     const right = await readJsonArtifact(await jsonFile('{"right":"same"}'));
     expect(left.text).toBe(right.text);
     expect(left.extractionRevision).not.toBe(right.extractionRevision);
-    expect(Object.keys(left)).not.toContain('regions');
+    expect(left.regions[0]?.location).toEqual({ schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/left' });
     expect(Object.keys(left)).not.toContain('rawText');
   });
 

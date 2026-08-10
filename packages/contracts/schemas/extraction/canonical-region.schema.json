@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/extraction/canonical-region/1.0.0",
+  "title": "Canonical structured region",
+  "description": "One canonical Unicode code-point region and its exact native structured location.",
+  "schemaVersion": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "start", "end", "offsetUnit", "role", "location"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "start": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "end": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "offsetUnit": { "const": "UNICODE_CODE_POINT" },
+    "role": { "const": "VALUE" },
+    "location": { "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0" }
+  },
+  "examples": [{
+    "schemaVersion": "1.0.0",
+    "start": 8,
+    "end": 25,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "role": "VALUE",
+    "location": { "schemaVersion": "1.0.0", "kind": "JSON_POINTER", "pointer": "/email" }
+  }]
+}

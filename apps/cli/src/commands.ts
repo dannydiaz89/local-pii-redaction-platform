@@ -3,6 +3,10 @@ import { extname, resolve } from 'node:path';
 
 import { createLocalJsonArtifactSession } from '@local-pii/adapter-json';
 import { createLocalCsvArtifactSession } from '@local-pii/adapter-csv';
+import {
+  createLocalDocxArtifactSession,
+  defaultMaximumDocxInputBytes
+} from '@local-pii/adapter-docx';
 
 import {
   cleanupStaleTextStages,
@@ -26,6 +30,7 @@ import {
 import {
   createExperimentalOllamaTextApplication,
   csvCapabilityRequirement,
+  docxCapabilityRequirement,
   jsonCapabilityRequirement,
   localFileApplication,
   textCapabilityRequirement
@@ -66,10 +71,10 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact scan <file.txt|file.md|file.json|file.csv> [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
-  pii-redact inspect <file.txt|file.md|file.json|file.csv> [--json]
+  pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
   pii-redact --version
   pii-redact --license
@@ -276,12 +281,13 @@ async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal
   });
 }
 
-type LocalFormat = 'text' | 'json' | 'csv';
+type LocalFormat = 'text' | 'json' | 'csv' | 'docx';
 
 function localFormat(input: string): LocalFormat {
   const extension = extname(input).toLowerCase();
   if (extension === '.json') return 'json';
   if (extension === '.csv') return 'csv';
+  if (extension === '.docx') return 'docx';
   return 'text';
 }
 
@@ -289,6 +295,11 @@ function localSession(input: string, output?: string, maximumInputBytes?: number
   const format = localFormat(input);
   if (format === 'json') return createLocalJsonArtifactSession(input, output, maximumInputBytes);
   if (format === 'csv') return createLocalCsvArtifactSession(input, output, maximumInputBytes);
+  if (format === 'docx') return createLocalDocxArtifactSession(
+    input,
+    output,
+    Math.min(maximumInputBytes ?? defaultMaximumDocxInputBytes, defaultMaximumDocxInputBytes)
+  );
   return createLocalTextArtifactSession(input, output, maximumInputBytes);
 }
 
@@ -303,7 +314,9 @@ function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'R
         correlationId: 'cor_cli_format'
       });
     }
-    return format === 'json' ? jsonCapabilityRequirement(operation) : csvCapabilityRequirement(operation);
+    if (format === 'json') return jsonCapabilityRequirement(operation);
+    if (format === 'csv') return csvCapabilityRequirement(operation);
+    return docxCapabilityRequirement(operation);
   }
   return textCapabilityRequirement(operation, engine);
 }
@@ -503,6 +516,9 @@ async function runInspect(input: string, json: boolean, io: CliIo, signal?: Abor
     requirement: capabilityRequirement(input, 'INSPECT'),
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_inspect' });
+  const formatId = localFormat(input);
+  const formatCapability = createCurrentCapabilityManifest().formats.find(({ id }) => id === formatId);
+  if (formatCapability === undefined) throw new Error('Missing local format capability.');
   const report = {
     schemaVersion: '1.0.0', operation: 'INSPECT', outcome: 'SUCCEEDED',
     artifact: {
@@ -514,7 +530,16 @@ async function runInspect(input: string, json: boolean, io: CliIo, signal?: Abor
       unicodeCodePoints: unicodeCodePointLength(artifact.text),
       hasUtf8Bom: artifact.hasUtf8Bom
     },
-    capability: { adapter: localFormat(input), version: '0.1.0', operations: ['SCAN', 'REDACT', 'VERIFY', 'INSPECT'] }
+    capability: {
+      adapter: formatId,
+      version: formatCapability.version,
+      operations: formatCapability.operations.filter((operation) =>
+        operation === 'SCAN'
+        || operation === 'REDACT'
+        || operation === 'VERIFY'
+        || operation === 'INSPECT'
+      )
+    }
   };
   writeResult(io, json, report, `${artifact.displayName}: ${String(artifact.byteLength)} bytes, ${String(unicodeCodePointLength(artifact.text))} Unicode code points.`);
   return 0;

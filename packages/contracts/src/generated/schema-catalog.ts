@@ -1005,7 +1005,8 @@ export const schemaCatalog = [
             "enum": [
               "text",
               "json",
-              "csv"
+              "csv",
+              "docx"
             ]
           },
           "version": {
@@ -1078,7 +1079,8 @@ export const schemaCatalog = [
               "text/plain",
               "text/markdown",
               "application/json",
-              "text/csv"
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ]
           },
           "byteLength": {
@@ -2425,6 +2427,111 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/native-location/1.0.0",
+    "title": "Native structured location",
+    "description": "A versioned value-free native location owned by a structured format adapter.",
+    "schemaVersion": "1.0.0",
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "pointer"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0"
+          },
+          "kind": {
+            "const": "JSON_POINTER"
+          },
+          "pointer": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^(?:/(?:[^~]|~[01])*)*$"
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "row",
+          "column"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0"
+          },
+          "kind": {
+            "const": "CSV_CELL"
+          },
+          "row": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "column": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "part",
+          "paragraph"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0"
+          },
+          "kind": {
+            "const": "DOCX_PART"
+          },
+          "part": {
+            "type": "string",
+            "pattern": "^word/(?:document|header[1-9][0-9]*|footer[1-9][0-9]*|footnotes|endnotes|comments)\\.xml$"
+          },
+          "paragraph": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "kind": "JSON_POINTER",
+        "pointer": "/contacts/0/email"
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "kind": "CSV_CELL",
+        "row": 2,
+        "column": 3
+      },
+      {
+        "schemaVersion": "1.0.0",
+        "kind": "DOCX_PART",
+        "part": "word/document.xml",
+        "paragraph": 1
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/detection/detect-request/1.0.0",
     "title": "Inference detect request",
     "description": "Bounded contextual-inference request containing opaque chunks and no artifact metadata.",
@@ -2675,6 +2782,145 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detection/2.0.0",
+    "title": "Detection evidence with typed native locations",
+    "description": "One value-free detector assertion anchored to an extraction revision and optional typed native locations.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "entityType",
+      "span",
+      "confidence",
+      "source",
+      "detector"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+      },
+      "entityType": {
+        "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+      },
+      "span": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "offsetUnit",
+          "extractionRevision"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offsetUnit": {
+            "const": "UNICODE_CODE_POINT"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "source": {
+        "enum": [
+          "REGEX",
+          "CHECKSUM",
+          "STRUCTURED",
+          "DICTIONARY",
+          "MODEL",
+          "MANUAL"
+        ]
+      },
+      "detector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "nativeLocations": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0"
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "entityType": "EMAIL",
+        "span": {
+          "start": 8,
+          "end": 25,
+          "offsetUnit": "UNICODE_CODE_POINT",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": 0.99,
+        "source": "REGEX",
+        "detector": {
+          "id": "email-pattern",
+          "version": "0.1.0",
+          "ruleId": "email-v1"
+        },
+        "nativeLocations": [
+          {
+            "schemaVersion": "1.0.0",
+            "kind": "JSON_POINTER",
+            "pointer": "/email"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
     "title": "Detection evidence",
     "description": "One value-free detector assertion anchored to an extraction revision.",
@@ -2821,6 +3067,61 @@ export const schemaCatalog = [
           "id": "email-pattern",
           "version": "0.1.0",
           "ruleId": "email-v1"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/extraction/canonical-region/1.0.0",
+    "title": "Canonical structured region",
+    "description": "One canonical Unicode code-point region and its exact native structured location.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "start",
+      "end",
+      "offsetUnit",
+      "role",
+      "location"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "start": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "end": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "offsetUnit": {
+        "const": "UNICODE_CODE_POINT"
+      },
+      "role": {
+        "const": "VALUE"
+      },
+      "location": {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "start": 8,
+        "end": 25,
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "role": "VALUE",
+        "location": {
+          "schemaVersion": "1.0.0",
+          "kind": "JSON_POINTER",
+          "pointer": "/email"
         }
       }
     ]

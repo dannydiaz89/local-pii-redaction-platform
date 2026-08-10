@@ -209,6 +209,59 @@ describe('TextProcessingApplication', () => {
     expect(Object.isFrozen(app)).toBe(true);
   });
 
+  it('binds a structured detection to the adapter-owned typed native region', async () => {
+    const sourceText = 'Email ada@example.test';
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '1.0.0' as const,
+        start: 6,
+        end: 22,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location: {
+          schemaVersion: '1.0.0' as const,
+          kind: 'JSON_POINTER' as const,
+          pointer: '/contact/email'
+        }
+      }]
+    };
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+
+    expect(result.evidence[0]?.nativeLocations).toEqual([{
+      schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/contact/email'
+    }]);
+    expect(result.resolution.spans[0]?.nativeLocations).toEqual([{
+      schemaVersion: '1.0.0', kind: 'JSON_POINTER', pointer: '/contact/email'
+    }]);
+  });
+
+  it('fails safely when a detection crosses structured canonical regions', async () => {
+    const sourceText = 'Email ada@example.test';
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '1.0.0' as const,
+        start: 0,
+        end: 10,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location: { schemaVersion: '1.0.0' as const, kind: 'CSV_CELL' as const, row: 1, column: 1 }
+      }]
+    };
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({
+      code: 'SOURCE_MAP_INVALID',
+      message: 'The structured source map is invalid.',
+      correlationId: context.correlationId
+    });
+  });
+
   it.each(['ephemeral', 'durable'] as const)('runs the same redact sequence for a %s session', async (kind) => {
     const session = new FakeSession(kind);
     const result = await createTextProcessingApplication(dependencies()).redact({ session, requirement, policy }, context);

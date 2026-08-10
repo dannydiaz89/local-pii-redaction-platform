@@ -11,6 +11,8 @@ capability preflight.
 - Applies capability and policy preflight before work begins.
 - Applies exact review snapshots after deterministic resolution: accept, reject, and retype remain
   bound to the scan extraction revision and immutable plan digest.
+- Validates typed native regions on structured artifacts and requires each detection to belong to
+  exactly one region before resolution.
 - Enforces the stage, reopen, verify, publish, and cleanup workflow for redaction.
 
 ## Boundary

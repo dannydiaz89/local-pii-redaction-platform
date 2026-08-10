@@ -7,6 +7,11 @@ import {
   defaultMaximumCsvInputBytes
 } from '@local-pii/adapter-csv';
 import {
+  defaultMaximumDocxInputBytes,
+  docxAdapterCapabilityDescriptor,
+  docxExtractionVerificationCapabilityDescriptor
+} from '@local-pii/adapter-docx';
+import {
   defaultMaximumJsonInputBytes,
   jsonAdapterCapabilityDescriptor
 } from '@local-pii/adapter-json';
@@ -56,6 +61,15 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     verificationProfiles: [...csvAdapterCapabilityDescriptor.verificationProfiles],
     qualification: 'DEVELOPMENT'
   } as unknown as CapabilityManifest['formats'][number];
+  const docxFormat = {
+    ...docxAdapterCapabilityDescriptor,
+    mediaTypes: [...docxAdapterCapabilityDescriptor.mediaTypes],
+    extensions: [...docxAdapterCapabilityDescriptor.extensions],
+    operations: [...docxAdapterCapabilityDescriptor.operations],
+    features: docxAdapterCapabilityDescriptor.features.map((feature) => ({ ...feature })),
+    verificationProfiles: [...docxAdapterCapabilityDescriptor.verificationProfiles],
+    qualification: 'EXPERIMENTAL'
+  } as unknown as CapabilityManifest['formats'][number];
 
   const verifier = {
     ...textVerificationCapabilityDescriptor,
@@ -68,19 +82,28 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
     id: 'local-rules-files',
-    version: '0.3.0',
+    version: '0.4.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
-    formats: [textFormat, jsonFormat, csvFormat],
+    formats: [textFormat, jsonFormat, csvFormat, docxFormat],
     detectors,
     transformations: [{
       ...typedLabelTransformationCapabilityDescriptor,
       availability: 'AVAILABLE',
       qualification: 'DEVELOPMENT'
     }],
-    verificationProfiles: [verifier],
+    verificationProfiles: [
+      verifier,
+      {
+        ...docxExtractionVerificationCapabilityDescriptor,
+        formats: [...docxExtractionVerificationCapabilityDescriptor.formats],
+        checks: [...docxExtractionVerificationCapabilityDescriptor.checks],
+        availability: 'AVAILABLE',
+        qualification: 'EXPERIMENTAL'
+      } as unknown as CapabilityManifest['verificationProfiles'][number]
+    ],
     limits: {
-      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes, defaultMaximumCsvInputBytes),
+      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes, defaultMaximumCsvInputBytes, defaultMaximumDocxInputBytes),
       maximumCanonicalCodePoints: defaultDetectorLimits.maximumCodePoints,
       maximumDetections: defaultDetectorLimits.maximumDetections
     }
@@ -97,7 +120,7 @@ export function createTextOnlyCapabilityManifest(): CapabilityManifest {
     id: 'local-rules-text',
     version: '0.1.0',
     formats: files.formats.filter(({ id }) => id === 'text') as CapabilityManifest['formats'],
-    verificationProfiles: files.verificationProfiles.map((profile) => ({
+    verificationProfiles: files.verificationProfiles.filter((profile) => profile.formats.includes('text')).map((profile) => ({
       ...profile,
       formats: profile.formats.filter((format) => format === 'text')
     })) as CapabilityManifest['verificationProfiles']

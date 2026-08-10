@@ -14,7 +14,7 @@ import {
   type TextArtifactPublication
 } from '@local-pii/adapter-text';
 import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from '@local-pii/contracts';
-import { SafeError, parseSha256Digest, unicodeCodePointLength, type Sha256Digest } from '@local-pii/domain';
+import { SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
 export const csvAdapterVersion = '0.1.0';
@@ -67,6 +67,7 @@ export interface CsvArtifact extends LocalUtf8Artifact {
   readonly extractionRevision: Sha256Digest;
   readonly canonicalText: string;
   readonly text: string;
+  readonly regions: readonly CanonicalRegionV1[];
 }
 
 interface CsvArtifactState {
@@ -249,12 +250,26 @@ export async function readCsvArtifact(
   }
   const source = await readLocalUtf8Artifact(inputPath, maximumBytes, fileSystem);
   const parsed = parseCsv(source.text);
+  const regions = Object.freeze(parsed.regions.map((region): CanonicalRegionV1 => Object.freeze({
+    schemaVersion: '1.0.0',
+    start: region.canonicalStart,
+    end: region.canonicalEnd,
+    offsetUnit: 'UNICODE_CODE_POINT',
+    role: 'VALUE',
+    location: Object.freeze({
+      schemaVersion: '1.0.0',
+      kind: 'CSV_CELL',
+      row: region.row + 1,
+      column: region.column + 1
+    })
+  })));
   const artifact: CsvArtifact = Object.freeze({
     ...source,
     mediaType: 'text/csv',
     extractionRevision: parsed.extractionRevision,
     canonicalText: parsed.canonicalText,
-    text: parsed.canonicalText
+    text: parsed.canonicalText,
+    regions
   });
   csvArtifactStates.set(artifact, { delimiter: parsed.delimiter, regions: parsed.regions, rawText: source.text });
   return artifact;

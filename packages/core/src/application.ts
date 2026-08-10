@@ -1,8 +1,12 @@
 import {
   SafeError,
+  isNativeLocationV1,
+  nativeLocationIdentity,
   parseCorrelationId,
   parseSha256Digest,
   unicodeCodePointLength,
+  type CanonicalRegionV1,
+  type DetectionEvidence,
   type CorrelationId
 } from '@local-pii/domain';
 import {
@@ -135,15 +139,109 @@ async function preflight(
   return manifest;
 }
 
+function sourceMapInvalid(requestCorrelationId: CorrelationId): never {
+  throw new SafeError({
+    code: 'SOURCE_MAP_INVALID',
+    message: 'The structured source map is invalid.',
+    retryable: false,
+    correlationId: requestCorrelationId
+  });
+}
+
+function validatedRegions(
+  regions: readonly CanonicalRegionV1[],
+  textLength: number,
+  requestCorrelationId: CorrelationId
+): readonly CanonicalRegionV1[] {
+  const candidateRegions: unknown = regions;
+  if (!Array.isArray(candidateRegions) || candidateRegions.length > 100_000) return sourceMapInvalid(requestCorrelationId);
+  let previousEnd = 0;
+  const locations = new Set<string>();
+  for (const region of candidateRegions as readonly unknown[]) {
+    if (region === null || typeof region !== 'object' || Array.isArray(region)) return sourceMapInvalid(requestCorrelationId);
+    const candidate = region as Readonly<Record<string, unknown>>;
+    if (
+      Object.keys(candidate).length !== 6
+      || candidate.schemaVersion !== '1.0.0'
+      || candidate.offsetUnit !== 'UNICODE_CODE_POINT'
+      || candidate.role !== 'VALUE'
+      || !Number.isSafeInteger(candidate.start)
+      || !Number.isSafeInteger(candidate.end)
+      || (candidate.start as number) < previousEnd
+      || (candidate.end as number) < (candidate.start as number)
+      || (candidate.end as number) > textLength
+      || !isNativeLocationV1(candidate.location)
+    ) return sourceMapInvalid(requestCorrelationId);
+    const identity = nativeLocationIdentity(candidate.location);
+    if (locations.has(identity)) return sourceMapInvalid(requestCorrelationId);
+    locations.add(identity);
+    previousEnd = candidate.end as number;
+  }
+  return regions;
+}
+
+function regionForSpan(
+  regions: readonly CanonicalRegionV1[],
+  start: number,
+  end: number
+): CanonicalRegionV1 | undefined {
+  let low = 0;
+  let high = regions.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const region = regions[middle];
+    if (region === undefined) return undefined;
+    if (start < region.start) high = middle - 1;
+    else if (start >= region.end) low = middle + 1;
+    else return end <= region.end ? region : undefined;
+  }
+  return undefined;
+}
+
+function sameNativeLocations(
+  left: readonly unknown[] | undefined,
+  right: readonly CanonicalRegionV1['location'][]
+): boolean {
+  return left === undefined || (
+    left.length === right.length
+    && left.every((location, index) => isNativeLocationV1(location)
+      && nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as CanonicalRegionV1['location']))
+  );
+}
+
+function bindNativeLocations(
+  detected: readonly DetectionEvidence[],
+  sourceRegions: readonly CanonicalRegionV1[] | undefined,
+  textLength: number,
+  requestCorrelationId: CorrelationId
+): readonly DetectionEvidence[] {
+  if (sourceRegions === undefined) return detected;
+  const regions = validatedRegions(sourceRegions, textLength, requestCorrelationId);
+  return Object.freeze(detected.map((item) => {
+    const region = regionForSpan(regions, item.span.start, item.span.end);
+    if (region === undefined) return sourceMapInvalid(requestCorrelationId);
+    const nativeLocations = Object.freeze([region.location]);
+    if (!sameNativeLocations(item.nativeLocations, nativeLocations)) return sourceMapInvalid(requestCorrelationId);
+    return Object.freeze({ ...item, nativeLocations });
+  }));
+}
+
 async function scanArtifact(
   dependencies: TextProcessingApplicationDependencies,
-  command: TextCommand
+  command: TextCommand,
+  requestCorrelationId: CorrelationId
 ): Promise<TextScanResult> {
   const artifact = await command.session.input(command.signal);
-  const evidence = await dependencies.detector.detect(
+  const detected = await dependencies.detector.detect(
     artifact.text,
     artifact.extractionRevision,
     command.signal
+  );
+  const evidence = bindNativeLocations(
+    detected,
+    artifact.regions,
+    unicodeCodePointLength(artifact.text),
+    requestCorrelationId
   );
   const resolution = resolveEvidence(
     evidence,
@@ -165,7 +263,7 @@ async function readAndScan(
   requestCorrelationId: CorrelationId
 ): Promise<TextScanResult> {
   await preflight(dependencies, command.requirement, requestCorrelationId, command.signal);
-  return scanArtifact(dependencies, command);
+  return scanArtifact(dependencies, command, requestCorrelationId);
 }
 
 function unresolvedConflict(correlationId: CorrelationId, conflictCount: number): SafeError {
@@ -465,7 +563,7 @@ export function createTextProcessingApplication(
         assertWriterMatchesCapability(command, manifest, requestCorrelationId);
         const capabilityDigest = digestCapabilityManifest(manifest, requestCorrelationId);
 
-        const scanned = await scanArtifact(dependencies, command);
+        const scanned = await scanArtifact(dependencies, command, requestCorrelationId);
         if (scanned.resolution.conflicts.length > 0) {
           throw unresolvedConflict(requestCorrelationId, scanned.resolution.conflicts.length);
         }

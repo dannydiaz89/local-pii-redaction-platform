@@ -70,7 +70,7 @@ export type CLIOperationReport = {
   writerReceipt?: WriterReceiptSummary;
   verification?: Verification;
   capability?: {
-    adapter: 'text' | 'json' | 'csv';
+    adapter: 'text' | 'json' | 'csv' | 'docx';
     version: string;
     operations: ('SCAN' | 'REDACT' | 'VERIFY' | 'INSPECT')[];
   };
@@ -110,7 +110,12 @@ export type EntityType =
  */
 export interface ArtifactSummary {
   displayName?: string;
-  mediaType?: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv';
+  mediaType?:
+    | 'text/plain'
+    | 'text/markdown'
+    | 'application/json'
+    | 'text/csv'
+    | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   byteLength: number;
   digest: string;
   extractionRevision?: string;

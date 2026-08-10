@@ -35,7 +35,7 @@ function planFor(
 ) {
   return compileTypedLabelPlan({
     extractionRevision: source.extractionRevision,
-    algorithmVersion: '0.1.0',
+    algorithmVersion: '0.2.0',
     digest: parseSha256Digest(`sha256:${'1'.repeat(64)}`),
     spans: spans.map((span, index) => ({
       id: `rsp_${String(index + 1).padStart(32, '0')}`,
@@ -140,6 +140,14 @@ describe('CSV adapter', () => {
 
     expect(artifact.mediaType).toBe('text/csv');
     expect(artifact.text).toBe(['name', 'email', 'note', 'Alice', 'alpha@example.test', 'hello, world'].join('\n\u0000\n'));
+    expect(artifact.regions.map(({ location }) => location)).toEqual([
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 1, column: 1 },
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 1, column: 2 },
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 1, column: 3 },
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 1 },
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 2 },
+      { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 3 }
+    ]);
     expect(await readFile(path, 'utf8')).toBe(raw);
     const after = await stat(path, { bigint: true });
     expect({ mode: after.mode, size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs }).toEqual({
@@ -158,6 +166,11 @@ describe('CSV adapter', () => {
   ])('supports %s input without normalizing its dialect', async (_name, raw, values) => {
     const artifact = await readCsvArtifact(await csvFile(raw));
     expect(artifact.text).toBe(values.join('\n\u0000\n'));
+    if (_name === 'quoted newline') {
+      expect(artifact.regions[3]?.location).toEqual({
+        schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 2
+      });
+    }
   });
 
   it.each([

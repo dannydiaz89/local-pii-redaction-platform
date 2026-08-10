@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,6 +45,91 @@ async function csvFileForCli(content: string): Promise<string> {
   directories.push(root);
   const input = join(root, 'document.csv');
   await writeFile(input, content);
+  return input;
+}
+
+const docxCrcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function docxCrc32(bytes: Uint8Array): number {
+  let value = 0xffffffff;
+  for (const byte of bytes) value = (docxCrcTable[(value ^ byte) & 0xff] ?? 0) ^ (value >>> 8);
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+function syntheticDocx(documentTextXml: string): Buffer {
+  const wordNamespace = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const entries = [
+    {
+      name: '[Content_Types].xml',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${contentType}"/></Types>`
+    },
+    {
+      name: '_rels/.rels',
+      contents: '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+    },
+    {
+      name: 'word/document.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}"><w:body>${documentTextXml}<w:sectPr/></w:body></w:document>`
+    }
+  ];
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const contents = Buffer.from(entry.contents);
+    const compressed = deflateRawSync(contents);
+    const checksum = docxCrc32(contents);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(contents.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(compressed.length, 20);
+    central.writeUInt32LE(contents.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, name, compressed);
+    centrals.push(central, name);
+    offset += local.length + name.length + compressed.length;
+  }
+  const centralDirectory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, centralDirectory, end]);
+}
+
+async function docxFileForCli(documentTextXml: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'local-pii-docx-cli-'));
+  directories.push(root);
+  const input = join(root, 'document.docx');
+  await writeFile(input, syntheticDocx(documentTextXml));
   return input;
 }
 
@@ -269,6 +355,12 @@ describe('CLI TXT vertical slice', () => {
       id: 'csv',
       mediaTypes: ['text/csv'],
       qualification: 'DEVELOPMENT'
+    }));
+    expect(manifest.formats).toContainEqual(expect.objectContaining({
+      id: 'docx',
+      mediaTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN'],
+      qualification: 'EXPERIMENTAL'
     }));
     expect(manifest.detectors.map(({ id }) => id)).toEqual([
       'email-pattern',
@@ -834,6 +926,57 @@ describe('CLI TXT vertical slice', () => {
       ], stream.io)).toBe(3);
       expect(fetchImplementation).not.toHaveBeenCalled();
       expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('inspects and scans the strict experimental DOCX surface without exposing source values', async () => {
+    const path = await docxFileForCli(
+      '<w:p><w:r><w:t>Contact alpha@</w:t></w:r><w:r><w:t>example.test.</w:t></w:r></w:p>'
+      + '<w:p><w:r><w:t>SSN 123-45-6789.</w:t></w:r></w:p>'
+    );
+
+    const inspect = capture();
+    expect(await executeCli(['inspect', path, '--json'], inspect.io), inspect.stderr.join('')).toBe(0);
+    expect(JSON.parse(inspect.stdout.join(''))).toMatchObject({
+      artifact: { mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      capability: { adapter: 'docx', operations: ['INSPECT', 'SCAN'] }
+    });
+
+    const scan = capture();
+    expect(await executeCli(['scan', path, '--json'], scan.io), scan.stderr.join('')).toBe(0);
+    expect(JSON.parse(scan.stdout.join(''))).toMatchObject({
+      input: { mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      counts: { detections: 2, byEntity: { EMAIL: 1, SSN: 1 } }
+    });
+    for (const output of [inspect.stdout.join(''), scan.stdout.join(''), scan.stderr.join('')]) {
+      expect(output).not.toContain('alpha@example.test');
+      expect(output).not.toContain('123-45-6789');
+      expect(output).not.toContain(path);
+    }
+  });
+
+  it('fails closed for DOCX redaction, verification, and experimental Ollama before publication or network access', async () => {
+    const path = await docxFileForCli('<w:p><w:r><w:t>alpha@example.test</w:t></w:r></w:p>');
+    const output = join(path.slice(0, -'.docx'.length), '.redacted.docx');
+    const fetchImplementation = vi.fn(() => {
+      throw new Error('DOCX hybrid rejection must happen before a network request.');
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+    try {
+      for (const argv of [
+        ['redact', path, '--output', output, '--json'],
+        ['verify', path, '--json'],
+        ['scan', path, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--json']
+      ]) {
+        const stream = capture();
+        expect(await executeCli(argv, stream.io), argv.join(' ')).toBe(3);
+        const failure = JSON.parse(stream.stderr.join('')) as { readonly error: { readonly code: string } };
+        expect(['FORMAT_UNSUPPORTED', 'POLICY_UNSATISFIABLE'], argv.join(' ')).toContain(failure.error.code);
+      }
+      expect(fetchImplementation).not.toHaveBeenCalled();
+      await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       vi.unstubAllGlobals();
     }

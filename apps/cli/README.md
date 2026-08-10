@@ -1,7 +1,7 @@
 # `@local-pii/cli`
 
-Command-line interface for the local rules-only TXT/Markdown/JSON/CSV profile and the explicit
-experimental Ollama scan profile.
+Command-line interface for the local rules-only TXT/Markdown/JSON/CSV profile, the strict
+experimental DOCX inspect/scan surface, and the explicit experimental Ollama scan profile.
 
 ## Responsibilities
 
@@ -15,6 +15,8 @@ experimental Ollama scan profile.
   may be transformed.
 - Selects the native CSV adapter for `.csv`; all cells are scanned and transformations remain
   inside their originating cells.
+- Selects the strict DOCX adapter for `.docx` inspection and rules-only scanning. DOCX redaction,
+  verification, and Ollama are rejected before staging or provider access.
 
 Reusable application composition lives in `@local-pii/profile-local`; this package is the terminal
 adapter and must not become a second copy of the core processing workflow.
