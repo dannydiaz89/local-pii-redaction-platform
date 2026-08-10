@@ -1,6 +1,6 @@
 # `@local-pii/cli`
 
-Command-line interface for the local rules-only text-processing profile and the explicit
+Command-line interface for the local rules-only TXT/Markdown/JSON profile and the explicit
 experimental Ollama scan profile.
 
 ## Responsibilities
@@ -11,6 +11,8 @@ experimental Ollama scan profile.
   documented exit codes.
 - Owns CLI argument validation, process-signal handling, and command-specific policy binding.
 - Keeps Ollama opt-in, loopback-only, experimental, and scan-only.
+- Selects the native JSON adapter for `.json`; keys remain outside detection and only string values
+  may be transformed.
 
 Reusable application composition lives in `@local-pii/profile-local`; this package is the terminal
 adapter and must not become a second copy of the core processing workflow.

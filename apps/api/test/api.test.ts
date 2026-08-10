@@ -116,6 +116,12 @@ afterEach(async () => {
 });
 
 describe('local API composition', () => {
+  it('keeps the browser/API capability projection text-only until structured intake is composed', async () => {
+    const manifest = await localTextApplication.getCapabilities({ correlationId: 'cor_api_format_scope' });
+    expect(manifest.formats.map(({ id }) => id)).toEqual(['text']);
+    expect(manifest.verificationProfiles.every(({ formats }) => formats.every((format) => format === 'text'))).toBe(true);
+  });
+
   it('builds unlistened with bounded parser, connection, request, and shutdown settings', async () => {
     const instance = server();
 

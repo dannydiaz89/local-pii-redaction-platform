@@ -1,8 +1,8 @@
 # Local PII Redaction Platform
 
 This repository contains a local-first PII redaction platform. It includes the contract foundation
-and an initial development TXT/Markdown CLI slice with deterministic scanning, typed-label
-replacement, reopen/rescan verification, and an explicitly experimental local Ollama scan path.
+and development TXT/Markdown and JSON CLI slices with deterministic scanning, typed-label
+replacement, native reopen/rescan verification, and an explicitly experimental local Ollama scan path.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
@@ -74,6 +74,10 @@ pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
   > ./test-output/sample.redact-report.json
 pnpm --silent pii-redact verify ./test-output/sample.redacted.txt --json \
   > ./test-output/sample.verify-report.json
+pnpm --silent pii-redact inspect ./document.json --json
+pnpm --silent pii-redact scan ./document.json --json
+pnpm --silent pii-redact redact ./document.json \
+  --policy development-labels --output ./test-output/document.redacted.json --json
 pnpm --silent pii-redact cleanup-stages \
   --output ./test-output/sample.redacted.txt --json
 ```
@@ -238,8 +242,22 @@ only privacy-safe identities, digests, and bounded counts. The standalone `verif
 residual scan of the supplied artifact; it does not claim plan execution, policy compliance, or
 publication eligibility.
 
+The rules-only CLI also supports bounded UTF-8 `.json` documents through
+[`@local-pii/adapter-json`](./packages/adapter-json). The adapter parses native JSON, rejects
+duplicate object keys and malformed or overly complex structures, and extracts string values in
+document order using an internal JSON Pointer source map. Object keys are deliberately neither
+scanned nor transformed. A redaction action must fit wholly inside one value; crossing a value
+boundary fails closed. Untouched keys, whitespace, ordering, numbers, booleans, nulls, and string
+tokens remain byte-identical. A changed string token is emitted with standard JSON escaping. The
+private same-directory stage is reparsed as JSON and its extracted values are rescanned before the
+existing no-clobber publication boundary commits it. JSON support is currently CLI-only and
+rules-only; the browser/API continue to advertise and accept TXT/Markdown until their structured
+preview and review mapping is implemented. JSON Lines, streaming, key transformation, path-aware
+policy rules, and structured-path evidence in public reports remain open.
+JSON redaction requires the selected output path to retain a `.json` extension.
+
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
-the current rules-only text capability without opening a document or contacting Ollama. The
+the current rules-only file capabilities without opening a document or contacting Ollama. The
 `development-labels` example is currently satisfiable. `high-risk-disclosure` is deliberately
 reported as unsatisfiable because the available components are not qualified for high-risk use and
 the required detector, transformation, and verification assurances are incomplete. Policy
@@ -296,7 +314,8 @@ output collisions.
 
 ## Current limitations
 
-- Only UTF-8 `.txt`, `.md`, and `.markdown` regular files are accepted; symbolic links are rejected.
+- The rules-only CLI accepts UTF-8 `.txt`, `.md`, `.markdown`, and `.json` regular files; symbolic
+  links are rejected. The current browser/API intake remains TXT/Markdown-only.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
 - The opt-in Ollama hybrid scan is experimental and unqualified. Its contextual results can be
@@ -317,7 +336,7 @@ output collisions.
 - Real Linux permission-denied and `RLIMIT_FSIZE`/`EFBIG` subprocess evidence complements the
   deterministic adapter fault seam. Real `ENOSPC`, `EDQUOT`, inode exhaustion, device/I/O failure,
   hostile filesystem races, and equivalent macOS/Windows behavior remain unproven.
-- TXT/Markdown processing currently materializes bounded whole files and is not a streaming
+- TXT/Markdown and JSON CLI processing currently materialize bounded whole files and are not streaming
   implementation. Linux peak-RSS and private-stage byte profiles are regression evidence, not a
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
@@ -354,6 +373,7 @@ output collisions.
 - [`packages/span-resolution`](./packages/span-resolution): deterministic overlap handling and explicit conflicts
 - [`packages/redaction`](./packages/redaction): immutable typed-label plans and application
 - [`packages/adapter-text`](./packages/adapter-text): strict UTF-8 input and staged, non-overwriting writes
+- [`packages/adapter-json`](./packages/adapter-json): native JSON value extraction, mapping, and value-only writes
 - [`packages/verification`](./packages/verification): privacy-minimized deterministic residual verification
 - [`packages/core`](./packages/core): use-case orchestration and provider/adapter ports
 - [`packages/profile-local`](./packages/profile-local): reusable rules-only and experimental local composition

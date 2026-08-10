@@ -29,6 +29,7 @@
     "apps/cli/test/cli.test.ts": ["end-to-end", "recovery", "security-privacy"],
     "apps/cli/test/skipped-canary-publication.test.ts": ["integration", "end-to-end", "format-conformance", "security-privacy"],
     "packages/adapter-text/test/adapter.test.ts": ["unit", "format-conformance", "recovery", "security-privacy"],
+    "packages/adapter-json/test/adapter.test.ts": ["unit", "format-conformance", "integration", "recovery", "security-privacy"],
     "packages/adapter-job-sqlite/test/adapter.test.ts": ["unit", "contract", "integration", "security-privacy", "recovery"],
     "packages/core/test/application.test.ts": ["unit", "integration", "recovery", "security-privacy"],
     "packages/core/test/preflight.test.ts": ["unit", "contract"],

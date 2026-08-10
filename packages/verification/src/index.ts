@@ -13,7 +13,7 @@ import { resolveEvidence } from '@local-pii/span-resolution';
 export const textVerificationCapabilityDescriptor = {
   id: 'text-rescan-v1',
   version: '0.1.0',
-  formats: ['text'],
+  formats: ['text', 'json'],
   checks: ['UTF8_REOPEN', 'DETERMINISTIC_RESCAN', 'SPAN_RESOLUTION']
 } as const;
 
@@ -193,7 +193,7 @@ const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
-const textMediaTypes = new Set(['text/plain', 'text/markdown']);
+const canonicalTextMediaTypes = new Set(['text/plain', 'text/markdown', 'application/json']);
 const resolvedSpanIdPattern = /^rsp_[a-f0-9]{32}$/u;
 
 function isDigest(value: unknown): value is Sha256Digest {
@@ -464,7 +464,7 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
   const reportOutput: VerificationAttestation['output'] = {
     digest: safeDigest(request.output.digest),
     byteLength: safeByteLength(request.output.byteLength),
-    mediaType: textMediaTypes.has(request.output.mediaType) ? request.output.mediaType : 'text/plain',
+    mediaType: canonicalTextMediaTypes.has(request.output.mediaType) ? request.output.mediaType : 'text/plain',
     extractionRevision: safeDigest(request.output.extractionRevision)
   };
   const reportPlan: VerificationAttestation['plan'] = {
@@ -505,7 +505,7 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
     || !isDigest(request.output.digest)
     || !validByteLength(request.output.byteLength)
     || !isDigest(request.output.extractionRevision)
-    || !textMediaTypes.has(request.output.mediaType)
+    || !canonicalTextMediaTypes.has(request.output.mediaType)
     || !isDigest(request.capabilityDigest)
     || !isRfc3339DateTime(request.startedAt)
     || !isRfc3339DateTime(request.completedAt)

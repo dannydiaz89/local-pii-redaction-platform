@@ -193,6 +193,29 @@ describe('boundary checker', () => {
     );
   });
 
+  it('keeps the JSON adapter on the reviewed local-file and transformation boundaries', () => {
+    expect(checkPackageManifest('packages/adapter-json/package.json', 'adapter-json', {
+      name: '@local-pii/adapter-json',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/adapter-text': 'workspace:*',
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/domain': 'workspace:*',
+        '@local-pii/redaction': 'workspace:*'
+      }
+    })).toEqual([]);
+
+    expect(checkSourceDependencyDirection(
+      'packages/adapter-json/src/example.ts',
+      "import Fastify from 'fastify'; import { run } from '@local-pii/core';",
+      ['adapter-text', 'contracts', 'domain', 'redaction'],
+      { packageRuntime: 'adapter-json' }
+    ).map(({ message }) => message)).toEqual([
+      'imports or loads forbidden durable/server infrastructure fastify',
+      'imports @local-pii/core, outside its allow-listed dependency direction'
+    ]);
+  });
+
   it('allows the job metadata boundary to depend only on contracts and domain', () => {
     expect(checkPackageManifest('packages/job-store/package.json', 'job-store', {
       name: '@local-pii/job-store',

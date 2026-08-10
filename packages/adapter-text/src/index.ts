@@ -51,6 +51,20 @@ export interface TextArtifact {
   readonly hasUtf8Bom: boolean;
 }
 
+/**
+ * Format-neutral result of the hardened local UTF-8 reader. Structured local
+ * adapters reuse this boundary before performing their own native parsing.
+ */
+export interface LocalUtf8Artifact {
+  readonly reference: string;
+  readonly path: string;
+  readonly displayName: string;
+  readonly byteLength: number;
+  readonly digest: Sha256Digest;
+  readonly text: string;
+  readonly hasUtf8Bom: boolean;
+}
+
 export interface WrittenTextArtifact {
   readonly path: string;
   readonly byteLength: number;
@@ -737,11 +751,11 @@ async function removeStageAfterFailure(
   }
 }
 
-export async function readTextArtifact(
+export async function readLocalUtf8Artifact(
   inputPath: string,
   maximumBytes = defaultMaximumInputBytes,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
-): Promise<TextArtifact> {
+): Promise<LocalUtf8Artifact> {
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > defaultMaximumInputBytes) {
     throw new TypeError('Maximum input bytes must be a nonnegative safe integer within the adapter limit.');
   }
@@ -791,12 +805,23 @@ export async function readTextArtifact(
     reference: path,
     path,
     displayName: basename(path),
-    mediaType: supportedMediaType(path),
     byteLength: bytes.byteLength,
     digest: digestBytes(bytes),
-    extractionRevision: extractionDigest(text),
     text,
     hasUtf8Bom
+  };
+}
+
+export async function readTextArtifact(
+  inputPath: string,
+  maximumBytes = defaultMaximumInputBytes,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
+): Promise<TextArtifact> {
+  const artifact = await readLocalUtf8Artifact(inputPath, maximumBytes, fileSystem);
+  return {
+    ...artifact,
+    mediaType: supportedMediaType(artifact.path),
+    extractionRevision: extractionDigest(artifact.text)
   };
 }
 
@@ -806,7 +831,7 @@ export function deriveRedactedOutputPath(inputPath: string): string {
 }
 
 export async function stageTextArtifact(
-  source: TextArtifact,
+  source: Pick<LocalUtf8Artifact, 'path' | 'hasUtf8Bom' | 'digest' | 'byteLength'>,
   outputPath: string,
   text: string,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
@@ -875,7 +900,7 @@ export async function stageTextArtifact(
 }
 
 export async function publishStagedTextArtifact(
-  source: TextArtifact,
+  source: Pick<LocalUtf8Artifact, 'path' | 'digest' | 'byteLength'>,
   staged: Pick<StagedTextArtifact, 'path' | 'targetPath' | 'byteLength' | 'digest'>,
   signal?: AbortSignal,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem

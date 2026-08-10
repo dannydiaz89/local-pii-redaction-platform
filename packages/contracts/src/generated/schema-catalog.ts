@@ -1002,7 +1002,10 @@ export const schemaCatalog = [
         ],
         "properties": {
           "adapter": {
-            "const": "text"
+            "enum": [
+              "text",
+              "json"
+            ]
           },
           "version": {
             "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
@@ -1072,7 +1075,8 @@ export const schemaCatalog = [
           "mediaType": {
             "enum": [
               "text/plain",
-              "text/markdown"
+              "text/markdown",
+              "application/json"
             ]
           },
           "byteLength": {

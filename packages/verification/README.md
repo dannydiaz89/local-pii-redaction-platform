@@ -1,6 +1,7 @@
 # `@local-pii/verification`
 
-Deterministic residual-PII verification and bound verification attestations for canonical text.
+Deterministic residual-PII verification and bound verification attestations for canonical text,
+including canonical string-value text reopened from native JSON.
 
 ## Responsibilities
 

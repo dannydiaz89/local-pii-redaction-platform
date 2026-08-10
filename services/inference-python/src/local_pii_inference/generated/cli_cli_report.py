@@ -54,6 +54,11 @@ class Conflict(BaseModel):
     end: conint(ge=1, strict=True)
 
 
+class Adapter(Enum):
+    text = 'text'
+    json = 'json'
+
+
 class EntityType(StrEnum):
     PERSON = 'PERSON'
     EMAIL = 'EMAIL'
@@ -137,6 +142,7 @@ class PolicySummary(BaseModel):
 class MediaType(Enum):
     text_plain = 'text/plain'
     text_markdown = 'text/markdown'
+    application_json = 'application/json'
 
 
 class ArtifactSummary(BaseModel):
@@ -247,7 +253,7 @@ class Capability(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    adapter: Literal['text']
+    adapter: Adapter
     version: Semver
     operations: list[Operation]
 

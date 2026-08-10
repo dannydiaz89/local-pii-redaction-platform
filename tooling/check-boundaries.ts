@@ -8,6 +8,7 @@ import { repositoryRoot } from './schema-utils.js';
 
 type WorkspacePackage =
   | 'adapter-job-sqlite'
+  | 'adapter-json'
   | 'adapter-text'
   | 'contracts'
   | 'detectors'
@@ -41,6 +42,7 @@ export interface BoundaryViolation {
 
 const workspacePackages: readonly WorkspacePackage[] = [
   'adapter-job-sqlite',
+  'adapter-json',
   'adapter-text',
   'contracts',
   'detectors',
@@ -64,6 +66,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
  */
 const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
   'adapter-job-sqlite': ['contracts', 'domain', 'job-store'],
+  'adapter-json': ['adapter-text', 'contracts', 'domain', 'redaction'],
   'adapter-text': ['contracts', 'domain', 'redaction'],
   contracts: [],
   detectors: ['domain'],
@@ -71,7 +74,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   i18n: [],
   'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
-  'profile-local': ['adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
+  'profile-local': ['adapter-json', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
@@ -82,6 +85,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
 
 const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
   'adapter-job-sqlite': [],
+  'adapter-json': [],
   'adapter-text': [],
   contracts: [],
   detectors: [],
@@ -99,6 +103,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
 };
 
 const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
+  'adapter-json',
   'adapter-text',
   'contracts',
   'core',

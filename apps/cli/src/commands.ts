@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
+
+import { createLocalJsonArtifactSession } from '@local-pii/adapter-json';
 
 import {
   cleanupStaleTextStages,
@@ -22,7 +24,8 @@ import {
 
 import {
   createExperimentalOllamaTextApplication,
-  localTextApplication,
+  jsonCapabilityRequirement,
+  localFileApplication,
   textCapabilityRequirement
 } from './application.js';
 import { createCurrentCapabilityManifest } from './capabilities.js';
@@ -61,10 +64,10 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact scan <file.txt|file.md> [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
-  pii-redact verify <file.txt|file.md> [--json]
-  pii-redact inspect <file.txt|file.md> [--json]
+  pii-redact scan <file.txt|file.md|file.json> [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact redact <file.txt|file.md|file.json> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
+  pii-redact verify <file.txt|file.md|file.json> [--json]
+  pii-redact inspect <file.txt|file.md|file.json> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
   pii-redact --version
   pii-redact --license
@@ -262,7 +265,7 @@ function experimentalWarning(io: CliIo): void {
 }
 
 async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal) {
-  if (parsed.engine === 'rules') return localTextApplication;
+  if (parsed.engine === 'rules') return localFileApplication;
   return createExperimentalOllamaTextApplication({
     model: parsed.model ?? '',
     ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
@@ -271,14 +274,40 @@ async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal
   });
 }
 
+function isJsonInput(input: string): boolean {
+  return extname(input).toLowerCase() === '.json';
+}
+
+function localSession(input: string, output?: string, maximumInputBytes?: number) {
+  return isJsonInput(input)
+    ? createLocalJsonArtifactSession(input, output, maximumInputBytes)
+    : createLocalTextArtifactSession(input, output, maximumInputBytes);
+}
+
+function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'REDACT' | 'VERIFY', engine: 'rules' | 'ollama' = 'rules') {
+  if (isJsonInput(input)) {
+    if (engine === 'ollama') {
+      throw new SafeError({
+        code: 'FORMAT_UNSUPPORTED',
+        message: 'Experimental Ollama detection currently supports TXT and Markdown only.',
+        retryable: false,
+        correlationId: 'cor_cli_format'
+      });
+    }
+    return jsonCapabilityRequirement(operation);
+  }
+  return textCapabilityRequirement(operation, engine);
+}
+
 async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal?: AbortSignal): Promise<number> {
+  const requirement = capabilityRequirement(input, 'SCAN', parsed.engine);
   const selected = await selectedApplication(parsed, signal);
   const maximumInputBytes = parsed.engine === 'ollama'
     ? ollamaExperimentalDefaultLimits.maximumInputBytes
     : undefined;
   const result = await selected.scan({
-    session: createLocalTextArtifactSession(input, undefined, maximumInputBytes),
-    requirement: textCapabilityRequirement('SCAN', parsed.engine),
+    session: localSession(input, undefined, maximumInputBytes),
+    requirement,
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_scan' });
   const { artifact, resolution } = result;
@@ -401,9 +430,9 @@ async function runRedact(
   signal?: AbortSignal
 ): Promise<number> {
   const policy = compilePolicy(bundledPolicies[policyName ?? 'development-labels']);
-  const result = await localTextApplication.redact({
-    session: createLocalTextArtifactSession(input, output, policy.limits.maximumInputBytes),
-    requirement: textCapabilityRequirement('REDACT'),
+  const result = await localFileApplication.redact({
+    session: localSession(input, output, policy.limits.maximumInputBytes),
+    requirement: capabilityRequirement(input, 'REDACT'),
     policy,
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_redact' });
@@ -442,9 +471,9 @@ async function runRedact(
 }
 
 async function runVerify(input: string, json: boolean, io: CliIo, signal?: AbortSignal): Promise<number> {
-  const result = await localTextApplication.verify({
-    session: createLocalTextArtifactSession(input),
-    requirement: textCapabilityRequirement('VERIFY'),
+  const result = await localFileApplication.verify({
+    session: localSession(input),
+    requirement: capabilityRequirement(input, 'VERIFY'),
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_verify' });
   const { artifact, verification } = result;
@@ -460,9 +489,9 @@ async function runVerify(input: string, json: boolean, io: CliIo, signal?: Abort
 }
 
 async function runInspect(input: string, json: boolean, io: CliIo, signal?: AbortSignal): Promise<number> {
-  const { artifact } = await localTextApplication.inspect({
-    session: createLocalTextArtifactSession(input),
-    requirement: textCapabilityRequirement('INSPECT'),
+  const { artifact } = await localFileApplication.inspect({
+    session: localSession(input),
+    requirement: capabilityRequirement(input, 'INSPECT'),
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_inspect' });
   const report = {
@@ -476,7 +505,7 @@ async function runInspect(input: string, json: boolean, io: CliIo, signal?: Abor
       unicodeCodePoints: unicodeCodePointLength(artifact.text),
       hasUtf8Bom: artifact.hasUtf8Bom
     },
-    capability: { adapter: 'text', version: '0.1.0', operations: ['SCAN', 'REDACT', 'VERIFY', 'INSPECT'] }
+    capability: { adapter: isJsonInput(input) ? 'json' : 'text', version: '0.1.0', operations: ['SCAN', 'REDACT', 'VERIFY', 'INSPECT'] }
   };
   writeResult(io, json, report, `${artifact.displayName}: ${String(artifact.byteLength)} bytes, ${String(unicodeCodePointLength(artifact.text))} Unicode code points.`);
   return 0;

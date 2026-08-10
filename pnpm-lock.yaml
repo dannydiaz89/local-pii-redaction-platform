@@ -89,6 +89,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@local-pii/adapter-json':
+        specifier: workspace:*
+        version: link:../../packages/adapter-json
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../../packages/adapter-text
@@ -153,6 +156,21 @@ importers:
       '@local-pii/job-store':
         specifier: workspace:*
         version: link:../job-store
+
+  packages/adapter-json:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@local-pii/redaction':
+        specifier: workspace:*
+        version: link:../redaction
 
   packages/adapter-text:
     dependencies:
@@ -220,6 +238,9 @@ importers:
 
   packages/profile-local:
     dependencies:
+      '@local-pii/adapter-json':
+        specifier: workspace:*
+        version: link:../adapter-json
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../adapter-text

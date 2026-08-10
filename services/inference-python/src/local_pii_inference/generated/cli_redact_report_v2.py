@@ -22,6 +22,7 @@ from pydantic import (
 class MediaType(Enum):
     text_plain = 'text/plain'
     text_markdown = 'text/markdown'
+    application_json = 'application/json'
 
 
 class Digest(RootModel[constr(pattern=r'^sha256:[a-f0-9]{64}$', strict=True)]):

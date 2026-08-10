@@ -11,6 +11,7 @@ import {
   deterministicDetectorCapabilities
 } from '@local-pii/detectors';
 import { defaultMaximumInputBytes } from '@local-pii/adapter-text';
+import { defaultMaximumJsonInputBytes } from '@local-pii/adapter-json';
 import { parseSha256Digest } from '@local-pii/domain';
 import {
   createOllamaTextDetectionProvider,
@@ -27,7 +28,8 @@ import {
 
 import {
   createCurrentCapabilityManifest,
-  createOllamaHybridCapabilityManifest
+  createOllamaHybridCapabilityManifest,
+  createTextOnlyCapabilityManifest
 } from './capabilities.js';
 
 const detectorIds = deterministicDetectorCapabilities.map(({ id }) => id);
@@ -52,6 +54,22 @@ export function textCapabilityRequirement(
     verificationProfile: 'text-rescan-v1',
     maximumInputBytes: hybrid ? ollamaExperimentalDefaultLimits.maximumInputBytes : defaultMaximumInputBytes,
     minimumQualification: hybrid ? 'EXPERIMENTAL' : 'DEVELOPMENT'
+  };
+}
+
+export function jsonCapabilityRequirement(operation: CapabilityOperation): CapabilityRequirement {
+  const needsDetection = operation !== 'INSPECT';
+  return {
+    contractVersion: '1.0.0',
+    engineModes: ['RULES_ONLY'],
+    formatId: 'json',
+    operation,
+    detectorIds: needsDetection ? [...detectorIds] : [],
+    detectorKinds: needsDetection ? [...detectorKinds] : [],
+    transformationActions: operation === 'REDACT' ? ['TYPED_LABEL'] : [],
+    verificationProfile: 'text-rescan-v1',
+    maximumInputBytes: defaultMaximumJsonInputBytes,
+    minimumQualification: 'DEVELOPMENT'
   };
 }
 
@@ -112,7 +130,8 @@ function application(
   });
 }
 
-export const localTextApplication = application(createCurrentCapabilityManifest(), rulesDetector);
+export const localTextApplication = application(createTextOnlyCapabilityManifest(), rulesDetector);
+export const localFileApplication = application(createCurrentCapabilityManifest(), rulesDetector);
 
 export interface ExperimentalOllamaApplicationOptions {
   readonly model: string;

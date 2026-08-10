@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { EventEmitter } from 'node:events';
@@ -29,6 +29,14 @@ async function fixture(): Promise<{ readonly root: string; readonly input: strin
     'api_key=synthetic_value_12345'
   ].join('\n'));
   return { root, input, output };
+}
+
+async function jsonFileForCli(content: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'local-pii-json-cli-'));
+  directories.push(root);
+  const input = join(root, 'document.json');
+  await writeFile(input, content);
+  return input;
 }
 
 function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly stderr: string[] } {
@@ -177,7 +185,7 @@ describe('CLI TXT vertical slice', () => {
       expect(developmentReport).toMatchObject({
         operation: 'POLICY_EXPLAIN',
         satisfiable: true,
-        capability: { id: 'local-rules-text', engineMode: 'RULES_ONLY' }
+        capability: { id: 'local-rules-files', engineMode: 'RULES_ONLY' }
       });
       expect(developmentReport.decisions.every(({ available }) => available)).toBe(true);
 
@@ -239,11 +247,16 @@ describe('CLI TXT vertical slice', () => {
     expect(await executeCli(['capabilities', '--json'], stream.io)).toBe(0);
     const manifest = JSON.parse(stream.stdout.join('')) as {
       readonly engineMode: string;
-      readonly formats: readonly { readonly id: string; readonly qualification: string }[];
+      readonly formats: readonly { readonly id: string; readonly mediaTypes: readonly string[]; readonly qualification: string }[];
       readonly detectors: readonly { readonly id: string }[];
     };
     expect(manifest.engineMode).toBe('RULES_ONLY');
     expect(manifest.formats).toContainEqual(expect.objectContaining({ id: 'text', qualification: 'DEVELOPMENT' }));
+    expect(manifest.formats).toContainEqual(expect.objectContaining({
+      id: 'json',
+      mediaTypes: ['application/json'],
+      qualification: 'DEVELOPMENT'
+    }));
     expect(manifest.detectors.map(({ id }) => id)).toEqual([
       'email-pattern',
       'phone-pattern',
@@ -643,5 +656,98 @@ describe('CLI TXT vertical slice', () => {
     expect(await executeCli(['verify', input, '--json'], stream.io)).toBe(0);
     expect(stream.stdout.join('')).not.toContain(filenameCanary);
     expect(stream.stdout.join('')).not.toContain(root);
+  });
+
+  it('scans, natively redacts, reopens, and verifies JSON string values without changing keys or input metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-json-cli-'));
+    directories.push(root);
+    const input = join(root, 'records.json');
+    const output = join(root, 'records.redacted.json');
+    const raw = [
+      '{',
+      '  "key-canary@example.test": "alpha@example.test",',
+      '  "profile": { "ssn": "123-45-6789", "safe": 42 },',
+      '  "contacts": [true, null, "+1 202-555-0147"],',
+      '  "split": ["bridge@", "example.test"]',
+      '}',
+      ''
+    ].join('\n');
+    await writeFile(input, raw);
+    const before = await stat(input, { bigint: true });
+
+    const scan = capture();
+    expect(await executeCli(['scan', input, '--json'], scan.io), scan.stderr.join('')).toBe(0);
+    const scanReport = JSON.parse(scan.stdout.join('')) as {
+      readonly input: { readonly mediaType: string };
+      readonly counts: { readonly detections: number; readonly byEntity: Readonly<Record<string, number>> };
+    };
+    expect(scanReport.input.mediaType).toBe('application/json');
+    expect(scanReport.counts.detections).toBe(3);
+    expect(scanReport.counts.byEntity).toMatchObject({ EMAIL: 1, SSN: 1, PHONE: 1 });
+    expect(scan.stdout.join('')).not.toContain('alpha@example.test');
+    expect(scan.stdout.join('')).not.toContain('key-canary@example.test');
+
+    const wrongOutput = join(root, 'records.redacted.txt');
+    const wrongExtension = capture();
+    expect(await executeCli(['redact', input, '--output', wrongOutput, '--json'], wrongExtension.io)).toBe(3);
+    expect(JSON.parse(wrongExtension.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    expect(await readdir(root)).toEqual(['records.json']);
+
+    const redact = capture();
+    expect(await executeCli(['redact', input, '--output', output, '--json'], redact.io), redact.stderr.join('')).toBe(0);
+    const transformed = await readFile(output, 'utf8');
+    expect(transformed).toBe([
+      '{',
+      '  "key-canary@example.test": "[EMAIL_1]",',
+      '  "profile": { "ssn": "[SSN_1]", "safe": 42 },',
+      '  "contacts": [true, null, "[PHONE_1]"],',
+      '  "split": ["bridge@", "example.test"]',
+      '}',
+      ''
+    ].join('\n'));
+    expect(JSON.parse(transformed)).toEqual({
+      'key-canary@example.test': '[EMAIL_1]',
+      profile: { ssn: '[SSN_1]', safe: 42 },
+      contacts: [true, null, '[PHONE_1]'],
+      split: ['bridge@', 'example.test']
+    });
+    expect(await readFile(input, 'utf8')).toBe(raw);
+    const after = await stat(input, { bigint: true });
+    expect({ mode: after.mode, size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs }).toEqual({
+      mode: before.mode,
+      size: before.size,
+      mtimeNs: before.mtimeNs,
+      ctimeNs: before.ctimeNs
+    });
+    expect((JSON.parse(redact.stdout.join('')) as { readonly plan: { readonly writer: { readonly id: string } } }).plan.writer.id).toBe('json-adapter');
+
+    const verify = capture();
+    expect(await executeCli(['verify', output, '--json'], verify.io)).toBe(0);
+    expect(JSON.parse(verify.stdout.join(''))).toMatchObject({ operation: 'VERIFY', outcome: 'PASS' });
+
+    const inspect = capture();
+    expect(await executeCli(['inspect', input, '--json'], inspect.io)).toBe(0);
+    expect(JSON.parse(inspect.stdout.join(''))).toMatchObject({
+      artifact: { mediaType: 'application/json' },
+      capability: { adapter: 'json' }
+    });
+  });
+
+  it('rejects experimental Ollama for JSON before making a provider request', async () => {
+    const path = await jsonFileForCli('{"value":"alpha@example.test"}');
+    const fetchImplementation = vi.fn(() => {
+      throw new Error('JSON hybrid rejection must happen before a network request.');
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+    try {
+      const stream = capture();
+      expect(await executeCli([
+        'scan', path, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--json'
+      ], stream.io)).toBe(3);
+      expect(fetchImplementation).not.toHaveBeenCalled();
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

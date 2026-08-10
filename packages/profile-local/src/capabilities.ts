@@ -2,6 +2,10 @@ import {
   defaultMaximumInputBytes,
   textAdapterCapabilityDescriptor
 } from '@local-pii/adapter-text';
+import {
+  defaultMaximumJsonInputBytes,
+  jsonAdapterCapabilityDescriptor
+} from '@local-pii/adapter-json';
 import { deterministicDetectorCapabilities, defaultDetectorLimits } from '@local-pii/detectors';
 import { assertCapabilityManifest, type CapabilityManifest } from '@local-pii/core';
 import {
@@ -21,13 +25,22 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     qualification: 'DEVELOPMENT' as const
   })) as unknown as CapabilityManifest['detectors'];
 
-  const format = {
+  const textFormat = {
     ...textAdapterCapabilityDescriptor,
     mediaTypes: [...textAdapterCapabilityDescriptor.mediaTypes],
     extensions: [...textAdapterCapabilityDescriptor.extensions],
     operations: [...textAdapterCapabilityDescriptor.operations],
     features: textAdapterCapabilityDescriptor.features.map((feature) => ({ ...feature })),
     verificationProfiles: [...textAdapterCapabilityDescriptor.verificationProfiles],
+    qualification: 'DEVELOPMENT'
+  } as unknown as CapabilityManifest['formats'][number];
+  const jsonFormat = {
+    ...jsonAdapterCapabilityDescriptor,
+    mediaTypes: [...jsonAdapterCapabilityDescriptor.mediaTypes],
+    extensions: [...jsonAdapterCapabilityDescriptor.extensions],
+    operations: [...jsonAdapterCapabilityDescriptor.operations],
+    features: jsonAdapterCapabilityDescriptor.features.map((feature) => ({ ...feature })),
+    verificationProfiles: [...jsonAdapterCapabilityDescriptor.verificationProfiles],
     qualification: 'DEVELOPMENT'
   } as unknown as CapabilityManifest['formats'][number];
 
@@ -41,11 +54,11 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
 
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
-    id: 'local-rules-text',
-    version: '0.1.0',
+    id: 'local-rules-files',
+    version: '0.2.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
-    formats: [format],
+    formats: [textFormat, jsonFormat],
     detectors,
     transformations: [{
       ...typedLabelTransformationCapabilityDescriptor,
@@ -54,7 +67,7 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     }],
     verificationProfiles: [verifier],
     limits: {
-      maximumInputBytes: defaultMaximumInputBytes,
+      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes),
       maximumCanonicalCodePoints: defaultDetectorLimits.maximumCodePoints,
       maximumDetections: defaultDetectorLimits.maximumDetections
     }
@@ -63,19 +76,40 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   return manifest;
 }
 
+/** Capability snapshot retained by the current TXT/Markdown-only browser composition. */
+export function createTextOnlyCapabilityManifest(): CapabilityManifest {
+  const files = createCurrentCapabilityManifest();
+  const manifest: CapabilityManifest = {
+    ...files,
+    id: 'local-rules-text',
+    version: '0.1.0',
+    formats: files.formats.filter(({ id }) => id === 'text') as CapabilityManifest['formats'],
+    verificationProfiles: files.verificationProfiles.map((profile) => ({
+      ...profile,
+      formats: profile.formats.filter((format) => format === 'text')
+    })) as CapabilityManifest['verificationProfiles']
+  };
+  assertCapabilityManifest(manifest, 'cor_text_capabilities');
+  return manifest;
+}
+
 export function createOllamaHybridCapabilityManifest(
   detectorVersion: string = ollamaLocalCapabilityDescriptor.detector.version
 ): CapabilityManifest {
-  const rules = createCurrentCapabilityManifest();
+  const rules = createTextOnlyCapabilityManifest();
   const maximumInputBytes = ollamaExperimentalDefaultLimits.maximumInputBytes;
   const manifest: CapabilityManifest = {
     ...rules,
     id: 'local-hybrid-text',
     engineMode: 'LOCAL_HYBRID',
-    formats: rules.formats.map((format) => ({
+    formats: rules.formats.filter(({ id }) => id === 'text').map((format) => ({
       ...format,
       limits: { maximumInputBytes }
     })) as CapabilityManifest['formats'],
+    verificationProfiles: rules.verificationProfiles.map((profile) => ({
+      ...profile,
+      formats: profile.formats.filter((format) => format === 'text')
+    })) as CapabilityManifest['verificationProfiles'],
     detectors: [
       ...rules.detectors,
       {

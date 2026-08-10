@@ -70,7 +70,7 @@ export type CLIOperationReport = {
   writerReceipt?: WriterReceiptSummary;
   verification?: Verification;
   capability?: {
-    adapter: 'text';
+    adapter: 'text' | 'json';
     version: string;
     operations: ('SCAN' | 'REDACT' | 'VERIFY' | 'INSPECT')[];
   };
@@ -110,7 +110,7 @@ export type EntityType =
  */
 export interface ArtifactSummary {
   displayName?: string;
-  mediaType?: 'text/plain' | 'text/markdown';
+  mediaType?: 'text/plain' | 'text/markdown' | 'application/json';
   byteLength: number;
   digest: string;
   extractionRevision?: string;

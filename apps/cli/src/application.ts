@@ -1,5 +1,7 @@
 export {
   createExperimentalOllamaTextApplication,
+  jsonCapabilityRequirement,
+  localFileApplication,
   localTextApplication,
   textCapabilityRequirement,
   type ExperimentalOllamaApplicationOptions,
