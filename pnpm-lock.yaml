@@ -77,6 +77,9 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@local-pii/profile-local':
+        specifier: workspace:*
+        version: link:../../packages/profile-local
       fastify:
         specifier: ^5.11.3
         version: 5.11.3
@@ -101,6 +104,9 @@ importers:
       '@local-pii/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@local-pii/profile-local':
+        specifier: workspace:*
+        version: link:../../packages/profile-local
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:../../packages/provider-ollama
@@ -187,6 +193,30 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../domain
+
+  packages/profile-local:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/core':
+        specifier: workspace:*
+        version: link:../core
+      '@local-pii/detectors':
+        specifier: workspace:*
+        version: link:../detectors
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@local-pii/provider-ollama':
+        specifier: workspace:*
+        version: link:../provider-ollama
+      '@local-pii/redaction':
+        specifier: workspace:*
+        version: link:../redaction
+      '@local-pii/verification':
+        specifier: workspace:*
+        version: link:../verification
 
   packages/provider-ollama:
     dependencies:

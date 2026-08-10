@@ -19,8 +19,10 @@
   },
   "tests": {
     "apps/api/test/api.test.ts": ["unit", "contract", "integration", "security-privacy", "recovery"],
+    "apps/api/test/web-shell.test.ts": ["unit", "integration", "end-to-end", "security-privacy", "recovery"],
     "apps/web/test/api.test.ts": ["unit", "contract", "security-privacy"],
     "apps/web/test/application.test.tsx": ["unit", "integration", "accessibility", "localization"],
+    "apps/web/test/bootstrap.test.ts": ["unit", "integration", "security-privacy"],
     "apps/cli/test/cli.test.ts": ["end-to-end", "recovery", "security-privacy"],
     "apps/cli/test/skipped-canary-publication.test.ts": ["integration", "end-to-end", "format-conformance", "security-privacy"],
     "packages/adapter-text/test/adapter.test.ts": ["unit", "format-conformance", "recovery", "security-privacy"],

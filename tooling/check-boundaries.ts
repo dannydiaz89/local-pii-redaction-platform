@@ -13,6 +13,7 @@ type WorkspacePackage =
   | 'domain'
   | 'i18n'
   | 'policy'
+  | 'profile-local'
   | 'provider-ollama'
   | 'redaction'
   | 'span-resolution'
@@ -43,6 +44,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'domain',
   'i18n',
   'policy',
+  'profile-local',
   'provider-ollama',
   'redaction',
   'span-resolution',
@@ -63,6 +65,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   domain: [],
   i18n: [],
   policy: ['contracts', 'domain'],
+  'profile-local': ['adapter-text', 'core', 'detectors', 'domain', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],
@@ -78,6 +81,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   domain: [],
   i18n: [],
   policy: [],
+  'profile-local': [],
   'provider-ollama': [],
   redaction: ['detectors'],
   'span-resolution': ['detectors'],
@@ -94,12 +98,21 @@ const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
   'domain',
   'policy',
   'provider-ollama',
+  'profile-local',
   'redaction',
   'verification'
 ];
 const allowedCliRuntimeModules = new Set(['node:fs/promises', 'node:path']);
-const allowedApiWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'core', 'domain'];
-const allowedApiRuntimeModules = new Set(['fastify', 'node:crypto']);
+const allowedApiWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'core', 'domain', 'profile-local'];
+const allowedApiRuntimeModules = new Set([
+  'fastify',
+  'node:child_process',
+  'node:crypto',
+  'node:fs',
+  'node:fs/promises',
+  'node:path',
+  'node:url'
+]);
 const allowedWebWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'i18n', 'ui'];
 const allowedWebRuntimeModules = new Set(['react', 'react-dom/client']);
 const workspaceApplications = ['api', 'cli', 'web'] as const;

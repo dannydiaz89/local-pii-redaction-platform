@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../adapter-text" },
+    { "path": "../core" },
+    { "path": "../detectors" },
+    { "path": "../domain" },
+    { "path": "../provider-ollama" },
+    { "path": "../redaction" },
+    { "path": "../verification" }
+  ],
+  "include": ["src/**/*.ts"]
+}

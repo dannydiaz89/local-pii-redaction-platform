@@ -112,7 +112,16 @@ credentials, referrers, and caching, then projects only aggregate values from th
 response. Until the trusted local launcher injects that object, the standalone preview correctly
 shows a disconnected state; uploads and processing controls are intentionally absent.
 
+The development local launcher now provides that handoff on macOS and Linux. It builds the application,
+starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a
+non-secret, one-shot loopback URL. That response introduces a separate 256-bit bootstrap path, and
+only the matching one-time script serves the bearer. The launch page never contains the bearer; the
+web entry point removes its bootstrap object and script element immediately and replaces the visible
+launch URL. Browser responses enforce a same-origin CSP plus framing, permissions, referrer, opener,
+and resource-policy headers. The server does not print the bootstrap nonce or bearer.
+
 ```sh
+pnpm start:local
 pnpm --filter @local-pii/web dev
 pnpm --filter @local-pii/web build
 pnpm exec vitest run packages/i18n/test/i18n.test.ts \
@@ -234,6 +243,11 @@ output collisions.
   review workflow yet. The implemented web shell is limited to secured capability preflight and
   design-system/localization foundations; the HTTP surface remains the capability and health
   scaffold described above.
+- The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
+  launch and packaged-install path qualification remain open. The OS opener receives no secret in
+  its process arguments. The external-browser handoff does not defend against an adversarial local
+  process that discovers the loopback port and races the first one-shot launch request; closing that
+  gap requires a packaged webview or a private OS-mediated handoff.
 - This is development software and must not be treated as a compliance certification or a guarantee
   that a document contains no sensitive data.
 

@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/domain" },
     { "path": "packages/policy" },
+    { "path": "packages/profile-local" },
     { "path": "packages/detectors" },
     { "path": "packages/provider-ollama" },
     { "path": "packages/span-resolution" },

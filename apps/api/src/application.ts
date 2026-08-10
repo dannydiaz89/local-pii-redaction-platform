@@ -17,6 +17,12 @@ import {
 import type { ApplicationContext } from '@local-pii/core';
 import { SafeError } from '@local-pii/domain';
 
+import {
+  isLocalWebShellRoute,
+  registerLocalWebShell,
+  type LocalWebShellOptions
+} from './web-shell.js';
+
 export type CapabilityManifest = CapabilitiesCapabilityManifestContract.CapabilityManifest;
 type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope
   | CommonErrorsV2Contract.TypedErrorEnvelopeV2
@@ -45,6 +51,7 @@ export interface LocalSessionPolicy {
 export interface BuildApiOptions {
   readonly session: LocalSessionPolicy;
   readonly handlerTimeoutMs?: number;
+  readonly browserShell?: LocalWebShellOptions;
 }
 
 export const apiMaximumBodyBytes = 16 * 1024;
@@ -386,7 +393,9 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     if (!isNumericLoopbackAuthority(request.headers.host)) throw authorityFailure(request);
     const origin = request.headers.origin;
     if (origin !== undefined) {
-      if (!allowedOrigins.has(origin)) throw originFailure(request);
+      const sameBrowserShellOrigin = options.browserShell !== undefined
+        && origin === `http://${request.headers.host ?? ''}`;
+      if (!allowedOrigins.has(origin) && !sameBrowserShellOrigin) throw originFailure(request);
       setCorsHeaders(reply, origin);
     }
 
@@ -405,6 +414,7 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     // Health endpoints are intentionally secret-free probes. The numeric-loopback Host and
     // browser-origin boundary still applies, and readiness discloses only ready/not-ready.
     if (request.routeOptions.url === '/health/live' || request.routeOptions.url === '/health/ready') return;
+    if (options.browserShell !== undefined && isLocalWebShellRoute(request.routeOptions.url)) return;
     if (!tokenMatches(bearerToken(request.headers.authorization), options.session.bearerToken)) {
       throw authorizationFailure(request);
     }
@@ -437,6 +447,10 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     );
     return sendCanonical(reply, capabilitySchemaId, manifest);
   });
+
+  if (options.browserShell !== undefined) {
+    registerLocalWebShell(server, options.session.bearerToken, options.browserShell);
+  }
 
   return server;
 }

@@ -101,6 +101,7 @@ describe('boundary checker', () => {
         '@local-pii/contracts': 'workspace:*',
         '@local-pii/core': 'workspace:*',
         '@local-pii/domain': 'workspace:*',
+        '@local-pii/profile-local': 'workspace:*',
         '@local-pii/detectors': 'workspace:*',
         fastify: '^5.11.3',
         redis: '^5.0.0'
@@ -108,7 +109,7 @@ describe('boundary checker', () => {
     });
 
     expect(violations.map(({ message }) => message)).toEqual([
-      'API workspace runtime dependencies must be exactly: contracts, core, domain',
+      'API workspace runtime dependencies must be exactly: contracts, core, domain, profile-local',
       'API external runtime dependencies must be exactly: fastify'
     ]);
   });

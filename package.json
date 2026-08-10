@@ -24,6 +24,7 @@
     "python:check": ".venv/bin/ruff check services/inference-python && .venv/bin/pytest",
     "privacy:check": "node --import tsx tooling/check-privacy-canaries.ts",
     "privacy:scan": "node --import tsx tooling/check-privacy-canaries.ts",
+    "start:local": "pnpm build && node apps/api/dist/main.js",
     "ephemeral:syscall:check": "pnpm build && node --import tsx tooling/check-linux-syscall-gate.ts",
     "ephemeral:filesystem-failure:check": "pnpm build && node --import tsx tooling/check-linux-filesystem-failure-gate.ts",
     "ephemeral:resource:check": "pnpm build && node --import tsx tooling/check-linux-resource-profile-gate.ts",

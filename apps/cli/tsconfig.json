@@ -11,6 +11,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/detectors" },
     { "path": "../../packages/policy" },
+    { "path": "../../packages/profile-local" },
     { "path": "../../packages/provider-ollama" },
     { "path": "../../packages/span-resolution" },
     { "path": "../../packages/redaction" },
