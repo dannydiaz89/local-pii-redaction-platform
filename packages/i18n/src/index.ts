@@ -20,6 +20,11 @@ export interface MessageParameters {
   readonly 'preview.confidence': { readonly percent: string };
   readonly 'preview.sources': { readonly sources: string };
   readonly 'preview.detailsLimited': { readonly count: string };
+  readonly 'preview.position': { readonly current: string; readonly total: string };
+  readonly 'preview.conflictLocation': { readonly start: string; readonly end: string };
+  readonly 'preview.conflictTypes': { readonly types: string };
+  readonly 'preview.conflictSources': { readonly sources: string };
+  readonly 'preview.conflictsLimited': { readonly count: string };
 }
 
 type ParameterizedMessageId = keyof MessageParameters;

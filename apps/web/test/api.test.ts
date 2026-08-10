@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  localPreviewMaximumConflictDetails,
   localPreviewMaximumDetectionDetails,
   localPreviewMaximumInputBytes
 } from '@local-pii/contracts';
@@ -8,6 +9,7 @@ import {
 import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
 import { createLocalJobClient, projectPolicyCatalog, projectPreviewScan } from '../src/job-api.js';
 import {
+  webPreviewMaximumConflictDetails,
   webPreviewMaximumDetectionDetails,
   webPreviewMaximumInputBytes
 } from '../src/preview-limit.js';
@@ -142,6 +144,7 @@ describe('browser policy and job client', () => {
   it('keeps the browser preview ceiling aligned with the canonical API contract', () => {
     expect(webPreviewMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
     expect(webPreviewMaximumDetectionDetails).toBe(localPreviewMaximumDetectionDetails);
+    expect(webPreviewMaximumConflictDetails).toBe(localPreviewMaximumConflictDetails);
   });
 
   it('projects a closed policy catalog without presentation copy', () => {
@@ -159,13 +162,15 @@ describe('browser policy and job client', () => {
 
   it('rejects inconsistent or content-bearing preview review responses', () => {
     const valid = {
-      schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+      schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
       counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
       detections: [{
         entityType: 'EMAIL', start: 5, end: 12, offsetUnit: 'UNICODE_CODE_POINT',
         confidence: 0.99, sources: ['REGEX']
       }],
-      detailsLimited: false
+      detailsLimited: false,
+      conflicts: [],
+      conflictDetailsLimited: false
     };
     expect(projectPreviewScan(valid)).toMatchObject({ details: [{ start: 5, end: 12 }] });
     expect(() => projectPreviewScan({
@@ -177,6 +182,15 @@ describe('browser policy and job client', () => {
       ...valid,
       detections: [{ ...valid.detections[0], start: 12, end: 5 }]
     })).toThrow('PREVIEW_RESPONSE_INVALID');
+    expect(() => projectPreviewScan({
+      ...valid,
+      outcome: 'NEEDS_REVIEW',
+      counts: { ...valid.counts, conflicts: 1 },
+      conflicts: [{
+        code: 'INCOMPATIBLE_OVERLAP', start: 5, end: 12, offsetUnit: 'UNICODE_CODE_POINT',
+        entityTypes: ['EMAIL', 'USERNAME'], sources: ['REGEX'], matchedValue: 'synthetic@example.test'
+      }]
+    })).toThrow('PREVIEW_RESPONSE_INVALID');
   });
 
   it('uses a bounded metadata-only request matrix for jobs and events', async () => {
@@ -185,13 +199,15 @@ describe('browser policy and job client', () => {
       if (url.pathname === '/v1/policies') return Promise.resolve(jsonResponse(policyResponse()));
       if (url.pathname === '/v1/preview/review') {
         return Promise.resolve(jsonResponse({
-          schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+          schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
           counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
           detections: [{
             entityType: 'EMAIL', start: 5, end: 12, offsetUnit: 'UNICODE_CODE_POINT',
             confidence: 0.99, sources: ['REGEX']
           }],
-          detailsLimited: false
+          detailsLimited: false,
+          conflicts: [],
+          conflictDetailsLimited: false
         }));
       }
       if (url.pathname.endsWith('/events')) {
@@ -216,7 +232,7 @@ describe('browser policy and job client', () => {
     await expect(client.scanPreview(previewFile, signal)).resolves.toEqual({
       outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
       details: [{ entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] }],
-      detailsLimited: false
+      detailsLimited: false, conflictDetails: [], conflictDetailsLimited: false
     });
     await expect(client.create('SCAN', policy, '603df129-c778-4b13-8b2a-0fe745593c8f', signal)).resolves.toMatchObject({
       id: jobId, state: 'QUEUED'

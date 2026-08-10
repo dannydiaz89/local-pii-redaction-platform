@@ -9,8 +9,8 @@ Canonical, language-neutral data contracts for every process and package boundar
 - Provides strict AJV validation and semantic capability checks.
 - Computes canonical writer-receipt and verification-attestation digests.
 - Drives the shared TypeScript/Python valid and invalid fixture corpus.
-- Publishes shared conservative byte and value-free detection-detail ceilings for the ephemeral
-  local preview boundary.
+- Publishes shared conservative byte, value-free detection-detail, and value-free conflict-detail
+  ceilings for the ephemeral local preview boundary.
 
 ## Boundary
 

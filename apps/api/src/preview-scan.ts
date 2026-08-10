@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 
 import {
+  localPreviewMaximumConflictDetails,
   localPreviewMaximumDetectionDetails,
-  type JobsPreviewReviewReportContract,
+  type JobsPreviewReviewReportV2Contract,
   type JobsPreviewScanReportContract
 } from '@local-pii/contracts';
 import type { ApplicationContext, TextArtifact, TextProcessingApplication } from '@local-pii/core';
@@ -11,7 +12,7 @@ import { textCapabilityRequirement } from '@local-pii/profile-local';
 
 export type PreviewFormat = 'text' | 'markdown';
 export type PreviewScanReport = Readonly<JobsPreviewScanReportContract.EphemeralPreviewScanReport>;
-export type PreviewReviewReport = Readonly<JobsPreviewReviewReportContract.EphemeralPreviewReviewReport>;
+export type PreviewReviewReport = Readonly<JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2>;
 
 export interface PreviewScanPort {
   scan(
@@ -116,11 +117,43 @@ export function createLocalPreviewScan(application: TextProcessingApplication): 
             end: span.end,
             offsetUnit: 'UNICODE_CODE_POINT' as const,
             confidence: span.confidence,
-            sources: Object.freeze(sources) as JobsPreviewReviewReportContract.EphemeralPreviewReviewReport['detections'][number]['sources']
+            sources: Object.freeze(sources) as JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['detections'][number]['sources']
+          });
+        });
+      const conflicts = result.resolution.conflicts
+        .slice(0, localPreviewMaximumConflictDetails)
+        .map((conflict) => {
+          const evidence = conflict.evidenceIds.map((id) => evidenceById.get(id));
+          if (evidence.some((item) => item === undefined)) {
+            throw new SafeError({
+              code: 'INTERNAL_ERROR',
+              message: 'The preview conflict evidence could not be reconciled.',
+              retryable: false,
+              correlationId: context.correlationId
+            });
+          }
+          const reconciled = evidence.filter((item) => item !== undefined);
+          const entityTypes = [...new Set(reconciled.map(({ entityType }) => entityType))].sort();
+          const sources = [...new Set(reconciled.map(({ source }) => source))].sort();
+          if (entityTypes.length === 0 || sources.length === 0) {
+            throw new SafeError({
+              code: 'INTERNAL_ERROR',
+              message: 'The preview conflict evidence could not be reconciled.',
+              retryable: false,
+              correlationId: context.correlationId
+            });
+          }
+          return Object.freeze({
+            code: conflict.code,
+            start: conflict.start,
+            end: conflict.end,
+            offsetUnit: 'UNICODE_CODE_POINT' as const,
+            entityTypes: Object.freeze(entityTypes) as JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['conflicts'][number]['entityTypes'],
+            sources: Object.freeze(sources) as JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['conflicts'][number]['sources']
           });
         });
       return Object.freeze({
-        schemaVersion: '1.0.0',
+        schemaVersion: '2.0.0',
         operation: 'SCAN',
         outcome: result.outcome,
         counts: Object.freeze({
@@ -129,7 +162,9 @@ export function createLocalPreviewScan(application: TextProcessingApplication): 
           byEntity: entityCounts(result.resolution.spans.map(({ entityType }) => entityType))
         }),
         detections,
-        detailsLimited: result.resolution.spans.length > localPreviewMaximumDetectionDetails
+        detailsLimited: result.resolution.spans.length > localPreviewMaximumDetectionDetails,
+        conflicts,
+        conflictDetailsLimited: result.resolution.conflicts.length > localPreviewMaximumConflictDetails
       });
     }
   };

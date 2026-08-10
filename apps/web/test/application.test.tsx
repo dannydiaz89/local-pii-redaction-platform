@@ -44,7 +44,7 @@ function readyJobClient(): LocalJobClient {
     scanPreview: () => Promise.resolve({
       outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
       details: [{ entityType: 'EMAIL', start: 19, end: 46, confidence: 0.99, sources: ['REGEX'] }],
-      detailsLimited: false
+      detailsLimited: false, conflictDetails: [], conflictDetailsLimited: false
     }),
     create: unavailable,
     get: unavailable,
@@ -99,12 +99,15 @@ describe('web application foundation', () => {
     expect(screen.getByText('Characters 20–46')).toBeTruthy();
     expect(screen.getByText('Detector confidence: 99%')).toBeTruthy();
     expect(screen.getByText('Evidence source: pattern rule')).toBeTruthy();
+    expect(screen.getByText('Detection 1 of 1')).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous detection' }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Next detection' }).disabled).toBe(true);
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
-  it('filters value-free detection locations with a native control', async () => {
+  it('navigates value-free detections by keyboard and resets the native category filter', async () => {
     const user = userEvent.setup();
     const jobs: LocalJobClient = {
       ...readyJobClient(),
@@ -114,7 +117,7 @@ describe('web application foundation', () => {
           { entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] },
           { entityType: 'PHONE', start: 20, end: 30, confidence: 0.96, sources: ['REGEX'] }
         ],
-        detailsLimited: false
+        detailsLimited: false, conflictDetails: [], conflictDetailsLimited: false
       })
     };
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
@@ -122,11 +125,55 @@ describe('web application foundation', () => {
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
     await screen.findByText('Characters 6–12');
+    expect(screen.queryByText('Characters 21–30')).toBeNull();
+    expect(screen.getByText('Detection 1 of 2')).toBeTruthy();
+
+    const next = screen.getByRole<HTMLButtonElement>('button', { name: 'Next detection' });
+    next.focus();
+    await user.keyboard('{Enter}');
     expect(screen.getByText('Characters 21–30')).toBeTruthy();
+    expect(screen.queryByText('Characters 6–12')).toBeNull();
+    expect(screen.getByText('Detection 2 of 2')).toBeTruthy();
+    expect(next.disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous detection' }).disabled).toBe(false);
 
     await user.selectOptions(screen.getByLabelText('Filter detections'), 'EMAIL');
     expect(screen.getByText('Characters 6–12')).toBeTruthy();
     expect(screen.queryByText('Characters 21–30')).toBeNull();
+    expect(screen.getByText('Detection 1 of 1')).toBeTruthy();
+  });
+
+  it('renders conflict locations and evidence without returning the planted value', async () => {
+    const user = userEvent.setup();
+    const plantedValue = '+378282246310005';
+    const jobs: LocalJobClient = {
+      ...readyJobClient(),
+      scanPreview: () => Promise.resolve({
+        outcome: 'NEEDS_REVIEW', detections: 1, conflicts: 1, byEntity: { PHONE: 1 },
+        details: [{ entityType: 'PHONE', start: 29, end: 45, confidence: 0.86, sources: ['REGEX'] }],
+        detailsLimited: false,
+        conflictDetails: [{
+          code: 'INCOMPATIBLE_OVERLAP', start: 29, end: 45,
+          entityTypes: ['CREDIT_CARD', 'PHONE'], sources: ['CHECKSUM', 'REGEX']
+        }],
+        conflictDetailsLimited: false
+      })
+    };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(
+      screen.getByLabelText('Document file'),
+      new File([`Synthetic card-like contact: ${plantedValue}`], 'synthetic.txt')
+    );
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+
+    expect(await screen.findByRole('heading', { level: 3, name: 'Conflicts requiring review' })).toBeTruthy();
+    expect(screen.getByText('No automatic decision was made for these overlapping detections.')).toBeTruthy();
+    expect(screen.getByText('Overlapping characters 30–45')).toBeTruthy();
+    expect(screen.getByText('Possible categories: Payment cards and Phone numbers')).toBeTruthy();
+    expect(screen.getByText('Conflicting evidence: checksum and pattern rule')).toBeTruthy();
+    expect(container.textContent).not.toContain(plantedValue);
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
   it('rejects unsupported and oversized selections using privacy-safe local messages', async () => {

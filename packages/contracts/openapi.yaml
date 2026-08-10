@@ -73,7 +73,7 @@ paths:
   /v1/preview/review:
     post:
       operationId: reviewEphemeralPreview
-      description: Authenticated process-local rules scan returning bounded value-free locations and confidence evidence.
+      description: Authenticated process-local rules scan returning bounded value-free detection and conflict locations.
       parameters:
         - name: format
           in: query
@@ -86,11 +86,11 @@ paths:
             schema: { type: string, contentMediaType: application/octet-stream }
       responses:
         "200":
-          description: Bounded value-free detection review result
+          description: Bounded value-free detection and conflict review result
           content:
             application/json:
               schema:
-                $ref: "./schemas/jobs/preview-review-report.schema.json"
+                $ref: "./schemas/jobs/preview-review-report-v2.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId

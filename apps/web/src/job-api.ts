@@ -2,7 +2,7 @@ import type {
   CommonEntityTypeContract,
   JobsJobContract,
   JobsJobEventPageContract,
-  JobsPreviewReviewReportContract,
+  JobsPreviewReviewReportV2Contract,
   JobsPreviewScanReportContract
 } from '@local-pii/contracts';
 
@@ -13,6 +13,7 @@ import {
   type LocalApiSession
 } from './api.js';
 import {
+  webPreviewMaximumConflictDetails,
   webPreviewMaximumDetectionDetails,
   webPreviewMaximumInputBytes
 } from './preview-limit.js';
@@ -22,7 +23,7 @@ export type JobState = JobsJobContract.Job['state'];
 export type JobEventType = JobsJobEventPageContract.JobEvent['type'];
 export type PreviewEntityType = CommonEntityTypeContract.EntityType;
 export type PreviewOutcome = JobsPreviewScanReportContract.EphemeralPreviewScanReport['outcome'];
-export type PreviewDetectionSource = JobsPreviewReviewReportContract.EphemeralPreviewReviewReport['detections'][number]['sources'][number];
+export type PreviewDetectionSource = JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['detections'][number]['sources'][number];
 
 export interface PolicyReference {
   readonly id: string;
@@ -69,6 +70,8 @@ export interface PreviewScanSummary {
   readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;
   readonly details: readonly PreviewDetectionSummary[];
   readonly detailsLimited: boolean;
+  readonly conflictDetails: readonly PreviewConflictSummary[];
+  readonly conflictDetailsLimited: boolean;
 }
 
 export interface PreviewDetectionSummary {
@@ -76,6 +79,14 @@ export interface PreviewDetectionSummary {
   readonly start: number;
   readonly end: number;
   readonly confidence: number;
+  readonly sources: readonly PreviewDetectionSource[];
+}
+
+export interface PreviewConflictSummary {
+  readonly code: 'INCOMPATIBLE_OVERLAP';
+  readonly start: number;
+  readonly end: number;
+  readonly entityTypes: readonly PreviewEntityType[];
   readonly sources: readonly PreviewDetectionSource[];
 }
 
@@ -187,8 +198,11 @@ export function projectPolicyCatalog(value: unknown): PolicyCatalogSummary {
 
 export function projectPreviewScan(value: unknown): PreviewScanSummary {
   if (!isRecord(value)
-    || !hasOnlyKeys(value, ['schemaVersion', 'operation', 'outcome', 'counts', 'detections', 'detailsLimited'])
-    || value.schemaVersion !== '1.0.0'
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'operation', 'outcome', 'counts', 'detections', 'detailsLimited',
+      'conflicts', 'conflictDetailsLimited'
+    ])
+    || value.schemaVersion !== '2.0.0'
     || value.operation !== 'SCAN'
     || (value.outcome !== 'SUCCEEDED' && value.outcome !== 'NEEDS_REVIEW')
     || !isRecord(value.counts)
@@ -199,7 +213,10 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
     || Object.keys(value.counts.byEntity).length > entityTypes.size
     || !Array.isArray(value.detections)
     || value.detections.length > webPreviewMaximumDetectionDetails
-    || typeof value.detailsLimited !== 'boolean') {
+    || typeof value.detailsLimited !== 'boolean'
+    || !Array.isArray(value.conflicts)
+    || value.conflicts.length > webPreviewMaximumConflictDetails
+    || typeof value.conflictDetailsLimited !== 'boolean') {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
   const byEntity: Partial<Record<PreviewEntityType, number>> = {};
@@ -253,13 +270,54 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
       throw new Error('PREVIEW_RESPONSE_INVALID');
     }
   }
+  const conflictDetails = value.conflicts.map((item): PreviewConflictSummary => {
+    if (!isRecord(item)
+      || !hasOnlyKeys(item, ['code', 'start', 'end', 'offsetUnit', 'entityTypes', 'sources'])
+      || item.code !== 'INCOMPATIBLE_OVERLAP'
+      || !safeInteger(item.start, 0, 10_000_000)
+      || !safeInteger(item.end, 1, 10_000_000)
+      || item.start >= item.end
+      || item.offsetUnit !== 'UNICODE_CODE_POINT'
+      || !Array.isArray(item.entityTypes) || item.entityTypes.length < 1 || item.entityTypes.length > entityTypes.size
+      || item.entityTypes.some((entityType) => typeof entityType !== 'string'
+        || !entityTypes.has(entityType as PreviewEntityType))
+      || new Set(item.entityTypes).size !== item.entityTypes.length
+      || !Array.isArray(item.sources) || item.sources.length < 1 || item.sources.length > detectionSources.size
+      || item.sources.some((source) => typeof source !== 'string'
+        || !detectionSources.has(source as PreviewDetectionSource))
+      || new Set(item.sources).size !== item.sources.length) {
+      throw new Error('PREVIEW_RESPONSE_INVALID');
+    }
+    return Object.freeze({
+      code: item.code,
+      start: item.start,
+      end: item.end,
+      entityTypes: Object.freeze(item.entityTypes as PreviewEntityType[]),
+      sources: Object.freeze(item.sources as PreviewDetectionSource[])
+    });
+  });
+  if (conflictDetails.length !== Math.min(value.counts.conflicts, webPreviewMaximumConflictDetails)
+    || value.conflictDetailsLimited !== (value.counts.conflicts > webPreviewMaximumConflictDetails)) {
+    throw new Error('PREVIEW_RESPONSE_INVALID');
+  }
+  for (let index = 1; index < conflictDetails.length; index += 1) {
+    const prior = conflictDetails[index - 1];
+    const current = conflictDetails[index];
+    if (prior === undefined || current === undefined
+      || prior.start > current.start
+      || (prior.start === current.start && prior.end > current.end)) {
+      throw new Error('PREVIEW_RESPONSE_INVALID');
+    }
+  }
   return Object.freeze({
     outcome: value.outcome,
     detections: value.counts.detections,
     conflicts: value.counts.conflicts,
     byEntity: Object.freeze(byEntity),
     details: Object.freeze(details),
-    detailsLimited: value.detailsLimited
+    detailsLimited: value.detailsLimited,
+    conflictDetails: Object.freeze(conflictDetails),
+    conflictDetailsLimited: value.conflictDetailsLimited
   });
 }
 

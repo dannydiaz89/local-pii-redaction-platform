@@ -83,7 +83,7 @@ const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
 const previewScanSchemaId = 'https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0';
-const previewReviewSchemaId = 'https://local-pii.dev/schemas/jobs/preview-review-report/1.0.0';
+const previewReviewSchemaId = 'https://local-pii.dev/schemas/jobs/preview-review-report/2.0.0';
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -586,7 +586,7 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       }, signal)
     );
     return sendCanonical(reply, previewScanSchemaId, {
-      schemaVersion: report.schemaVersion,
+      schemaVersion: '1.0.0',
       operation: report.operation,
       outcome: report.outcome,
       counts: report.counts

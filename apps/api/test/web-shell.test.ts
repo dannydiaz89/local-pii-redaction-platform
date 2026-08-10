@@ -47,9 +47,9 @@ function dependencies(): ApiDependencies {
     },
     preview: {
       scan: () => Promise.resolve({
-        schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+        schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
         counts: { detections: 0, conflicts: 0, byEntity: {} },
-        detections: [], detailsLimited: false
+        detections: [], detailsLimited: false, conflicts: [], conflictDetailsLimited: false
       })
     },
     readiness: { check: () => Promise.resolve() }

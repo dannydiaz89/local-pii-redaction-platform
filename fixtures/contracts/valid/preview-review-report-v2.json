@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "2.0.0",
+  "operation": "SCAN",
+  "outcome": "NEEDS_REVIEW",
+  "counts": { "detections": 1, "conflicts": 1, "byEntity": { "EMAIL": 1 } },
+  "detections": [{
+    "entityType": "EMAIL",
+    "start": 8,
+    "end": 25,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "confidence": 0.99,
+    "sources": ["REGEX"]
+  }],
+  "detailsLimited": false,
+  "conflicts": [{
+    "code": "INCOMPATIBLE_OVERLAP",
+    "start": 8,
+    "end": 25,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "entityTypes": ["EMAIL", "USERNAME"],
+    "sources": ["REGEX", "MODEL"]
+  }],
+  "conflictDetailsLimited": false
+}

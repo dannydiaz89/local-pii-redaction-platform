@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "2.0.0",
+  "operation": "SCAN",
+  "outcome": "NEEDS_REVIEW",
+  "counts": { "detections": 0, "conflicts": 1, "byEntity": {} },
+  "detections": [],
+  "detailsLimited": false,
+  "conflicts": [{
+    "code": "INCOMPATIBLE_OVERLAP",
+    "start": 8,
+    "end": 25,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "entityTypes": ["EMAIL", "USERNAME"],
+    "sources": ["REGEX", "MODEL"],
+    "matchedValue": "synthetic@example.test"
+  }],
+  "conflictDetailsLimited": false
+}

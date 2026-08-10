@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  localPreviewMaximumConflictDetails,
   localPreviewMaximumDetectionDetails,
   localPreviewMaximumInputBytes,
   validateContract
@@ -64,9 +65,9 @@ function dependencies(overrides: Partial<ApiDependencies> = {}): ApiDependencies
     policies: { get: () => Promise.resolve(policyCatalog()) },
     preview: {
       scan: () => Promise.resolve({
-        schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+        schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
         counts: { detections: 0, conflicts: 0, byEntity: {} },
-        detections: [], detailsLimited: false
+        detections: [], detailsLimited: false, conflicts: [], conflictDetailsLimited: false
       })
     },
     readiness: { check: () => Promise.resolve() },
@@ -270,16 +271,43 @@ describe('local API composition', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+      schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
       counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
       detections: [{
         entityType: 'EMAIL', start: 19, end: 46, offsetUnit: 'UNICODE_CODE_POINT',
         confidence: 0.99, sources: ['REGEX']
       }],
-      detailsLimited: false
+      detailsLimited: false,
+      conflicts: [],
+      conflictDetailsLimited: false
     });
     expect(response.body).not.toContain(plantedValue);
     expect(response.body).not.toMatch(/displayName|digest|path|reference|matchedValue|text/iu);
+  });
+
+  it('returns bounded value-free conflict evidence from the real resolver', async () => {
+    const plantedValue = '+378282246310005';
+    const response = await server(dependencies({
+      preview: createLocalPreviewScan(localTextApplication)
+    })).inject({
+      method: 'POST',
+      url: '/v1/preview/review?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from(`Synthetic card-like contact: ${plantedValue}`, 'utf8')
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'NEEDS_REVIEW',
+      counts: { detections: 1, conflicts: 1, byEntity: { CREDIT_CARD: 1 } },
+      conflicts: [{
+        code: 'INCOMPATIBLE_OVERLAP', offsetUnit: 'UNICODE_CODE_POINT',
+        entityTypes: ['CREDIT_CARD', 'PHONE'], sources: ['CHECKSUM', 'REGEX']
+      }],
+      conflictDetailsLimited: false
+    });
+    expect(response.body).not.toContain(plantedValue);
+    expect(response.body).not.toMatch(/evidenceIds|matchedValue|displayName|digest|path|reference|text/iu);
   });
 
   it('limits ephemeral detection detail rows without changing aggregate counts', async () => {
@@ -306,6 +334,32 @@ describe('local API composition', () => {
     expect(body.detections).toHaveLength(localPreviewMaximumDetectionDetails);
     expect(body.detailsLimited).toBe(true);
     expect(plantedValues.every((value) => !response.body.includes(value))).toBe(true);
+  });
+
+  it('limits conflict detail rows without changing resolver aggregate counts', async () => {
+    const repeated = Array.from(
+      { length: localPreviewMaximumConflictDetails + 1 },
+      (_, index) => `Entry ${String(index)}: +378282246310005`
+    ).join('\n');
+    const response = await server(dependencies({
+      preview: createLocalPreviewScan(localTextApplication)
+    })).inject({
+      method: 'POST',
+      url: '/v1/preview/review?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from(repeated, 'utf8')
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      readonly counts: { readonly conflicts: number };
+      readonly conflicts: readonly unknown[];
+      readonly conflictDetailsLimited: boolean;
+    }>();
+    expect(body.counts.conflicts).toBe(localPreviewMaximumConflictDetails + 1);
+    expect(body.conflicts).toHaveLength(localPreviewMaximumConflictDetails);
+    expect(body.conflictDetailsLimited).toBe(true);
+    expect(response.body).not.toContain('+378282246310005');
   });
 
   it('rejects malformed and over-limit preview bodies with canonical safe errors', async () => {
@@ -337,9 +391,9 @@ describe('local API composition', () => {
         markStarted?.();
         finishScan = () => {
           resolve({
-            schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+            schemaVersion: '2.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
             counts: { detections: 0, conflicts: 0, byEntity: {} },
-            detections: [], detailsLimited: false
+            detections: [], detailsLimited: false, conflicts: [], conflictDetailsLimited: false
           });
         };
       })

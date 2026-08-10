@@ -95,8 +95,10 @@ IDs, versions, digests, risk tiers, and example status; presentation copy stays 
 Authenticated `POST /v1/preview/scan` accepts at most 8 MiB of raw TXT/Markdown bytes for a
 process-local rules scan and returns only detection/conflict/category counts. It creates no artifact
 or job record and never returns filenames, document values, offsets, or source digests. The additive
-`POST /v1/preview/review` route returns at most 100 value-free detection rows containing only entity
-type, Unicode code-point offsets, detector confidence, and bounded evidence-source enums; the
+`POST /v1/preview/review` route returns at most 100 value-free detection rows and 100 value-free
+conflict rows. Detection rows contain only entity type, Unicode code-point offsets, detector
+confidence, and bounded evidence-source enums. Conflict rows contain only the overlapping range,
+possible entity types, and source enums; evidence IDs and matched values remain server-side. The
 aggregate endpoint remains available for clients that do not need locations.
 Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
@@ -128,9 +130,10 @@ the metadata-only job create/status/events/cancellation request boundary; the sh
 localized default-policy name and does not invoke durable job actions yet. Once connected, the
 document intake admits TXT/Markdown files up to 8 MiB and can send their raw bytes to the
 authenticated same-origin loopback endpoint for an ephemeral rules-only scan. The UI displays only
-localized aggregate counts plus a filterable list of at most 100 value-free locations, confidence
-scores, and evidence sources. It retains nothing in browser persistence and sends no filename or
-matched value back in the response. Until the
+localized aggregate counts plus a filterable view of at most 100 value-free detection locations,
+confidence scores, evidence sources, and at most 100 unresolved conflict locations. Native
+Previous/Next buttons expose one detection at a time and are covered by a keyboard interaction
+test. It retains nothing in browser persistence and sends no filename or matched value back in the response. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
 state. Durable upload, review, redaction, and download remain intentionally absent.
 

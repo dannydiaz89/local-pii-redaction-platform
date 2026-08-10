@@ -60,8 +60,18 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-filter label { font-size: .85rem; font-weight: 750; }
 .preview-filter select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .75rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
 .preview-detections { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.preview-detections li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); gap: var(--space-2) var(--space-4); border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-2); }
+.preview-detections li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); gap: var(--space-2) var(--space-4); border: 2px solid var(--color-accent); border-radius: .5rem; padding: var(--space-3); background: var(--color-surface); }
 .preview-detections span { color: var(--color-muted); }
+.preview-current { font-weight: 750; }
+.preview-navigation { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.preview-navigation p { margin: 0; font-weight: 750; }
+.preview-navigation-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.preview-conflicts { display: grid; gap: var(--space-3); margin-block-start: var(--space-5); }
+.preview-conflicts h3, .preview-conflicts p { margin: 0; }
+.preview-conflicts ol { display: grid; gap: var(--space-2); margin: 0; padding-inline-start: 1.5rem; }
+.preview-conflicts li { padding-inline-start: var(--space-1); }
+.preview-conflicts li > * { display: block; margin-block-end: var(--space-1); }
+.preview-conflict-warning { font-weight: 750; }
 .preview-details-privacy { margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
@@ -76,6 +86,7 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
   .metrics { grid-template-columns: 1fr; }
   .card-heading { align-items: flex-start; flex-direction: column; }
   .preview-review-heading { align-items: stretch; flex-direction: column; }
+  .preview-navigation { align-items: stretch; flex-direction: column; }
   .preview-detections li { grid-template-columns: 1fr; }
 }
 
