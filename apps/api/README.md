@@ -27,8 +27,20 @@ storage. Detection/conflict locations never include matched values, excerpts, or
 external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.
 
-The unlistened server factory is in `src/application.ts`; lifecycle and binding are in
-`src/server.ts`; `src/main.ts` is the runnable local entry point.
+## Source layout
+
+- `src/application.ts` is the unlistened Fastify composition root. It owns session validation,
+  loopback/origin authorization, server-wide security hooks, lifecycle cancellation, and route
+  assembly.
+- `src/api-types.ts` defines the injected application ports and public composition options.
+- `src/contract-ids.ts` is the single registry for canonical response and request schema IDs.
+- `src/http-boundary.ts` owns privacy-safe error mapping, canonical validation, bounded invocation,
+  and strict parameter/query/header parsing shared by routes.
+- `src/routes/` groups system, artifact, preview, and job endpoints by concern.
+- `src/server.ts` owns lifecycle and numeric-loopback binding; `src/main.ts` is the runnable local
+  entry point.
+- `src/processing.ts`, `src/job-control.ts`, and `src/preview-scan.ts` implement the current
+  process-local application ports; route modules do not contain those implementations.
 
 ## Development
 
