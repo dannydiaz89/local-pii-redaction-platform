@@ -140,7 +140,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [redaction, setRedaction] = useState<RedactionState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const previewController = useRef<AbortController | undefined>(undefined);
-  const downloadedOutputId = useRef<string | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
   const downloadUrl = useMemo(() => redaction.kind === 'complete'
@@ -192,20 +191,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   useEffect(() => () => {
     if (redaction.kind === 'complete') redaction.summary.output.bytes.fill(0);
   }, [redaction]);
-  useEffect(() => {
-    if (redaction.kind !== 'complete'
-      || downloadUrl === undefined
-      || downloadedOutputId.current === redaction.summary.output.id) return;
-    downloadedOutputId.current = redaction.summary.output.id;
-    const download = document.createElement('a');
-    download.href = downloadUrl;
-    download.download = redaction.summary.output.displayName;
-    download.hidden = true;
-    download.setAttribute('aria-hidden', 'true');
-    document.body.append(download);
-    download.click();
-    download.remove();
-  }, [downloadUrl, redaction]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')

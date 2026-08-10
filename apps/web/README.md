@@ -9,8 +9,8 @@ Accessible, localized React shell for the future local review workflow.
   state/events, cancellation, and value-free detection pagination.
 - Runs the authenticated rules-only job and renders localized status, aggregate counts, a bounded
   filterable native detection table, server-owned page controls, and a native conflict table.
-- Creates and verifies a session-only redacted copy through the real shared application core, then
-  starts a generic authenticated download without changing the selected source file.
+- Creates and verifies a session-only redacted copy through the real shared application core, shows
+  its bounded preview, then offers a generic authenticated download without changing the source.
 - Renders only the first 4,096 Unicode code points of the verified output as escaped plain text;
   document markup is never executed and the complete downloaded file remains the final output.
 - Keeps wide result tables keyboard-scrollable on narrow viewports.
@@ -29,9 +29,9 @@ Artifact/job metadata and value-free results disappear when the application clos
 to 100 detection rows exposes only category, one-based Unicode code-point location,
 detector confidence, and evidence-source labels. Up to 100 conflict rows expose only range,
 possible categories, and source labels; matched values and evidence IDs are not returned or
-rendered. After a conflict-free scan, one action creates, verifies, and downloads a redacted copy;
-a download-again link remains available if the browser blocks or the user needs another copy. A
-bounded, keyboard-scrollable plain-text preview shows at most 4,096 Unicode code points. It may
+rendered. After a conflict-free scan, one action creates and verifies a redacted copy, then shows a
+bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code points. The user
+explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the
 current application launch. The application does not provide durable resume/history, editable

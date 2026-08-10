@@ -149,14 +149,14 @@ native, filterable detection table with server-owned 100-row page controls. Up t
 conflict locations remain visible in a separate native table. Wide tables remain
 keyboard-scrollable at narrow viewports. For a conflict-free completed scan, the UI can start a
 second process-local job that applies the selected pinned policy, reopens and verifies the derived
-bytes, and starts a generic download only after the server reaches `VERIFIED`. The original file
-remains unchanged. The same action shows an escaped plain-text preview bounded to the first 4,096
-Unicode code points, with a clear link to download again. Because the preview is derived document
-content, it may contain sensitive values a detector missed; it is not a declaration that the file is
-safe. The browser uses a temporary Blob URL for the current page and the server retains the output
-only for the current application launch. It retains nothing in browser persistence and sends no
-filename or matched value back in JSON responses. This is session-only processing, not the durable
-review store. Until the
+bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original
+file remains unchanged. The preview is bounded to the first 4,096 Unicode code points, and the user
+explicitly downloads the complete output afterward through a generic link. Because the preview is
+derived document content, it may contain sensitive values a detector missed; it is not a declaration
+that the file is safe. The browser uses a temporary Blob URL for the current page and the server
+retains the output only for the current application launch. It retains nothing in browser
+persistence and sends no filename or matched value back in JSON responses. This is session-only
+processing, not the durable review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
 state. Editable review decisions, durable resume/history, retained reports, and lifecycle deletion
 controls remain intentionally absent.

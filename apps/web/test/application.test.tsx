@@ -168,7 +168,7 @@ describe('web application foundation', () => {
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
-  it('redacts and downloads in one action, then renders an escaped bounded preview', async () => {
+  it('renders an escaped verified preview before offering the download', async () => {
     const createObjectUrl = vi.fn(() => 'blob:local-verified-output');
     const revokeObjectUrl = vi.fn();
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
@@ -186,12 +186,12 @@ describe('web application foundation', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
     await screen.findByText('1 potential item found.');
-    await user.click(screen.getByRole('button', { name: 'Redact and download' }));
+    await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
 
     expect(await screen.findByText(
-      'The verified redacted copy is ready. Your browser was asked to download it.'
+      'The redacted copy passed verification. Review the preview before downloading.'
     )).toBeTruthy();
-    const download = screen.getByRole('link', { name: 'Download again' });
+    const download = screen.getByRole('link', { name: 'Download verified redacted copy' });
     expect(download.getAttribute('href')).toBe('blob:local-verified-output');
     expect(download.getAttribute('download')).toBe('document.redacted.txt');
     expect(container.textContent).not.toContain(sourceValue);
@@ -201,7 +201,7 @@ describe('web application foundation', () => {
     expect(document.activeElement).toBe(previewRegion);
     expect(container.querySelector('script')).toBeNull();
     expect(screen.getByText('Showing the complete verified output.')).toBeTruthy();
-    expect(automaticDownload).toHaveBeenCalledTimes(1);
+    expect(automaticDownload).not.toHaveBeenCalled();
     expect(createObjectUrl).toHaveBeenCalledTimes(1);
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
