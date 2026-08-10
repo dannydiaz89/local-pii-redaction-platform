@@ -7,6 +7,7 @@ import ts from 'typescript';
 import { repositoryRoot } from './schema-utils.js';
 
 type WorkspacePackage =
+  | 'adapter-job-sqlite'
   | 'adapter-text'
   | 'contracts'
   | 'detectors'
@@ -39,6 +40,7 @@ export interface BoundaryViolation {
 }
 
 const workspacePackages: readonly WorkspacePackage[] = [
+  'adapter-job-sqlite',
   'adapter-text',
   'contracts',
   'detectors',
@@ -61,6 +63,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
  * accidental import from the CLI or a lower layer.
  */
 const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
+  'adapter-job-sqlite': ['contracts', 'domain', 'job-store'],
   'adapter-text': ['contracts', 'domain', 'redaction'],
   contracts: [],
   detectors: ['domain'],
@@ -78,6 +81,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
 };
 
 const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage, readonly WorkspacePackage[]>> = {
+  'adapter-job-sqlite': [],
   'adapter-text': [],
   contracts: [],
   detectors: [],
@@ -117,6 +121,7 @@ const allowedApiRuntimeModules = new Set([
   'node:path',
   'node:url'
 ]);
+const allowedSqliteJobAdapterRuntimeModules = new Set(['node:fs', 'node:path', 'node:sqlite']);
 const allowedWebWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'i18n', 'ui'];
 const allowedWebRuntimeModules = new Set(['react', 'react-dom/client']);
 const workspaceApplications = ['api', 'cli', 'web'] as const;
@@ -345,6 +350,10 @@ export function checkSourceDependencyDirection(
       }
       continue;
     }
+    if (specifier === 'node:sqlite' && options.packageRuntime !== 'adapter-job-sqlite') {
+      violations.push(violation(path, 'imports node:sqlite outside the isolated SQLite job adapter'));
+      continue;
+    }
     if (options.apiRuntime === true && allowedApiRuntimeModules.has(specifier)) continue;
     if (options.webRuntime === true && allowedWebRuntimeModules.has(specifier)) continue;
     if (forbiddenInfrastructureModulePrefixes.some((prefix) => isModuleOrSubpath(specifier, prefix))) {
@@ -353,6 +362,15 @@ export function checkSourceDependencyDirection(
     }
     if (options.domain === true && forbiddenDomainModulePrefixes.some((prefix) => isModuleOrSubpath(specifier, prefix))) {
       violations.push(violation(path, `imports forbidden domain module ${specifier}`));
+      continue;
+    }
+    if (options.packageRuntime === 'adapter-job-sqlite'
+      && !specifier.startsWith('.')
+      && !allowedSqliteJobAdapterRuntimeModules.has(specifier)) {
+      violations.push(violation(
+        path,
+        `imports ${specifier}, which is not allow-listed for the SQLite job adapter runtime`
+      ));
       continue;
     }
     if ((options.packageRuntime === 'i18n' || options.packageRuntime === 'job-store') && !specifier.startsWith('.')) {
@@ -434,6 +452,14 @@ export function checkPackageManifest(
       .filter((name) => !name.startsWith('@local-pii/'));
     if (external.length > 0) {
       violations.push(violation(path, 'job metadata package must not declare external dependencies'));
+    }
+  }
+  if (packageName === 'adapter-job-sqlite') {
+    const external = (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const)
+      .flatMap((field) => dependencyNames(manifest, field))
+      .filter((name) => !name.startsWith('@local-pii/'));
+    if (external.length > 0) {
+      violations.push(violation(path, 'SQLite job adapter must not declare external dependencies'));
     }
   }
   if (packageName === 'ui') {

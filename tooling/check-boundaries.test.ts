@@ -225,6 +225,57 @@ describe('boundary checker', () => {
     }).map(({ message }) => message)).toContain('job metadata package must not declare external dependencies');
   });
 
+  it('isolates the SQLite adapter behind the job-store port and built-in runtime', () => {
+    expect(checkPackageManifest('packages/adapter-job-sqlite/package.json', 'adapter-job-sqlite', {
+      name: '@local-pii/adapter-job-sqlite',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/domain': 'workspace:*',
+        '@local-pii/job-store': 'workspace:*'
+      }
+    })).toEqual([]);
+
+    expect(checkSourceDependencyDirection(
+      'packages/adapter-job-sqlite/src/example.ts',
+      "import { DatabaseSync } from 'node:sqlite'; import { readFile } from 'node:fs'; import client from 'telemetry'; import { run } from '@local-pii/core';",
+      ['contracts', 'domain', 'job-store'],
+      { packageRuntime: 'adapter-job-sqlite' }
+    ).map(({ message }) => message)).toEqual([
+      'imports telemetry, which is not allow-listed for the SQLite job adapter runtime',
+      'imports @local-pii/core, outside its allow-listed dependency direction'
+    ]);
+
+    expect(checkPackageManifest('packages/adapter-job-sqlite/package.json', 'adapter-job-sqlite', {
+      name: '@local-pii/adapter-job-sqlite',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/contracts': 'workspace:*',
+        '@local-pii/domain': 'workspace:*',
+        '@local-pii/job-store': 'workspace:*',
+        telemetry: '^1.0.0'
+      }
+    }).map(({ message }) => message)).toContain('SQLite job adapter must not declare external dependencies');
+
+    expect(checkSourceDependencyDirection(
+      'packages/core/src/accidental-store.ts',
+      "import { DatabaseSync } from 'node:sqlite';",
+      ['contracts', 'domain', 'policy', 'redaction', 'span-resolution'],
+      { packageRuntime: 'core' }
+    ).map(({ message }) => message)).toEqual([
+      'imports node:sqlite outside the isolated SQLite job adapter'
+    ]);
+
+    expect(checkSourceDependencyDirection(
+      'apps/api/src/accidental-store.ts',
+      "import { DatabaseSync } from 'node:sqlite';",
+      ['contracts', 'core', 'domain', 'job-store', 'profile-local'],
+      { apiRuntime: true }
+    ).map(({ message }) => message)).toEqual([
+      'imports node:sqlite outside the isolated SQLite job adapter'
+    ]);
+  });
+
   it('keeps localization dependency-free and the UI runtime React-only', () => {
     expect(checkPackageManifest('packages/i18n/package.json', 'i18n', {
       name: '@local-pii/i18n',

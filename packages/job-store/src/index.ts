@@ -79,6 +79,25 @@ export interface JobMetadataStore {
   listEvents(query: ListJobEventsQuery, signal?: AbortSignal): Promise<readonly JobEvent[]>;
 }
 
+/** Canonical, validated creation material used by storage adapters. */
+export interface PreparedJobCreation {
+  readonly job: Job;
+  readonly event: JobEvent;
+  readonly idempotency: Readonly<JobIdempotency>;
+}
+
+/** Canonical, validated transition material used by storage adapters. */
+export interface PreparedJobTransition {
+  readonly job: Job;
+  readonly event: JobEvent;
+}
+
+export interface ValidatedJobEventQuery {
+  readonly jobId: string;
+  readonly afterCursor: number;
+  readonly limit: number;
+}
+
 interface IdempotencyRecord {
   readonly requestDigest: string;
   readonly job: Job;
@@ -235,6 +254,117 @@ function idempotencyMapKey(scope: string, key: string): string {
 }
 
 /**
+ * Validates a lookup without exposing storage details. Adapters use this before touching their
+ * backing store so malformed identifiers fail consistently across implementations.
+ */
+export function validateJobLookup(jobIdInput: string, correlationId: string): string {
+  parseCorrelationId(correlationId);
+  return validateJobId(jobIdInput, correlationId);
+}
+
+/** Builds the immutable revision-one aggregate and its atomic creation event. */
+export function prepareJobCreation(command: CreateJobCommand): PreparedJobCreation {
+  parseCorrelationId(command.correlationId);
+  const correlationId = command.correlationId;
+  const jobId = validateJobId(command.jobId, correlationId);
+  const eventId = validateEventId(command.eventId, correlationId);
+  const now = validateDateTime(command.now, correlationId);
+  const expiresAt = command.expiresAt === undefined
+    ? undefined
+    : validateDateTime(command.expiresAt, correlationId);
+  if (!operations.has(command.operation)) {
+    fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
+  }
+  const idempotency = validateIdempotency(command.idempotency, correlationId);
+  if (expiresAt !== undefined && Date.parse(expiresAt) <= Date.parse(now)) {
+    fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
+  }
+  const policy = validatePolicy(command.policy, correlationId);
+  const job: Job = Object.freeze({
+    schemaVersion: '1.0.0',
+    id: jobId,
+    operation: command.operation,
+    state: 'QUEUED',
+    revision: 1,
+    policy,
+    createdAt: now,
+    updatedAt: now,
+    ...(expiresAt === undefined ? {} : { expiresAt })
+  });
+  const event: JobEvent = Object.freeze({
+    schemaVersion: '1.0.0',
+    id: eventId,
+    jobId,
+    cursor: 1,
+    revision: 1,
+    type: 'JOB_CREATED',
+    occurredAt: now
+  });
+  assertCanonical(job, jobSchemaId, correlationId);
+  assertCanonical(event, jobEventSchemaId, correlationId);
+  return Object.freeze({ job, event, idempotency });
+}
+
+/** Builds the next immutable aggregate/event pair after enforcing revision and state rules. */
+export function prepareJobTransition(
+  current: Job,
+  command: TransitionJobCommand
+): PreparedJobTransition {
+  parseCorrelationId(command.correlationId);
+  const correlationId = command.correlationId;
+  const jobId = validateJobId(command.jobId, correlationId);
+  const eventId = validateEventId(command.eventId, correlationId);
+  const now = validateDateTime(command.now, correlationId);
+  const expectedRevision = validateRevision(command.expectedRevision, correlationId);
+  assertCanonical(current, jobSchemaId, correlationId);
+  if (current.id !== jobId) fail('JOB_CONFLICT', 'The job does not exist.', false, correlationId);
+  if (current.revision !== expectedRevision) {
+    fail('JOB_CONFLICT', 'The job revision changed.', true, correlationId);
+  }
+  if (!canTransition(current.state, command.to)) {
+    fail('JOB_CONFLICT', 'The job state transition is not allowed.', false, correlationId);
+  }
+  if (Date.parse(now) < Date.parse(current.updatedAt)) {
+    fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
+  }
+  const summary = validateSummary(command.summary, correlationId);
+  const revision = current.revision + 1;
+  const job: Job = Object.freeze({
+    ...current,
+    state: command.to,
+    revision,
+    updatedAt: now,
+    ...(summary === undefined ? {} : { summary })
+  });
+  const counts = countsForSummary(summary);
+  const event: JobEvent = Object.freeze({
+    schemaVersion: '1.0.0',
+    id: eventId,
+    jobId,
+    cursor: revision,
+    revision,
+    type: eventTypeForState(command.to),
+    occurredAt: now,
+    ...(counts === undefined ? {} : { counts })
+  });
+  assertCanonical(job, jobSchemaId, correlationId);
+  assertCanonical(event, jobEventSchemaId, correlationId);
+  return Object.freeze({ job, event });
+}
+
+export function validateJobEventQuery(query: ListJobEventsQuery): ValidatedJobEventQuery {
+  parseCorrelationId(query.correlationId);
+  const jobId = validateJobId(query.jobId, query.correlationId);
+  const afterCursor = query.afterCursor ?? 0;
+  const limit = query.limit ?? maximumEventPageSize;
+  if (!Number.isSafeInteger(afterCursor) || afterCursor < 0
+    || !Number.isSafeInteger(limit) || limit < 1 || limit > maximumEventPageSize) {
+    fail('SCHEMA_INVALID', 'The event query is invalid.', false, query.correlationId);
+  }
+  return Object.freeze({ jobId, afterCursor, limit });
+}
+
+/**
  * Process-local reference implementation for contract development and tests.
  * It is intentionally volatile and is not a durable application profile.
  */
@@ -249,21 +379,11 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       signal?.throwIfAborted();
       await Promise.resolve();
       signal?.throwIfAborted();
-      parseCorrelationId(command.correlationId);
+      const prepared = prepareJobCreation(command);
+      const { job, event, idempotency: validatedIdempotency } = prepared;
+      const { id: jobId } = job;
+      const eventId = event.id;
       const correlationId = command.correlationId;
-      const jobId = validateJobId(command.jobId, correlationId);
-      const eventId = validateEventId(command.eventId, correlationId);
-      const now = validateDateTime(command.now, correlationId);
-      const expiresAt = command.expiresAt === undefined
-        ? undefined
-        : validateDateTime(command.expiresAt, correlationId);
-      if (!operations.has(command.operation)) {
-        fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
-      }
-      const validatedIdempotency = validateIdempotency(command.idempotency, correlationId);
-      if (expiresAt !== undefined && Date.parse(expiresAt) <= Date.parse(now)) {
-        fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
-      }
 
       const idempotencyKey = idempotencyMapKey(validatedIdempotency.scope, validatedIdempotency.key);
       const prior = idempotency.get(idempotencyKey);
@@ -284,30 +404,6 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
         fail('JOB_CONFLICT', 'The job event already exists.', false, correlationId);
       }
 
-      const policy = validatePolicy(command.policy, correlationId);
-      const job: Job = Object.freeze({
-        schemaVersion: '1.0.0',
-        id: jobId,
-        operation: command.operation,
-        state: 'QUEUED',
-        revision: 1,
-        policy,
-        createdAt: now,
-        updatedAt: now,
-        ...(expiresAt === undefined ? {} : { expiresAt })
-      });
-      const event: JobEvent = Object.freeze({
-        schemaVersion: '1.0.0',
-        id: eventId,
-        jobId,
-        cursor: 1,
-        revision: 1,
-        type: 'JOB_CREATED',
-        occurredAt: now
-      });
-      assertCanonical(job, jobSchemaId, correlationId);
-      assertCanonical(event, jobEventSchemaId, correlationId);
-
       jobs.set(jobId, job);
       events.set(jobId, Object.freeze([event]));
       eventIds.add(eventId);
@@ -323,48 +419,16 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       signal?.throwIfAborted();
       await Promise.resolve();
       signal?.throwIfAborted();
-      parseCorrelationId(command.correlationId);
       const correlationId = command.correlationId;
-      const jobId = validateJobId(command.jobId, correlationId);
-      const eventId = validateEventId(command.eventId, correlationId);
-      const now = validateDateTime(command.now, correlationId);
-      const expectedRevision = validateRevision(command.expectedRevision, correlationId);
+      const jobId = validateJobLookup(command.jobId, correlationId);
       const current = jobs.get(jobId);
       if (current === undefined) fail('JOB_CONFLICT', 'The job does not exist.', false, correlationId);
-      if (current.revision !== expectedRevision) {
-        fail('JOB_CONFLICT', 'The job revision changed.', true, correlationId);
-      }
-      if (!canTransition(current.state, command.to)) {
-        fail('JOB_CONFLICT', 'The job state transition is not allowed.', false, correlationId);
-      }
+      const prepared = prepareJobTransition(current, command);
+      const { job, event } = prepared;
+      const eventId = event.id;
       if (eventIds.has(eventId)) {
         fail('JOB_CONFLICT', 'The job event already exists.', false, correlationId);
       }
-      if (Date.parse(now) < Date.parse(current.updatedAt)) {
-        fail('SCHEMA_INVALID', 'The job metadata is invalid.', false, correlationId);
-      }
-      const summary = validateSummary(command.summary, correlationId);
-      const revision = current.revision + 1;
-      const job: Job = Object.freeze({
-        ...current,
-        state: command.to,
-        revision,
-        updatedAt: now,
-        ...(summary === undefined ? {} : { summary })
-      });
-      const counts = countsForSummary(summary);
-      const event: JobEvent = Object.freeze({
-        schemaVersion: '1.0.0',
-        id: eventId,
-        jobId,
-        cursor: revision,
-        revision,
-        type: eventTypeForState(command.to),
-        occurredAt: now,
-        ...(counts === undefined ? {} : { counts })
-      });
-      assertCanonical(job, jobSchemaId, correlationId);
-      assertCanonical(event, jobEventSchemaId, correlationId);
 
       jobs.set(jobId, job);
       events.set(jobId, Object.freeze([...(events.get(jobId) ?? []), event]));
@@ -376,8 +440,7 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       signal?.throwIfAborted();
       await Promise.resolve();
       signal?.throwIfAborted();
-      parseCorrelationId(correlationId);
-      const jobId = validateJobId(jobIdInput, correlationId);
+      const jobId = validateJobLookup(jobIdInput, correlationId);
       const job = jobs.get(jobId);
       return job === undefined ? undefined : cloneJob(job);
     },
@@ -386,14 +449,7 @@ export function createVolatileJobMetadataStore(): JobMetadataStore {
       signal?.throwIfAborted();
       await Promise.resolve();
       signal?.throwIfAborted();
-      parseCorrelationId(query.correlationId);
-      const jobId = validateJobId(query.jobId, query.correlationId);
-      const afterCursor = query.afterCursor ?? 0;
-      const limit = query.limit ?? maximumEventPageSize;
-      if (!Number.isSafeInteger(afterCursor) || afterCursor < 0
-        || !Number.isSafeInteger(limit) || limit < 1 || limit > maximumEventPageSize) {
-        fail('SCHEMA_INVALID', 'The event query is invalid.', false, query.correlationId);
-      }
+      const { jobId, afterCursor, limit } = validateJobEventQuery(query);
       return Object.freeze(
         (events.get(jobId) ?? [])
           .filter(({ cursor }) => cursor > afterCursor)

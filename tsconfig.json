@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/domain" },
     { "path": "packages/job-store" },
+    { "path": "packages/adapter-job-sqlite" },
     { "path": "packages/policy" },
     { "path": "packages/profile-local" },
     { "path": "packages/detectors" },

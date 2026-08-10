@@ -109,6 +109,14 @@ execute no work and disappear when the process exits. Durable uploads, artifact 
 asynchronous processing, review, redaction, and downloads remain disabled until their durable
 implementations and authorization gates are implemented.
 
+[`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
+prototype behind that same port. It proves private-file creation, schema-version rejection,
+transactional revision/event updates, idempotent replay after restart, and stale-write rejection
+across connections. It uses Node's experimental built-in SQLite API and is not composed into the
+CLI or browser launcher. It does not qualify retention, encryption, backup, leases, an outbox, or a
+production durable profile. Filesystem evidence assumes a trusted owner-only POSIX directory;
+same-owner path replacement races and Windows permission semantics remain open.
+
 ## Web foundation
 
 [`apps/web`](./apps/web) now provides the first local review-application shell. It uses React with
@@ -264,8 +272,10 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no durable upload or asynchronous job-processing HTTP API, durable job-store
-  implementation, qualified contextual model, or review workflow yet. The authenticated ephemeral
+- There is no durable upload or asynchronous job-processing HTTP API, activated durable job-store
+  profile, qualified contextual model, or review workflow yet. A metadata-only SQLite prototype
+  exercises restart and transaction semantics but remains disabled and unqualified for production.
+  The authenticated ephemeral
   preview accepts bounded raw bytes in memory and returns aggregate counts plus at most 100
   value-free detection locations. Metadata-only job create/status/events/
   cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
@@ -299,6 +309,7 @@ output collisions.
 - [`packages/provider-ollama`](./packages/provider-ollama): experimental loopback-only contextual provider
 - [`packages/i18n`](./packages/i18n): typed bundled catalogs and locale helpers
 - [`packages/job-store`](./packages/job-store): revisioned, idempotent job-metadata port and volatile conformance adapter
+- [`packages/adapter-job-sqlite`](./packages/adapter-job-sqlite): disabled metadata-only SQLite transaction/restart prototype
 - [`packages/ui`](./packages/ui): accessible React primitives and semantic design tokens
 - [`services/inference-python`](./services/inference-python): Python contract boundary and generated Pydantic models
 - `fixtures/contracts`: synthetic valid and invalid cross-language examples

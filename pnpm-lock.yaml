@@ -142,6 +142,18 @@ importers:
         specifier: ^8.2.1
         version: 8.2.1(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.11)
 
+  packages/adapter-job-sqlite:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@local-pii/job-store':
+        specifier: workspace:*
+        version: link:../job-store
+
   packages/adapter-text:
     dependencies:
       '@local-pii/contracts':
