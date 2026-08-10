@@ -7,8 +7,8 @@ Accessible, localized React shell for the future local review workflow.
 - Renders the capability, pinned-policy, and local file-metadata preflight plus the local-processing disclosure.
 - Provides a bounded typed client for metadata-only job create/status/events/cancellation requests.
 - Runs an authenticated ephemeral rules-only preview scan and renders localized aggregate counts,
-  a bounded filterable detection view, and bounded value-free conflict details.
-- Uses native Previous/Next buttons for keyboard-operable detection navigation.
+  a bounded filterable native detection table, and a bounded native value-free conflict table.
+- Keeps wide result tables keyboard-scrollable on narrow viewports.
 - Consumes the one-time in-memory launcher bootstrap without browser persistence.
 - Uses shared primitives and semantic tokens from `@local-pii/ui`.
 - Resolves all user-facing copy through bundled catalogs in `@local-pii/i18n`.

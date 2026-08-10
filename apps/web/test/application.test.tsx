@@ -99,15 +99,17 @@ describe('web application foundation', () => {
     expect(screen.getByText('Characters 20–46')).toBeTruthy();
     expect(screen.getByText('Detector confidence: 99%')).toBeTruthy();
     expect(screen.getByText('Evidence source: pattern rule')).toBeTruthy();
-    expect(screen.getByText('Detection 1 of 1')).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous detection' }).disabled).toBe(true);
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Next detection' }).disabled).toBe(true);
+    expect(screen.getByRole('columnheader', { name: 'Category' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Confidence' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Evidence sources' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Previous detection' })).toBeNull();
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 
-  it('navigates value-free detections by keyboard and resets the native category filter', async () => {
+  it('renders and filters a keyboard-scrollable native detection table', async () => {
     const user = userEvent.setup();
     const jobs: LocalJobClient = {
       ...readyJobClient(),
@@ -125,22 +127,15 @@ describe('web application foundation', () => {
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
     await screen.findByText('Characters 6–12');
-    expect(screen.queryByText('Characters 21–30')).toBeNull();
-    expect(screen.getByText('Detection 1 of 2')).toBeTruthy();
-
-    const next = screen.getByRole<HTMLButtonElement>('button', { name: 'Next detection' });
-    next.focus();
-    await user.keyboard('{Enter}');
     expect(screen.getByText('Characters 21–30')).toBeTruthy();
-    expect(screen.queryByText('Characters 6–12')).toBeNull();
-    expect(screen.getByText('Detection 2 of 2')).toBeTruthy();
-    expect(next.disabled).toBe(true);
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous detection' }).disabled).toBe(false);
+    const tableRegion = screen.getByRole('region', { name: 'Detection details' });
+    tableRegion.focus();
+    expect(document.activeElement).toBe(tableRegion);
+    expect(screen.getByRole('table')).toBeTruthy();
 
     await user.selectOptions(screen.getByLabelText('Filter detections'), 'EMAIL');
     expect(screen.getByText('Characters 6–12')).toBeTruthy();
     expect(screen.queryByText('Characters 21–30')).toBeNull();
-    expect(screen.getByText('Detection 1 of 1')).toBeTruthy();
   });
 
   it('renders conflict locations and evidence without returning the planted value', async () => {

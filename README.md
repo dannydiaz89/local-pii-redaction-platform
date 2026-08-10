@@ -130,10 +130,10 @@ the metadata-only job create/status/events/cancellation request boundary; the sh
 localized default-policy name and does not invoke durable job actions yet. Once connected, the
 document intake admits TXT/Markdown files up to 8 MiB and can send their raw bytes to the
 authenticated same-origin loopback endpoint for an ephemeral rules-only scan. The UI displays only
-localized aggregate counts plus a filterable view of at most 100 value-free detection locations,
-confidence scores, evidence sources, and at most 100 unresolved conflict locations. Native
-Previous/Next buttons expose one detection at a time and are covered by a keyboard interaction
-test. It retains nothing in browser persistence and sends no filename or matched value back in the response. Until the
+localized aggregate counts plus native filterable tables containing at most 100 value-free
+detection locations and 100 unresolved conflict locations. Wide tables remain keyboard-scrollable
+at narrow viewports. It retains nothing in browser persistence and sends no filename or matched
+value back in the response. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
 state. Durable upload, review, redaction, and download remain intentionally absent.
 

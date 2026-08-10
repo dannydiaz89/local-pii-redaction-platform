@@ -91,7 +91,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [selectedFile, setSelectedFile] = useState<File>();
   const [preview, setPreview] = useState<PreviewState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
-  const [activeDetectionIndex, setActiveDetectionIndex] = useState(0);
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
@@ -109,7 +108,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setSelectedFile(undefined);
     setPreview({ kind: 'idle' });
     setDetectionFilter('ALL');
-    setActiveDetectionIndex(0);
     previewController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
@@ -169,7 +167,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const visibleDetails = preview.kind === 'complete'
     ? preview.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
     : [];
-  const activeDetection = visibleDetails[Math.min(activeDetectionIndex, Math.max(visibleDetails.length - 1, 0))];
 
   return (
     <div className="app-shell">
@@ -266,7 +263,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setSelectedFile(result.kind === 'ready' ? selected : undefined);
                   setPreview({ kind: 'idle' });
                   setDetectionFilter('ALL');
-                  setActiveDetectionIndex(0);
                 }}
               />
             ) : (
@@ -293,13 +289,11 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   previewController.current?.abort();
                   previewController.current = controller;
                   setPreview({ kind: 'scanning' });
-                  setActiveDetectionIndex(0);
                   void jobClient.scanPreview(selectedFile, controller.signal).then(
                     (summary) => {
                       if (!controller.signal.aborted) {
                         setPreview({ kind: 'complete', summary });
                         setDetectionFilter('ALL');
-                        setActiveDetectionIndex(0);
                       }
                     },
                     () => {
@@ -346,23 +340,34 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                       <div className="preview-conflicts">
                         <h3>{t('preview.conflictDetails')}</h3>
                         <p className="preview-conflict-warning">{t('preview.conflictUndecided')}</p>
-                        <ol>
-                          {preview.summary.conflictDetails.map((conflict) => (
-                            <li key={`${String(conflict.start)}:${String(conflict.end)}:${conflict.entityTypes.join(':')}`}>
-                              <strong>{message(locale, 'preview.conflictLocation', {
-                                start: formatInteger(locale, conflict.start + 1),
-                                end: formatInteger(locale, conflict.end)
-                              })}</strong>
-                              <span>{message(locale, 'preview.conflictTypes', {
-                                types: formatList(locale, conflict.entityTypes.map((entityType) =>
-                                  t(entityMessage(entityType))))
-                              })}</span>
-                              <span>{message(locale, 'preview.conflictSources', {
-                                sources: formatList(locale, conflict.sources.map((source) => t(sourceMessage(source))))
-                              })}</span>
-                            </li>
-                          ))}
-                        </ol>
+                        <div className="preview-table-scroll" role="region" tabIndex={0} aria-label={t('preview.conflictDetails')}>
+                          <table className="preview-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">{t('preview.columnLocation')}</th>
+                                <th scope="col">{t('preview.columnCategory')}</th>
+                                <th scope="col">{t('preview.columnSources')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {preview.summary.conflictDetails.map((conflict) => (
+                                <tr key={`${String(conflict.start)}:${String(conflict.end)}:${conflict.entityTypes.join(':')}`}>
+                                  <th scope="row">{message(locale, 'preview.conflictLocation', {
+                                    start: formatInteger(locale, conflict.start + 1),
+                                    end: formatInteger(locale, conflict.end)
+                                  })}</th>
+                                  <td>{message(locale, 'preview.conflictTypes', {
+                                    types: formatList(locale, conflict.entityTypes.map((entityType) =>
+                                      t(entityMessage(entityType))))
+                                  })}</td>
+                                  <td>{message(locale, 'preview.conflictSources', {
+                                    sources: formatList(locale, conflict.sources.map((source) => t(sourceMessage(source))))
+                                  })}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                         {preview.summary.conflictDetailsLimited ? (
                           <p>{message(locale, 'preview.conflictsLimited', {
                             count: formatInteger(locale, preview.summary.conflictDetails.length)
@@ -373,7 +378,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                     {preview.summary.details.length > 0 ? (
                       <div className="preview-review">
                         <div className="preview-review-heading">
-                          <h3>{t('preview.details')}</h3>
+                          <h3 id="preview-details-heading">{t('preview.details')}</h3>
                           <div className="preview-filter">
                             <label htmlFor="detection-filter">{t('preview.filter')}</label>
                             <select
@@ -383,7 +388,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                 const next = event.currentTarget.value;
                                 if (next === 'ALL' || detailCategories.includes(next as PreviewEntityType)) {
                                   setDetectionFilter(next as PreviewEntityType | 'ALL');
-                                  setActiveDetectionIndex(0);
                                 }
                               }}
                             >
@@ -394,45 +398,40 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </select>
                           </div>
                         </div>
-                        <div className="preview-navigation">
-                          <p aria-live="polite">{message(locale, 'preview.position', {
-                            current: formatInteger(locale, Math.min(activeDetectionIndex + 1, visibleDetails.length)),
-                            total: formatInteger(locale, visibleDetails.length)
-                          })}</p>
-                          <div className="preview-navigation-controls">
-                            <Button
-                              disabled={activeDetectionIndex === 0}
-                              onClick={() => { setActiveDetectionIndex((index) => Math.max(0, index - 1)); }}
-                            >{t('preview.previous')}</Button>
-                            <Button
-                              disabled={activeDetectionIndex >= visibleDetails.length - 1}
-                              onClick={() => {
-                                setActiveDetectionIndex((index) => Math.min(visibleDetails.length - 1, index + 1));
-                              }}
-                            >{t('preview.next')}</Button>
-                          </div>
+                        <div
+                          className="preview-table-scroll"
+                          role="region"
+                          tabIndex={0}
+                          aria-labelledby="preview-details-heading"
+                        >
+                          <table className="preview-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">{t('preview.columnCategory')}</th>
+                                <th scope="col">{t('preview.columnLocation')}</th>
+                                <th scope="col">{t('preview.columnConfidence')}</th>
+                                <th scope="col">{t('preview.columnSources')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {visibleDetails.map((detail) => (
+                                <tr key={`${detail.entityType}:${String(detail.start)}:${String(detail.end)}`}>
+                                  <th scope="row">{t(entityMessage(detail.entityType))}</th>
+                                  <td>{message(locale, 'preview.location', {
+                                    start: formatInteger(locale, detail.start + 1),
+                                    end: formatInteger(locale, detail.end)
+                                  })}</td>
+                                  <td>{message(locale, 'preview.confidence', {
+                                    percent: formatPercent(locale, detail.confidence)
+                                  })}</td>
+                                  <td>{message(locale, 'preview.sources', {
+                                    sources: formatList(locale, detail.sources.map((source) => t(sourceMessage(source))))
+                                  })}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <ol className="preview-detections">
-                          {activeDetection === undefined ? null : (
-                            <li
-                              data-active="true"
-                              key={`${activeDetection.entityType}:${String(activeDetection.start)}:${String(activeDetection.end)}`}
-                            >
-                              <strong>{t(entityMessage(activeDetection.entityType))}</strong>
-                              <span className="preview-current">{t('preview.current')}</span>
-                              <span>{message(locale, 'preview.location', {
-                                start: formatInteger(locale, activeDetection.start + 1),
-                                end: formatInteger(locale, activeDetection.end)
-                              })}</span>
-                              <span>{message(locale, 'preview.confidence', {
-                                percent: formatPercent(locale, activeDetection.confidence)
-                              })}</span>
-                              <span>{message(locale, 'preview.sources', {
-                                sources: formatList(locale, activeDetection.sources.map((source) => t(sourceMessage(source))))
-                              })}</span>
-                            </li>
-                          )}
-                        </ol>
                         {preview.summary.detailsLimited ? (
                           <p>{message(locale, 'preview.detailsLimited', {
                             count: formatInteger(locale, preview.summary.details.length)
