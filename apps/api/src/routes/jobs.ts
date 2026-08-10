@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { CancelJobRequest, CreateJobRequest } from '../job-control.js';
+import type { AppendReviewDecisionsRequest } from '../processing.js';
 import { apiContractIds } from '../contract-ids.js';
 import {
   canonicalBody,
@@ -72,6 +73,29 @@ export function registerJobRoutes(server: FastifyInstance, context: ApiRouteCont
     );
     if (page === undefined) throw unavailableJob(request);
     return sendCanonical(reply, apiContractIds.detectionPage, page);
+  });
+
+  server.get('/v1/jobs/:jobId/review-decisions', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const reviewSet = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
+      processing.getReviewSet(jobIdParameter(request), requestCorrelationId(request), signal)
+    );
+    if (reviewSet === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, apiContractIds.reviewSet, reviewSet);
+  });
+
+  server.post('/v1/jobs/:jobId/review-decisions', async (request, reply) => {
+    const processing = dependencies.processing;
+    if (processing === undefined) throw unavailableJob(request);
+    const body = canonicalBody(request, apiContractIds.reviewDecisionRequest) as AppendReviewDecisionsRequest;
+    const reviewSet = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
+      processing.appendReviewDecisions(
+        jobIdParameter(request), body, requestCorrelationId(request), signal
+      )
+    );
+    if (reviewSet === undefined) throw unavailableJob(request);
+    return sendCanonical(reply, apiContractIds.reviewSet, reviewSet);
   });
 
   server.get('/v1/jobs/:jobId/output', async (request, reply) => {

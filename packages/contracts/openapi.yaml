@@ -3,7 +3,7 @@ info:
   title: Local PII Redaction API
   version: 0.1.0
   description: Local-first session job and artifact control plane. Artifact bytes are never embedded in JSON.
-x-implementation-status: session-artifact-scan-redact-and-verified-download
+x-implementation-status: session-artifact-scan-review-redact-and-verified-download
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -274,6 +274,42 @@ paths:
                 $ref: "./schemas/artifacts/artifact.schema.json"
         "404":
           description: Job or output is unavailable in the caller's authorization view
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/common/errors.schema.json"
+  /v1/jobs/{jobId}/review-decisions:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^job_[0-9A-HJKMNP-TV-Z]{26}$' }
+    get:
+      operationId: getJobReviewSet
+      responses:
+        "200":
+          description: Append-only value-free review history for the completed scan
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/review-set.schema.json"
+    post:
+      operationId: appendJobReviewDecisions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./schemas/jobs/review-decision-request.schema.json"
+      responses:
+        "200":
+          description: Updated append-only review set, or an idempotent replay of it
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/review-set.schema.json"
+        "409":
+          description: Job, extraction, or review revision is stale
           content:
             application/json:
               schema:

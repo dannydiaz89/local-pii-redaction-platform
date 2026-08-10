@@ -8,7 +8,12 @@ import {
 } from '@local-pii/contracts';
 
 import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
-import { createLocalJobClient, projectPolicyCatalog, projectPreviewScan } from '../src/job-api.js';
+import {
+  createLocalJobClient,
+  projectPolicyCatalog,
+  projectPreviewScan,
+  projectReviewSet
+} from '../src/job-api.js';
 import {
   webPreviewMaximumConflictDetails,
   webPreviewMaximumDetectionDetails,
@@ -35,8 +40,8 @@ function capabilityResponse(): Readonly<Record<string, unknown>> {
       }
     ],
     detectors: [
-      { id: 'rules', availability: 'AVAILABLE' },
-      { id: 'model', availability: 'DISABLED' }
+      { id: 'rules', availability: 'AVAILABLE', entityTypes: ['EMAIL', 'PHONE'] },
+      { id: 'model', availability: 'DISABLED', entityTypes: ['PERSON'] }
     ],
     limits: { maximumInputBytes: 104_857_600 }
   };
@@ -85,7 +90,8 @@ describe('browser capability client', () => {
         { extension: '.markdown', maximumInputBytes: 52_428_800 },
         { extension: '.md', maximumInputBytes: 52_428_800 },
         { extension: '.txt', maximumInputBytes: 104_857_600 }
-      ]
+      ],
+      supportedEntityTypes: ['EMAIL', 'PHONE']
     });
     expect(() => projectCapabilitySummary({ ...capabilityResponse(), engineMode: 'SURPRISE' })).toThrow(
       'CAPABILITY_RESPONSE_INVALID'
@@ -335,6 +341,13 @@ describe('browser policy and job client', () => {
           conflictDetails: [], conflictDetailsLimited: false
         }));
       }
+      if (url.pathname.endsWith('/review-decisions')) {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', jobId, jobRevision: 6,
+          extractionRevision: `sha256:${'d'.repeat(64)}`, reviewRevision: 0,
+          digest: `sha256:${'e'.repeat(64)}`, decisions: []
+        }));
+      }
       return Promise.reject(new Error('UNEXPECTED_REQUEST'));
     });
     const client = createLocalJobClient(session, fetchImplementation);
@@ -353,7 +366,8 @@ describe('browser policy and job client', () => {
     expect(jobReads).toBe(1);
     expect(fetchImplementation.mock.calls.map(([input]) => requestUrl(input).pathname)).toEqual([
       '/v1/artifacts', `/v1/artifacts/${artifactId}/content`, '/v1/jobs',
-      `/v1/jobs/${jobId}`, `/v1/jobs/${jobId}/events`, `/v1/jobs/${jobId}/detections`
+      `/v1/jobs/${jobId}`, `/v1/jobs/${jobId}/events`, `/v1/jobs/${jobId}/detections`,
+      `/v1/jobs/${jobId}/review-decisions`
     ]);
     const serialized = fetchImplementation.mock.calls.map(([input, init]) =>
       `${requestUrl(input).href}\n${typeof init?.body === 'string' ? init.body : ''}`).join('\n');
@@ -361,6 +375,61 @@ describe('browser policy and job client', () => {
     expect(fetchImplementation.mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
     });
+  });
+
+  it('validates and appends value-free review decisions with explicit stale-revision handling', async () => {
+    const extractionRevision = `sha256:${'d'.repeat(64)}`;
+    const empty = {
+      schemaVersion: '1.0.0', jobId, jobRevision: 6, extractionRevision,
+      reviewRevision: 0, digest: `sha256:${'e'.repeat(64)}`, decisions: []
+    };
+    expect(projectReviewSet(empty, jobId)).toMatchObject({ reviewRevision: 0, decisions: [] });
+    expect(() => projectReviewSet({ ...empty, documentValue: 'synthetic-canary' }, jobId)).toThrow(
+      'REVIEW_RESPONSE_INVALID'
+    );
+    const targetDetectionId = '123e4567-e89b-52d3-a456-426614174000';
+    const clientDecisionId = '71a818d3-828c-4cc8-8536-19f05e61c88d';
+    const decision = {
+      clientDecisionId, targetDetectionId, action: 'REJECT' as const, reasonCode: 'FALSE_POSITIVE' as const
+    };
+    const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname !== `/v1/jobs/${jobId}/review-decisions`) {
+        return Promise.reject(new Error('UNEXPECTED_REQUEST'));
+      }
+      if (init?.method === 'GET') return Promise.resolve(jsonResponse(empty));
+      if (init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({
+          ...empty,
+          reviewRevision: 1,
+          digest: `sha256:${'f'.repeat(64)}`,
+          decisions: [{
+            revision: 1, ...decision, principal: 'LOCAL_SESSION', occurredAt: '2026-08-09T18:00:01Z'
+          }]
+        }));
+      }
+      return Promise.reject(new Error('UNEXPECTED_REQUEST'));
+    });
+    const client = createLocalJobClient(session, fetchImplementation);
+    const signal = new AbortController().signal;
+    await expect(client.getReviewSet(jobId, signal)).resolves.toMatchObject({ reviewRevision: 0 });
+    await expect(client.appendReviewDecisions(
+      jobId, 6, extractionRevision, 0, [decision], signal
+    )).resolves.toMatchObject({ reviewRevision: 1, decisions: [{ action: 'REJECT' }] });
+    const post = fetchImplementation.mock.calls[1];
+    expect(post?.[1]).toMatchObject({ method: 'POST', redirect: 'error', credentials: 'omit', cache: 'no-store' });
+    const serializedBody = post?.[1]?.body;
+    if (typeof serializedBody !== 'string') throw new TypeError('The review request was not serialized.');
+    expect(JSON.parse(serializedBody) as unknown).toEqual({
+      schemaVersion: '1.0.0', expectedJobRevision: 6, expectedExtractionRevision: extractionRevision,
+      expectedReviewRevision: 0, decisions: [decision]
+    });
+    const conflict = createLocalJobClient(session, vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      '{}', { status: 409, headers: { 'content-type': 'application/json' } }
+    )));
+    await expect(conflict.appendReviewDecisions(
+      jobId, 6, extractionRevision, 0, [decision], signal
+    )).rejects.toThrow('REVIEW_REVISION_CONFLICT');
   });
 
   it('downloads only the digest-bound verified output from a session redaction job', async () => {

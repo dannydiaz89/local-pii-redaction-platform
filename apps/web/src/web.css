@@ -12,6 +12,7 @@
   background: var(--color-focus);
 }
 .skip-link:focus { translate: 0; }
+.visually-hidden { position: absolute; inline-size: 1px; block-size: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .app-header {
   display: flex;
@@ -71,6 +72,12 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-table thead th { color: var(--color-muted); font-size: .82rem; }
 .preview-table tbody th { font-weight: 750; }
 .preview-table tbody tr:last-child > * { border-block-end: 0; }
+.review-decision-cell { display: grid; gap: var(--space-2); min-inline-size: 13rem; }
+.review-decision-cell select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
+.review-decision-cell select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
+.review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.review-actions p { flex: 1 1 24rem; margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
+.review-actions [role] { flex-basis: 100%; min-block-size: 1.5rem; }
 .preview-conflicts { display: grid; gap: var(--space-3); margin-block-start: var(--space-5); }
 .preview-conflicts h3, .preview-conflicts p { margin: 0; }
 .preview-conflict-warning { font-weight: 750; }

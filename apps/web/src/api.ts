@@ -1,4 +1,4 @@
-import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contracts';
+import type { CapabilitiesCapabilityManifestContract, CommonEntityTypeContract } from '@local-pii/contracts';
 
 export type EngineMode = CapabilitiesCapabilityManifestContract.CapabilityManifest['engineMode'];
 export type LocalEngineMode = Exclude<EngineMode, 'REMOTE'>;
@@ -14,6 +14,7 @@ export interface CapabilitySummary {
   readonly availableDetectorCount: number;
   readonly maximumInputBytes: number;
   readonly supportedFiles: readonly SupportedFileFormat[];
+  readonly supportedEntityTypes: readonly CommonEntityTypeContract.EntityType[];
 }
 
 export interface CapabilityClient {
@@ -29,6 +30,12 @@ const maximumCapabilityResponseBytes = 128 * 1024;
 export const capabilityRequestTimeoutMs = 5_000;
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const localEngineModes = new Set<LocalEngineMode>(['RULES_ONLY', 'LOCAL_HYBRID']);
+const canonicalEntityTypes = new Set<CommonEntityTypeContract.EntityType>([
+  'PERSON', 'EMAIL', 'PHONE', 'ADDRESS', 'LOCATION', 'ORGANIZATION', 'DATE_OF_BIRTH', 'SSN',
+  'NATIONAL_ID', 'PASSPORT', 'DRIVER_LICENSE', 'CREDIT_CARD', 'BANK_ACCOUNT', 'ROUTING_NUMBER',
+  'MEDICAL_RECORD', 'HEALTH_PLAN_ID', 'ACCOUNT_ID', 'USERNAME', 'IP_ADDRESS', 'MAC_ADDRESS',
+  'API_KEY', 'ACCESS_TOKEN', 'PASSWORD', 'CUSTOM'
+]);
 
 export function assertLocalApiSession(session: LocalApiSession): URL {
   let origin: URL;
@@ -190,15 +197,32 @@ export function projectCapabilitySummary(value: unknown): CapabilitySummary {
     throw new Error('CAPABILITY_RESPONSE_INVALID');
   }
   const maximumInputBytes = value.limits.maximumInputBytes;
-  const availableDetectorCount = value.detectors.filter((detector) => {
-    return isRecord(detector) && detector.availability === 'AVAILABLE';
-  }).length;
+  const supportedEntityTypes = new Set<CommonEntityTypeContract.EntityType>();
+  let availableDetectorCount = 0;
+  for (const detector of value.detectors) {
+    if (!isRecord(detector)
+      || !Array.isArray(detector.entityTypes)
+      || detector.entityTypes.length < 1
+      || detector.entityTypes.length > canonicalEntityTypes.size
+      || detector.entityTypes.some((entityType) => typeof entityType !== 'string'
+        || !canonicalEntityTypes.has(entityType as CommonEntityTypeContract.EntityType))
+      || new Set(detector.entityTypes).size !== detector.entityTypes.length) {
+      throw new Error('CAPABILITY_RESPONSE_INVALID');
+    }
+    if (detector.availability !== 'AVAILABLE') continue;
+    availableDetectorCount += 1;
+    for (const entityType of detector.entityTypes) {
+      supportedEntityTypes.add(entityType as CommonEntityTypeContract.EntityType);
+    }
+  }
+  if (supportedEntityTypes.size === 0) throw new Error('CAPABILITY_RESPONSE_INVALID');
   return {
     engineMode: value.engineMode as LocalEngineMode,
     formatCount: value.formats.length,
     availableDetectorCount,
     maximumInputBytes,
-    supportedFiles: supportedFiles(value.formats, maximumInputBytes)
+    supportedFiles: supportedFiles(value.formats, maximumInputBytes),
+    supportedEntityTypes: Object.freeze([...supportedEntityTypes].sort())
   };
 }
 

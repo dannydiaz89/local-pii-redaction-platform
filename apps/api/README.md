@@ -8,6 +8,8 @@ Loopback-only HTTP composition root for the local web application.
 - Exposes privacy-minimized liveness, readiness, capability, and pinned-policy catalog endpoints.
 - Exposes authenticated metadata-only job control plus bounded process-local artifacts and real
   asynchronous rules scan/redaction workers with value-free detection pagination.
+- Stores bounded accept/reject/retype decisions as a value-free append-only process-local review
+  history with extraction/job/review revision checks and idempotent client decision IDs.
 - Authorizes a verified redacted output only after the shared core reopens and verifies it, then
   serves its exact bytes under a generic attachment name.
 - Runs an authenticated 8 MiB process-local TXT/Markdown preview scan that returns aggregate counts
@@ -25,8 +27,10 @@ runs one real rules scan or redaction worker at a time. Scan inputs are overwrit
 after processing; a verified redacted output is retained only for authenticated download during the
 current application launch. All artifact metadata, job metadata, value-free results, and output
 bytes disappear at shutdown. JavaScript strings cannot be reliably zeroized. The older preview
-routes remain for compatibility. It does not expose durable uploads, editable review decisions,
-reports, retained downloads, or durable storage. Detection/conflict locations never include matched
+routes remain for compatibility. Review history supports existing accepted detections only and is
+not yet consumed by redaction; boundary/manual decisions and conflict resolution remain open. It
+does not expose durable uploads, durable review persistence, reports, retained downloads, or durable
+storage. Detection/conflict locations and review records never include matched
 values, excerpts, or evidence IDs. The
 external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.

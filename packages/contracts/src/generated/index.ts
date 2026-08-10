@@ -28,6 +28,8 @@ export * as JobsJobContract from './jobs-job.js';
 export * as JobsPreviewReviewReportV2Contract from './jobs-preview-review-report-v2.js';
 export * as JobsPreviewReviewReportContract from './jobs-preview-review-report.js';
 export * as JobsPreviewScanReportContract from './jobs-preview-scan-report.js';
+export * as JobsReviewDecisionRequestContract from './jobs-review-decision-request.js';
+export * as JobsReviewSetContract from './jobs-review-set.js';
 export * as ModelsModelManifestContract from './models-model-manifest.js';
 export * as PolicyPolicyCatalogContract from './policy-policy-catalog.js';
 export * as PolicyRedactionPolicyContract from './policy-redaction-policy.js';

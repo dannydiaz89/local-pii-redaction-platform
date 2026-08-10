@@ -4,7 +4,9 @@ import {
   localRedactionMaximumOutputBytes,
   type ArtifactsArtifactContract,
   type ArtifactsCreateArtifactRequestContract,
-  type JobsDetectionPageContract
+  type JobsDetectionPageContract,
+  type JobsReviewDecisionRequestContract,
+  type JobsReviewSetContract
 } from '@local-pii/contracts';
 import type { TextProcessingApplication, TextRedactionResult, TextScanResult } from '@local-pii/core';
 import {
@@ -48,6 +50,10 @@ export type DetectionPage = Readonly<Omit<GeneratedDetectionPage, 'detections' |
   readonly conflictDetails: readonly Readonly<GeneratedDetectionPage['conflictDetails'][number]>[];
 };
 type Detection = DetectionPage['detections'][number];
+export type AppendReviewDecisionsRequest = Readonly<JobsReviewDecisionRequestContract.AppendReviewDecisionsRequest>;
+export type ReviewSet = Readonly<Omit<JobsReviewSetContract.ReviewSet, 'decisions'>> & {
+  readonly decisions: readonly Readonly<JobsReviewSetContract.DecisionRecord>[];
+};
 
 export interface OutputArtifactDownload {
   readonly artifact: Artifact;
@@ -73,6 +79,13 @@ export interface ProcessingControlPort extends JobControlPort {
     correlationId: string,
     signal?: AbortSignal
   ): Promise<DetectionPage | undefined>;
+  getReviewSet(jobId: string, correlationId: string, signal?: AbortSignal): Promise<ReviewSet | undefined>;
+  appendReviewDecisions(
+    jobId: string,
+    request: AppendReviewDecisionsRequest,
+    correlationId: string,
+    signal?: AbortSignal
+  ): Promise<ReviewSet | undefined>;
   outputForJob(jobId: string, correlationId: string, signal?: AbortSignal): Promise<Artifact | undefined>;
   downloadOutput(
     artifactId: string,
@@ -105,6 +118,7 @@ interface ArtifactRecord {
 }
 
 interface JobResult {
+  readonly extractionRevision: string;
   readonly detections: readonly Detection[];
   readonly byEntity: Readonly<Partial<Record<EntityType, number>>>;
   readonly conflicts: number;
@@ -115,6 +129,7 @@ const crockfordBase32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const maximumUlidTimestamp = 281_474_976_710_655;
 const defaultMaximumArtifacts = 8;
 const defaultMaximumRetainedBytes = 32 * 1024 * 1024;
+const maximumReviewDecisions = 1000;
 
 function fail(
   code: SafeError['code'],
@@ -148,6 +163,49 @@ function createArtifactId(now: Date, bytes: Uint8Array): string {
 
 function digestBytes(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function reviewDigest(
+  jobId: string,
+  jobRevision: number,
+  extractionRevision: string,
+  decisions: readonly Readonly<JobsReviewSetContract.DecisionRecord>[]
+): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    schemaVersion: '1.0.0',
+    jobId,
+    jobRevision,
+    extractionRevision,
+    decisions
+  }), 'utf8').digest('hex')}`;
+}
+
+function createReviewSet(
+  job: Job,
+  result: JobResult,
+  decisions: readonly Readonly<JobsReviewSetContract.DecisionRecord>[]
+): ReviewSet {
+  const frozenDecisions = Object.freeze(decisions.map((decision) => Object.freeze({ ...decision })));
+  return Object.freeze({
+    schemaVersion: '1.0.0',
+    jobId: job.id,
+    jobRevision: job.revision,
+    extractionRevision: result.extractionRevision,
+    reviewRevision: frozenDecisions.length,
+    digest: reviewDigest(job.id, job.revision, result.extractionRevision, frozenDecisions),
+    decisions: frozenDecisions
+  });
+}
+
+function sameSubmittedDecision(
+  existing: Readonly<JobsReviewSetContract.DecisionRecord>,
+  submitted: Readonly<JobsReviewDecisionRequestContract.Decision>
+): boolean {
+  return existing.clientDecisionId === submitted.clientDecisionId
+    && existing.targetDetectionId === submitted.targetDetectionId
+    && existing.action === submitted.action
+    && existing.reasonCode === submitted.reasonCode
+    && (existing.action !== 'RETYPE' || (submitted.action === 'RETYPE' && existing.entityType === submitted.entityType));
 }
 
 function formatFor(mediaType: CreateArtifactRequest['mediaType']): PreviewFormat {
@@ -217,6 +275,7 @@ function resultForScan(result: DetectionBearingResult, correlationId: string): J
     }) as GeneratedDetectionPage['conflictDetails'][number];
   });
   return Object.freeze({
+    extractionRevision: result.resolution.extractionRevision,
     detections: Object.freeze(detections),
     byEntity: Object.freeze(byEntity),
     conflicts: result.resolution.conflicts.length,
@@ -267,10 +326,12 @@ export function createVolatileProcessingControl(
   const artifactClaimByRequest = new Map<string, string>();
   const requestClaimByArtifact = new Map<string, string>();
   const results = new Map<string, JobResult>();
+  const reviewHistories = new Map<string, readonly Readonly<JobsReviewSetContract.DecisionRecord>[]>();
   const controllers = new Map<string, AbortController>();
   const pending: string[] = [];
   let retainedBytes = 0;
   let activeWork: Promise<void> | undefined;
+  let reviewMutation: Promise<void> = Promise.resolve();
   let closed = false;
 
   const transition = async (
@@ -443,6 +504,12 @@ export function createVolatileProcessingControl(
     });
   };
 
+  const mutateReview = <Result>(operation: () => Promise<Result>): Promise<Result> => {
+    const turn = reviewMutation.then(operation, operation);
+    reviewMutation = turn.then(() => undefined, () => undefined);
+    return turn;
+  };
+
   const control: ProcessingControlPort = {
     async initiateArtifact(request, correlationId, signal) {
       signal?.throwIfAborted();
@@ -592,6 +659,76 @@ export function createVolatileProcessingControl(
       });
     },
 
+    async getReviewSet(jobId, correlationId, signal) {
+      signal?.throwIfAborted();
+      const job = await jobs.get(jobId, correlationId, signal);
+      if (job === undefined) return undefined;
+      const result = results.get(jobId);
+      if (job.operation !== 'SCAN' || result === undefined
+        || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW')) {
+        fail('JOB_CONFLICT', 'The scan review is not available yet.', true, correlationId);
+      }
+      return createReviewSet(job, result, reviewHistories.get(jobId) ?? []);
+    },
+
+    appendReviewDecisions(jobId, request, correlationId, signal) {
+      return mutateReview(async () => {
+        signal?.throwIfAborted();
+        if (closed) fail('STORAGE_UNAVAILABLE', 'The local processing session is unavailable.', true, correlationId);
+        const job = await jobs.get(jobId, correlationId, signal);
+        if (job === undefined) return undefined;
+        const result = results.get(jobId);
+        if (job.operation !== 'SCAN' || result === undefined
+          || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW')) {
+          fail('JOB_CONFLICT', 'The scan review is not available yet.', true, correlationId);
+        }
+        const current = reviewHistories.get(jobId) ?? [];
+        const existingByClientId = new Map(current.map((decision) => [decision.clientDecisionId, decision]));
+        const replayed = request.decisions.map((decision) => {
+          const existing = existingByClientId.get(decision.clientDecisionId);
+          if (existing === undefined) return false;
+          if (!sameSubmittedDecision(existing, decision)) {
+            fail('IDEMPOTENCY_CONFLICT', 'The review decision identifier was already used.', false, correlationId);
+          }
+          return true;
+        });
+        if (replayed.every(Boolean)) return createReviewSet(job, result, current);
+        if (replayed.some(Boolean)) {
+          fail('IDEMPOTENCY_CONFLICT', 'The review decision batch cannot be partially replayed.', false, correlationId);
+        }
+        if (job.revision !== request.expectedJobRevision
+          || result.extractionRevision !== request.expectedExtractionRevision
+          || current.length !== request.expectedReviewRevision) {
+          fail('JOB_CONFLICT', 'The review revision changed.', true, correlationId);
+        }
+        if (current.length + request.decisions.length > maximumReviewDecisions) {
+          fail('RATE_LIMITED', 'The local review session has reached its decision limit.', false, correlationId);
+        }
+        const knownDetectionIds = new Set(result.detections.map(({ id }) => id));
+        const clientIds = new Set<string>();
+        for (const decision of request.decisions) {
+          if (!knownDetectionIds.has(decision.targetDetectionId)) {
+            fail('JOB_CONFLICT', 'The reviewed detection is unavailable.', false, correlationId);
+          }
+          if (clientIds.has(decision.clientDecisionId)) {
+            fail('IDEMPOTENCY_CONFLICT', 'The review decision identifier was repeated.', false, correlationId);
+          }
+          clientIds.add(decision.clientDecisionId);
+        }
+        const occurredAt = now().toISOString();
+        const appended = request.decisions.map((decision, index) => Object.freeze({
+          revision: current.length + index + 1,
+          ...decision,
+          principal: 'LOCAL_SESSION' as const,
+          occurredAt
+        }));
+        const next = Object.freeze([...current, ...appended]);
+        reviewHistories.set(jobId, next);
+        signal?.throwIfAborted();
+        return createReviewSet(job, result, next);
+      });
+    },
+
     async outputForJob(jobId, correlationId, signal) {
       signal?.throwIfAborted();
       const job = await jobs.get(jobId, correlationId, signal);
@@ -630,6 +767,7 @@ export function createVolatileProcessingControl(
       closed = true;
       for (const controller of controllers.values()) controller.abort();
       if (activeWork !== undefined) await activeWork;
+      await reviewMutation;
       for (const artifact of artifacts.values()) releaseArtifactBytes(artifact);
       artifacts.clear();
       artifactByJob.clear();
@@ -637,6 +775,7 @@ export function createVolatileProcessingControl(
       artifactClaimByRequest.clear();
       requestClaimByArtifact.clear();
       results.clear();
+      reviewHistories.clear();
       pending.splice(0);
     }
   };

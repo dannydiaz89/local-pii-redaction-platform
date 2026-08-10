@@ -114,8 +114,13 @@ redaction through the shared application core. Only an output that reaches `VERI
 time; scan input buffers are overwritten and released after processing. A verified redacted output
 is retained only until application shutdown, and uses a generic download name. Artifact
 metadata and result pages also disappear when the application closes. JavaScript strings cannot be
-reliably zeroized. Durable artifact persistence, retained jobs, editable decisions, reports, and
-restart/resume remain disabled.
+reliably zeroized. Completed scan jobs now also expose a process-local append-only review set:
+authenticated GET/POST review-decision routes accept only stable detection IDs, canonical actions,
+bounded reason codes, and extraction/job/review revisions. Exact retries replay idempotently and
+stale review revisions return `409`; document values and free-form notes are not accepted. This
+first slice supports accept, reject, and category change. It does not yet bind review history into
+the redaction plan, so the UI disables redaction after any saved decision. Boundary edits,
+manual additions, durable artifact/review persistence, reports, and restart/resume remain disabled.
 
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
@@ -147,7 +152,11 @@ value-free detection pages. Once connected, document intake admits TXT/Markdown 
 The UI displays the server-owned completion state/event count plus aggregate categories and a
 native, filterable detection table with server-owned 100-row page controls. Up to 100 unresolved
 conflict locations remain visible in a separate native table. Wide tables remain
-keyboard-scrollable at narrow viewports. For a conflict-free completed scan, the UI can start a
+keyboard-scrollable at narrow viewports. Each accepted detection now has native review controls for
+accept, reject, or changing to an entity type advertised by the live capability manifest. Saved
+actions go to the server-authoritative append-only process-local review set with explicit stale-
+revision feedback; they are not stored in browser persistence. For a conflict-free completed scan
+with no saved review decisions, the UI can start a
 second process-local job that applies the selected pinned policy, reopens and verifies the derived
 bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original
 file remains unchanged. The preview is bounded to the first 4,096 Unicode code points, and the user
@@ -158,8 +167,9 @@ retains the output only for the current application launch. It retains nothing i
 persistence and sends no filename or matched value back in JSON responses. This is session-only
 processing, not the durable review store. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
-state. Editable review decisions, durable resume/history, retained reports, and lifecycle deletion
-controls remain intentionally absent.
+state. Review is partially implemented: accept/reject/retype persistence is active, while applying
+those changes to redaction, boundary/manual actions, durable resume/history, retained reports, and
+lifecycle deletion remain intentionally open.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a

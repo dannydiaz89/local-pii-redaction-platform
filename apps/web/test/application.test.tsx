@@ -11,6 +11,19 @@ import { preflightSelectedFile } from '../src/file-preflight.js';
 import type { LocalJobClient } from '../src/job-api.js';
 import { createRedactedTextPreview } from '../src/redacted-preview.js';
 
+const scanJobId = 'job_01J4M91NJK8WAPJ7J95K73CB2M';
+const firstDetectionId = '123e4567-e89b-42d3-a456-426614174011';
+const secondDetectionId = '123e4567-e89b-42d3-a456-426614174012';
+const extractionRevision = `sha256:${'d'.repeat(64)}`;
+const emptyReview = {
+  jobId: scanJobId,
+  jobRevision: 6,
+  extractionRevision,
+  reviewRevision: 0,
+  digest: `sha256:${'e'.repeat(64)}`,
+  decisions: []
+} as const;
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -29,7 +42,8 @@ function readyClient(): CapabilityClient {
         { extension: '.markdown', maximumInputBytes: 104_857_600 },
         { extension: '.md', maximumInputBytes: 104_857_600 },
         { extension: '.txt', maximumInputBytes: 104_857_600 }
-      ]
+      ],
+      supportedEntityTypes: ['EMAIL', 'PHONE', 'SSN', 'CREDIT_CARD']
     })
   };
 }
@@ -37,7 +51,7 @@ function readyClient(): CapabilityClient {
 function readyJobClient(): LocalJobClient {
   const unavailable = (): Promise<never> => Promise.reject(new Error('NOT_IMPLEMENTED'));
   const completedJob = {
-    id: 'job_01J4M91NJK8WAPJ7J95K73CB2M', operation: 'SCAN' as const, state: 'SUCCEEDED' as const,
+    id: scanJobId, operation: 'SCAN' as const, state: 'SUCCEEDED' as const,
     revision: 6,
     policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
     createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
@@ -50,7 +64,7 @@ function readyJobClient(): LocalJobClient {
     byEntity: { EMAIL: 1 } as const,
     cursor: 0,
     nextCursor: null,
-    details: [{ entityType: 'EMAIL' as const, start: 19, end: 46, confidence: 0.99, sources: ['REGEX' as const] }],
+    details: [{ id: firstDetectionId, entityType: 'EMAIL' as const, start: 19, end: 46, confidence: 0.99, sources: ['REGEX' as const] }],
     conflictDetails: [],
     conflictDetailsLimited: false
   };
@@ -68,6 +82,7 @@ function readyJobClient(): LocalJobClient {
     }),
     scan: () => Promise.resolve({
       ...page, outcome: 'SUCCEEDED', job: completedJob,
+      review: emptyReview,
       events: [{
         id: '123e4567-e89b-42d3-a456-426614174000', cursor: 1, revision: 1,
         type: 'JOB_CREATED', occurredAt: completedJob.createdAt
@@ -90,6 +105,15 @@ function readyJobClient(): LocalJobClient {
       }
     }),
     listDetections: () => Promise.resolve(page),
+    getReviewSet: () => Promise.resolve(emptyReview),
+    appendReviewDecisions: (_jobId, _jobRevision, _extraction, _reviewRevision, decisions) => Promise.resolve({
+      ...emptyReview,
+      reviewRevision: decisions.length,
+      decisions: decisions.map((decision, index) => ({
+        ...decision, revision: index + 1, principal: 'LOCAL_SESSION' as const,
+        occurredAt: '2026-08-09T12:00:02.000Z'
+      }))
+    }),
     scanPreview: () => Promise.resolve({
       outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
       details: [{ entityType: 'EMAIL', start: 19, end: 46, confidence: 0.99, sources: ['REGEX'] }],
@@ -217,8 +241,8 @@ describe('web application foundation', () => {
         outcome: 'SUCCEEDED', detections: 2, conflicts: 0, byEntity: { EMAIL: 1, PHONE: 1 },
         jobId: 'job_01J4M91NJK8WAPJ7J95K73CB2M', jobRevision: 6, cursor: 0, nextCursor: null,
         details: [
-          { entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] },
-          { entityType: 'PHONE', start: 20, end: 30, confidence: 0.96, sources: ['REGEX'] }
+          { id: firstDetectionId, entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] },
+          { id: secondDetectionId, entityType: 'PHONE', start: 20, end: 30, confidence: 0.96, sources: ['REGEX'] }
         ],
         conflictDetails: [], conflictDetailsLimited: false,
         job: {
@@ -226,7 +250,8 @@ describe('web application foundation', () => {
           policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
           createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
         },
-        events: []
+        events: [],
+        review: emptyReview
       })
     };
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
@@ -243,6 +268,81 @@ describe('web application foundation', () => {
     await user.selectOptions(screen.getByLabelText('Filter detections'), 'EMAIL');
     expect(screen.getByText('Characters 6–12')).toBeTruthy();
     expect(screen.queryByText('Characters 21–30')).toBeNull();
+  });
+
+  it('saves an accessible category-change decision and blocks unreviewed redaction semantics', async () => {
+    const user = userEvent.setup();
+    const appendReviewDecisions = vi.fn<LocalJobClient['appendReviewDecisions']>(
+      (jobId, jobRevision, expectedExtractionRevision, _reviewRevision, decisions) => {
+        const decision = decisions[0];
+        if (decision === undefined) return Promise.reject(new Error('Review decision missing'));
+        return Promise.resolve({
+        jobId,
+        jobRevision,
+        extractionRevision: expectedExtractionRevision,
+        reviewRevision: 1,
+        digest: `sha256:${'f'.repeat(64)}`,
+        decisions: [{
+          ...decision, revision: 1, principal: 'LOCAL_SESSION',
+          occurredAt: '2026-08-09T12:00:02.000Z'
+        }]
+      });
+      }
+    );
+    const jobs: LocalJobClient = { ...readyJobClient(), appendReviewDecisions };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await screen.findByText('Characters 20–46');
+
+    await user.selectOptions(screen.getByLabelText('Review decision: Characters 20–46'), 'RETYPE');
+    const category = screen.getByLabelText('New category: Characters 20–46');
+    expect([...category.querySelectorAll('option')].map(({ textContent }) => textContent)).toEqual([
+      'Email addresses', 'Phone numbers', 'Social Security numbers', 'Payment cards'
+    ]);
+    await user.selectOptions(category, 'PHONE');
+    await user.click(screen.getByRole('button', { name: 'Save review decisions' }));
+
+    expect(await screen.findByText(
+      'Review decisions were saved to the process-local append-only history.'
+    )).toBeTruthy();
+    expect(appendReviewDecisions).toHaveBeenCalledWith(
+      scanJobId,
+      6,
+      extractionRevision,
+      0,
+      [expect.objectContaining({
+        targetDetectionId: firstDetectionId,
+        action: 'RETYPE',
+        entityType: 'PHONE',
+        reasonCode: 'INCORRECT_ENTITY_TYPE'
+      })],
+      expect.any(AbortSignal)
+    );
+    expect(screen.getByText(/Saved review decisions are not bound into the redaction plan yet/u)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Redact and preview' })).toBeNull();
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it('reports an optimistic review conflict without overwriting the local draft', async () => {
+    const user = userEvent.setup();
+    const jobs: LocalJobClient = {
+      ...readyJobClient(),
+      appendReviewDecisions: () => Promise.reject(new Error('REVIEW_REVISION_CONFLICT'))
+    };
+    render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await screen.findByText('Characters 20–46');
+    await user.selectOptions(screen.getByLabelText('Review decision: Characters 20–46'), 'REJECT');
+    await user.click(screen.getByRole('button', { name: 'Save review decisions' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This review changed in another request. Rescan the document before reconciling or saving more decisions.'
+    );
+    expect(screen.getByLabelText<HTMLSelectElement>('Review decision: Characters 20–46').value).toBe('REJECT');
   });
 
   it('keeps the table and uses server-owned pages when more results are available', async () => {
@@ -270,7 +370,7 @@ describe('web application foundation', () => {
           byEntity: { EMAIL: 1, PHONE: 1 },
           cursor,
           nextCursor: null,
-          details: [{ entityType: 'PHONE', start: 50, end: 60, confidence: 0.96, sources: ['REGEX'] }]
+          details: [{ id: secondDetectionId, entityType: 'PHONE', start: 50, end: 60, confidence: 0.96, sources: ['REGEX'] }]
         })
     };
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
@@ -295,7 +395,7 @@ describe('web application foundation', () => {
       scan: () => Promise.resolve({
         outcome: 'NEEDS_REVIEW', detections: 1, conflicts: 1, byEntity: { PHONE: 1 },
         jobId: 'job_01J4M91NJK8WAPJ7J95K73CB2M', jobRevision: 6, cursor: 0, nextCursor: null,
-        details: [{ entityType: 'PHONE', start: 29, end: 45, confidence: 0.86, sources: ['REGEX'] }],
+        details: [{ id: firstDetectionId, entityType: 'PHONE', start: 29, end: 45, confidence: 0.86, sources: ['REGEX'] }],
         conflictDetails: [{
           code: 'INCOMPATIBLE_OVERLAP', start: 29, end: 45,
           entityTypes: ['CREDIT_CARD', 'PHONE'], sources: ['CHECKSUM', 'REGEX']
@@ -306,7 +406,8 @@ describe('web application foundation', () => {
           policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
           createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
         },
-        events: []
+        events: [],
+        review: emptyReview
       })
     };
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);

@@ -15,5 +15,7 @@ export const apiContractIds = Object.freeze({
   jobEventPage: 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0',
   policyCatalog: 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0',
   previewReview: 'https://local-pii.dev/schemas/jobs/preview-review-report/2.0.0',
-  previewScan: 'https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0'
+  previewScan: 'https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0',
+  reviewDecisionRequest: 'https://local-pii.dev/schemas/jobs/review-decision-request/1.0.0',
+  reviewSet: 'https://local-pii.dev/schemas/jobs/review-set/1.0.0'
 });

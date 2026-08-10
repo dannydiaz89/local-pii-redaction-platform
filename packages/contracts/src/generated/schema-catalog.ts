@@ -3983,6 +3983,344 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/review-decision-request/1.0.0",
+    "title": "Append review decisions request",
+    "description": "A bounded optimistic-concurrency batch of value-free reviewer decisions for one scan result.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "expectedJobRevision",
+      "expectedExtractionRevision",
+      "expectedReviewRevision",
+      "decisions"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "expectedJobRevision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "expectedExtractionRevision": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "expectedReviewRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "decisions": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": {
+          "$ref": "#/$defs/Decision"
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "expectedJobRevision": 6,
+        "expectedExtractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expectedReviewRevision": 0,
+        "decisions": [
+          {
+            "clientDecisionId": "71a818d3-828c-4cc8-8536-19f05e61c88d",
+            "targetDetectionId": "abcdefab-cdef-5abc-abcd-abcdefabcdef",
+            "action": "REJECT",
+            "reasonCode": "FALSE_POSITIVE"
+          }
+        ]
+      }
+    ],
+    "$defs": {
+      "Decision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "reasonCode"
+            ],
+            "properties": {
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "ACCEPT"
+              },
+              "reasonCode": {
+                "const": "CONFIRMED_BY_REVIEWER"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "reasonCode"
+            ],
+            "properties": {
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "REJECT"
+              },
+              "reasonCode": {
+                "const": "FALSE_POSITIVE"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "entityType",
+              "reasonCode"
+            ],
+            "properties": {
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "RETYPE"
+              },
+              "entityType": {
+                "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+              },
+              "reasonCode": {
+                "const": "INCORRECT_ENTITY_TYPE"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/review-set/1.0.0",
+    "title": "Review set",
+    "description": "A bounded append-only, value-free review history bound to one scan and extraction revision.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "jobId",
+      "jobRevision",
+      "extractionRevision",
+      "reviewRevision",
+      "digest",
+      "decisions"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "jobId": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/JobId"
+      },
+      "jobRevision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "extractionRevision": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "reviewRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      },
+      "decisions": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "$ref": "#/$defs/DecisionRecord"
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "jobId": "job_01J4M91NJK8WAPJ7J95K73CB2M",
+        "jobRevision": 6,
+        "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "reviewRevision": 1,
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "decisions": [
+          {
+            "revision": 1,
+            "clientDecisionId": "71a818d3-828c-4cc8-8536-19f05e61c88d",
+            "targetDetectionId": "abcdefab-cdef-5abc-abcd-abcdefabcdef",
+            "action": "REJECT",
+            "reasonCode": "FALSE_POSITIVE",
+            "principal": "LOCAL_SESSION",
+            "occurredAt": "2026-08-10T01:00:00Z"
+          }
+        ]
+      }
+    ],
+    "$defs": {
+      "DecisionRecord": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "revision",
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "reasonCode",
+              "principal",
+              "occurredAt"
+            ],
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "ACCEPT"
+              },
+              "reasonCode": {
+                "const": "CONFIRMED_BY_REVIEWER"
+              },
+              "principal": {
+                "const": "LOCAL_SESSION"
+              },
+              "occurredAt": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "revision",
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "reasonCode",
+              "principal",
+              "occurredAt"
+            ],
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "REJECT"
+              },
+              "reasonCode": {
+                "const": "FALSE_POSITIVE"
+              },
+              "principal": {
+                "const": "LOCAL_SESSION"
+              },
+              "occurredAt": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "revision",
+              "clientDecisionId",
+              "targetDetectionId",
+              "action",
+              "entityType",
+              "reasonCode",
+              "principal",
+              "occurredAt"
+            ],
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "clientDecisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "targetDetectionId": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+              },
+              "action": {
+                "const": "RETYPE"
+              },
+              "entityType": {
+                "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+              },
+              "reasonCode": {
+                "const": "INCORRECT_ENTITY_TYPE"
+              },
+              "principal": {
+                "const": "LOCAL_SESSION"
+              },
+              "occurredAt": {
+                "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DateTime"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/models/model-manifest/1.0.0",
     "title": "Model manifest",
     "description": "Verified local model, tokenizer, protocol, provenance, and capability declaration.",

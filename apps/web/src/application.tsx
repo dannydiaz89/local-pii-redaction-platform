@@ -21,6 +21,8 @@ import type {
   PreviewEntityType,
   ProcessingRedactionSummary,
   ProcessingScanSummary,
+  ReviewDecisionInput,
+  ReviewDecisionSummary,
   ScanProgressState
 } from './job-api.js';
 import { webPreviewMaximumInputBytes } from './preview-limit.js';
@@ -55,6 +57,21 @@ type RedactionState =
   | { readonly kind: 'complete'; readonly summary: ProcessingRedactionSummary }
   | { readonly kind: 'failed' };
 
+type ReviewChoice = 'UNREVIEWED' | 'ACCEPT' | 'REJECT' | 'RETYPE';
+interface ReviewDraft {
+  readonly action: Exclude<ReviewChoice, 'UNREVIEWED'>;
+  readonly entityType?: PreviewEntityType;
+}
+type ReviewSaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'stale';
+
+function effectiveReviewDecisions(
+  decisions: readonly ReviewDecisionSummary[]
+): ReadonlyMap<string, ReviewDecisionSummary> {
+  const effective = new Map<string, ReviewDecisionSummary>();
+  for (const decision of decisions) effective.set(decision.targetDetectionId, decision);
+  return effective;
+}
+
 function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
   if (mode === 'LOCAL_HYBRID') return 'capability.localHybrid';
   return 'capability.rulesOnly';
@@ -67,12 +84,18 @@ function policyMessage(policyId: string): PlainMessageId {
 }
 
 function entityMessage(entityType: PreviewEntityType): PlainMessageId {
-  const messages: Partial<Record<PreviewEntityType, PlainMessageId>> = {
-    EMAIL: 'entity.email', PHONE: 'entity.phone', SSN: 'entity.ssn', CREDIT_CARD: 'entity.creditCard',
-    IP_ADDRESS: 'entity.ipAddress', API_KEY: 'entity.apiKey', ACCESS_TOKEN: 'entity.accessToken',
-    PASSWORD: 'entity.password'
+  const messages: Record<PreviewEntityType, PlainMessageId> = {
+    PERSON: 'entity.person', EMAIL: 'entity.email', PHONE: 'entity.phone', ADDRESS: 'entity.address',
+    LOCATION: 'entity.location', ORGANIZATION: 'entity.organization', DATE_OF_BIRTH: 'entity.dateOfBirth',
+    SSN: 'entity.ssn', NATIONAL_ID: 'entity.nationalId', PASSPORT: 'entity.passport',
+    DRIVER_LICENSE: 'entity.driverLicense', CREDIT_CARD: 'entity.creditCard',
+    BANK_ACCOUNT: 'entity.bankAccount', ROUTING_NUMBER: 'entity.routingNumber',
+    MEDICAL_RECORD: 'entity.medicalRecord', HEALTH_PLAN_ID: 'entity.healthPlanId',
+    ACCOUNT_ID: 'entity.accountId', USERNAME: 'entity.username', IP_ADDRESS: 'entity.ipAddress',
+    MAC_ADDRESS: 'entity.macAddress', API_KEY: 'entity.apiKey', ACCESS_TOKEN: 'entity.accessToken',
+    PASSWORD: 'entity.password', CUSTOM: 'entity.custom'
   };
-  return messages[entityType] ?? 'entity.other';
+  return messages[entityType];
 }
 
 function sourceMessage(source: PreviewDetectionSource): PlainMessageId {
@@ -139,6 +162,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [scan, setScan] = useState<ScanState>({ kind: 'idle' });
   const [redaction, setRedaction] = useState<RedactionState>({ kind: 'idle' });
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
+  const [reviewDrafts, setReviewDrafts] = useState<Readonly<Record<string, ReviewDraft>>>({});
+  const [reviewSaveState, setReviewSaveState] = useState<ReviewSaveState>('idle');
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
@@ -165,6 +190,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setScan({ kind: 'idle' });
     setRedaction({ kind: 'idle' });
     setDetectionFilter('ALL');
+    setReviewDrafts({});
+    setReviewSaveState('idle');
     previewController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
@@ -230,6 +257,14 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     : [];
   const visibleDetails = scan.kind === 'complete'
     ? scan.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
+    : [];
+  const effectiveReviews = useMemo(() => effectiveReviewDecisions(
+    scan.kind === 'complete' ? scan.summary.review.decisions : []
+  ), [scan]);
+  const reviewBlocksRedaction = scan.kind === 'complete' && scan.summary.review.reviewRevision > 0;
+  const reviewDraftCount = Object.keys(reviewDrafts).length;
+  const supportedReviewEntityTypes = preflight.kind === 'ready'
+    ? preflight.summary.supportedEntityTypes
     : [];
 
   return (
@@ -328,6 +363,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setScan({ kind: 'idle' });
                   setRedaction({ kind: 'idle' });
                   setDetectionFilter('ALL');
+                  setReviewDrafts({});
+                  setReviewSaveState('idle');
                 }}
               />
             ) : (
@@ -355,6 +392,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   previewController.current = controller;
                   setScan({ kind: 'scanning', progress: 'UPLOADING' });
                   setRedaction({ kind: 'idle' });
+                  setReviewDrafts({});
+                  setReviewSaveState('idle');
                   void jobClient.scan(
                     selectedFile,
                     defaultPolicy,
@@ -500,11 +539,22 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                 <th scope="col">{t('preview.columnLocation')}</th>
                                 <th scope="col">{t('preview.columnConfidence')}</th>
                                 <th scope="col">{t('preview.columnSources')}</th>
+                                <th scope="col">{t('review.columnDecision')}</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {visibleDetails.map((detail) => (
-                                <tr key={`${detail.entityType}:${String(detail.start)}:${String(detail.end)}`}>
+                              {visibleDetails.map((detail) => {
+                                const saved = effectiveReviews.get(detail.id);
+                                const draft = reviewDrafts[detail.id];
+                                const choice: ReviewChoice = draft?.action ?? saved?.action ?? 'UNREVIEWED';
+                                const selectedEntityType = draft?.entityType
+                                  ?? (saved?.action === 'RETYPE' ? saved.entityType : detail.entityType);
+                                const decisionLabel = message(locale, 'preview.location', {
+                                  start: formatInteger(locale, detail.start + 1),
+                                  end: formatInteger(locale, detail.end)
+                                });
+                                return (
+                                <tr key={detail.id}>
                                   <th scope="row">{t(entityMessage(detail.entityType))}</th>
                                   <td>{message(locale, 'preview.location', {
                                     start: formatInteger(locale, detail.start + 1),
@@ -516,10 +566,120 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                   <td>{message(locale, 'preview.sources', {
                                     sources: formatList(locale, detail.sources.map((source) => t(sourceMessage(source))))
                                   })}</td>
+                                  <td className="review-decision-cell">
+                                    <label className="visually-hidden" htmlFor={`review-${detail.id}`}>
+                                      {t('review.columnDecision')}: {decisionLabel}
+                                    </label>
+                                    <select
+                                      id={`review-${detail.id}`}
+                                      value={choice}
+                                      onChange={(event) => {
+                                        const action = event.currentTarget.value as ReviewChoice;
+                                        setReviewSaveState('idle');
+                                        setReviewDrafts((current) => {
+                                          const next = { ...current };
+                                          if (action === 'UNREVIEWED') {
+                                            const { [detail.id]: removed, ...remaining } = next;
+                                            void removed;
+                                            return remaining;
+                                          }
+                                          else if (action === 'RETYPE') {
+                                            next[detail.id] = { action, entityType: selectedEntityType };
+                                          } else next[detail.id] = { action };
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      {saved === undefined ? <option value="UNREVIEWED">{t('review.unreviewed')}</option> : null}
+                                      <option value="ACCEPT">{t('review.accept')}</option>
+                                      <option value="REJECT">{t('review.reject')}</option>
+                                      <option value="RETYPE">{t('review.retype')}</option>
+                                    </select>
+                                    {choice === 'RETYPE' ? (
+                                      <>
+                                        <label className="visually-hidden" htmlFor={`review-type-${detail.id}`}>
+                                          {t('review.category')}: {decisionLabel}
+                                        </label>
+                                        <select
+                                          id={`review-type-${detail.id}`}
+                                          value={selectedEntityType}
+                                          onChange={(event) => {
+                                            const entityType = event.currentTarget.value as PreviewEntityType;
+                                            if (!supportedReviewEntityTypes.includes(entityType)) return;
+                                            setReviewSaveState('idle');
+                                            setReviewDrafts((current) => ({
+                                              ...current,
+                                              [detail.id]: { action: 'RETYPE', entityType }
+                                            }));
+                                          }}
+                                        >
+                                          {supportedReviewEntityTypes.map((entityType) => (
+                                            <option key={entityType} value={entityType}>{t(entityMessage(entityType))}</option>
+                                          ))}
+                                        </select>
+                                      </>
+                                    ) : null}
+                                  </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
+                        </div>
+                        <div className="review-actions">
+                          <p>{t('review.scope')}</p>
+                          <Button
+                            disabled={reviewDraftCount === 0 || reviewSaveState === 'saving'}
+                            onClick={() => {
+                              const entries = Object.entries(reviewDrafts);
+                              if (entries.length === 0) return;
+                              const decisions = entries.map(([targetDetectionId, draft]): ReviewDecisionInput => {
+                                const clientDecisionId = globalThis.crypto.randomUUID();
+                                if (draft.action === 'ACCEPT') {
+                                  return { clientDecisionId, targetDetectionId, action: 'ACCEPT', reasonCode: 'CONFIRMED_BY_REVIEWER' };
+                                }
+                                if (draft.action === 'REJECT') {
+                                  return { clientDecisionId, targetDetectionId, action: 'REJECT', reasonCode: 'FALSE_POSITIVE' };
+                                }
+                                if (draft.entityType === undefined) throw new Error('The review category is unavailable.');
+                                return {
+                                  clientDecisionId, targetDetectionId, action: 'RETYPE',
+                                  entityType: draft.entityType, reasonCode: 'INCORRECT_ENTITY_TYPE'
+                                };
+                              });
+                              const controller = previewController.current;
+                              if (controller === undefined) return;
+                              setReviewSaveState('saving');
+                              void jobClient.appendReviewDecisions(
+                                scan.summary.job.id,
+                                scan.summary.job.revision,
+                                scan.summary.review.extractionRevision,
+                                scan.summary.review.reviewRevision,
+                                decisions,
+                                controller.signal
+                              ).then((review) => {
+                                if (controller.signal.aborted) return;
+                                setScan((current) => current.kind === 'complete'
+                                  && current.summary.job.id === review.jobId
+                                  ? { ...current, summary: { ...current.summary, review } }
+                                  : current);
+                                setReviewDrafts({});
+                                setReviewSaveState('saved');
+                              }, (error: unknown) => {
+                                if (!controller.signal.aborted) setReviewSaveState(
+                                  error instanceof Error && error.message === 'REVIEW_REVISION_CONFLICT'
+                                    ? 'stale'
+                                    : 'failed'
+                                );
+                              });
+                            }}
+                          >{reviewSaveState === 'saving' ? t('review.saving') : t('review.save')}</Button>
+                          <div role={reviewSaveState === 'failed' || reviewSaveState === 'stale' ? 'alert' : 'status'} aria-live="polite">
+                            {reviewSaveState === 'saved' ? t('review.saved')
+                              : reviewSaveState === 'stale' ? t('review.stale')
+                              : reviewSaveState === 'failed' ? t('review.failed')
+                                : reviewDraftCount > 0 ? t('review.pending') : null}
+                          </div>
                         </div>
                         <div className="page-controls" aria-label={t('job.pages')}>
                           <Button
@@ -592,9 +752,11 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                 <section className="redaction-panel" aria-labelledby="redaction-title">
                   <h3 id="redaction-title">{t('redaction.title')}</h3>
                   <p>{t('redaction.body')}</p>
-                  {redaction.kind !== 'complete' ? (
+                  {reviewBlocksRedaction ? (
+                    <Callout>{t('review.redactionPending')}</Callout>
+                  ) : redaction.kind !== 'complete' ? (
                     <Button
-                      disabled={redaction.kind === 'redacting'}
+                      disabled={redaction.kind === 'redacting' || reviewDraftCount > 0}
                       onClick={() => {
                         const controller = new AbortController();
                         previewController.current?.abort();

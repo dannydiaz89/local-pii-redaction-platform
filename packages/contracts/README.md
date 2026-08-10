@@ -11,6 +11,8 @@ Canonical, language-neutral data contracts for every process and package boundar
 - Drives the shared TypeScript/Python valid and invalid fixture corpus.
 - Publishes shared conservative byte, value-free detection-detail, and value-free conflict-detail
   ceilings for the ephemeral local preview boundary.
+- Defines the bounded append-only review request/set contracts used for value-free optimistic
+  decision replay without changing the immutable detector evidence contracts.
 
 ## Boundary
 

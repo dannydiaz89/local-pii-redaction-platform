@@ -39,6 +39,7 @@ const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/
 const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
 const artifactSchemaId = 'https://local-pii.dev/schemas/artifacts/artifact/1.0.0';
 const detectionPageSchemaId = 'https://local-pii.dev/schemas/jobs/detection-page/1.0.0';
+const reviewSetSchemaId = 'https://local-pii.dev/schemas/jobs/review-set/1.0.0';
 const servers: ReturnType<typeof buildApi>[] = [];
 
 function capabilityManifest(): CapabilityManifest {
@@ -619,7 +620,59 @@ describe('local API composition', () => {
     });
     expect(secondPage.statusCode).toBe(200);
     expect(secondPage.json()).toMatchObject({ jobId, total: 2, cursor: 1, nextCursor: null });
-    const serialized = `${initiated.body}${uploaded.body}${created.body}${events.body}${firstPage.body}${secondPage.body}`;
+    const initialReview = await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/review-decisions`, headers: authorization()
+    });
+    expect(initialReview.statusCode).toBe(200);
+    expect(validateContract(reviewSetSchemaId, initialReview.json()).valid).toBe(true);
+    expect(initialReview.json()).toMatchObject({ jobId, jobRevision: 6, reviewRevision: 0, decisions: [] });
+    const extractionRevision = initialReview.json<{ readonly extractionRevision: string }>().extractionRevision;
+    const targetDetectionId = firstPage.json<{
+      readonly detections: readonly { readonly id: string }[];
+    }>().detections[0]?.id;
+    expect(targetDetectionId).toBeDefined();
+    const decision = {
+      clientDecisionId: '71a818d3-828c-4cc8-8536-19f05e61c88d',
+      targetDetectionId,
+      action: 'REJECT',
+      reasonCode: 'FALSE_POSITIVE'
+    };
+    const appended = await instance.inject({
+      method: 'POST', url: `/v1/jobs/${jobId}/review-decisions`, headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', expectedJobRevision: 6, expectedExtractionRevision: extractionRevision,
+        expectedReviewRevision: 0, decisions: [decision]
+      }
+    });
+    expect(appended.statusCode).toBe(200);
+    expect(validateContract(reviewSetSchemaId, appended.json()).valid).toBe(true);
+    expect(appended.json()).toMatchObject({
+      jobId, jobRevision: 6, reviewRevision: 1,
+      decisions: [{ revision: 1, ...decision, principal: 'LOCAL_SESSION' }]
+    });
+    const replay = await instance.inject({
+      method: 'POST', url: `/v1/jobs/${jobId}/review-decisions`, headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', expectedJobRevision: 6, expectedExtractionRevision: extractionRevision,
+        expectedReviewRevision: 0, decisions: [decision]
+      }
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(appended.json());
+    const stale = await instance.inject({
+      method: 'POST', url: `/v1/jobs/${jobId}/review-decisions`, headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', expectedJobRevision: 6, expectedExtractionRevision: extractionRevision,
+        expectedReviewRevision: 0,
+        decisions: [{
+          clientDecisionId: '9430b33d-9ff1-4f27-8202-10fb4259c7ca', targetDetectionId,
+          action: 'ACCEPT', reasonCode: 'CONFIRMED_BY_REVIEWER'
+        }]
+      }
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: { code: 'JOB_CONFLICT' } });
+    const serialized = `${initiated.body}${uploaded.body}${created.body}${events.body}${firstPage.body}${secondPage.body}${initialReview.body}${appended.body}${stale.body}`;
     expect(serialized).not.toContain('first@example.test');
     expect(serialized).not.toContain('second@example.test');
   });

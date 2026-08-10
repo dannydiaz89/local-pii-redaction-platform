@@ -9,6 +9,8 @@ Accessible, localized React shell for the future local review workflow.
   state/events, cancellation, and value-free detection pagination.
 - Runs the authenticated rules-only job and renders localized status, aggregate counts, a bounded
   filterable native detection table, server-owned page controls, and a native conflict table.
+- Provides native accept/reject/retype controls whose category choices come from the live capability
+  manifest, then saves value-free actions to the server's append-only process-local review history.
 - Creates and verifies a session-only redacted copy through the real shared application core, shows
   its bounded preview, then offers a generic authenticated download without changing the source.
 - Renders only the first 4,096 Unicode code points of the verified output as escaped plain text;
@@ -34,8 +36,10 @@ bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code po
 explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the
-current application launch. The application does not provide durable resume/history, editable
-review decisions, retained reports, or lifecycle deletion. Running Vite directly intentionally shows the disconnected state
+current application launch. Any saved decision deliberately disables redaction until the next
+reviewed-redaction slice can bind the review digest into the output plan; review history is never
+silently ignored. Boundary edits, manual additions, conflict decisions, durable resume/history,
+retained reports, and lifecycle deletion remain unavailable. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.
 
 ## Development

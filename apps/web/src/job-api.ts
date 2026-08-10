@@ -3,7 +3,9 @@ import type {
   JobsJobContract,
   JobsJobEventPageContract,
   JobsPreviewReviewReportV2Contract,
-  JobsPreviewScanReportContract
+  JobsPreviewScanReportContract,
+  JobsReviewDecisionRequestContract,
+  JobsReviewSetContract
 } from '@local-pii/contracts';
 
 import {
@@ -84,6 +86,10 @@ export interface PreviewDetectionSummary {
   readonly sources: readonly PreviewDetectionSource[];
 }
 
+export interface JobDetectionSummary extends PreviewDetectionSummary {
+  readonly id: string;
+}
+
 export interface PreviewConflictSummary {
   readonly code: 'INCOMPATIBLE_OVERLAP';
   readonly start: number;
@@ -102,7 +108,7 @@ export interface DetectionPageSummary {
   readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;
   readonly cursor: number;
   readonly nextCursor: number | null;
-  readonly details: readonly PreviewDetectionSummary[];
+  readonly details: readonly JobDetectionSummary[];
   readonly conflictDetails: readonly PreviewConflictSummary[];
   readonly conflictDetailsLimited: boolean;
 }
@@ -111,6 +117,19 @@ export interface ProcessingScanSummary extends DetectionPageSummary {
   readonly outcome: PreviewOutcome;
   readonly job: JobStatusSummary;
   readonly events: readonly JobEventSummary[];
+  readonly review: ReviewSetSummary;
+}
+
+export type ReviewDecisionInput = Readonly<JobsReviewDecisionRequestContract.Decision>;
+export type ReviewDecisionSummary = Readonly<JobsReviewSetContract.DecisionRecord>;
+
+export interface ReviewSetSummary {
+  readonly jobId: string;
+  readonly jobRevision: number;
+  readonly extractionRevision: string;
+  readonly reviewRevision: number;
+  readonly digest: string;
+  readonly decisions: readonly ReviewDecisionSummary[];
 }
 
 export interface RedactedOutputSummary {
@@ -147,6 +166,15 @@ export interface LocalJobClient {
     limit: number,
     signal: AbortSignal
   ): Promise<DetectionPageSummary>;
+  getReviewSet(jobId: string, signal: AbortSignal): Promise<ReviewSetSummary>;
+  appendReviewDecisions(
+    jobId: string,
+    expectedJobRevision: number,
+    expectedExtractionRevision: string,
+    expectedReviewRevision: number,
+    decisions: readonly ReviewDecisionInput[],
+    signal: AbortSignal
+  ): Promise<ReviewSetSummary>;
   scanPreview(file: File, signal: AbortSignal): Promise<PreviewScanSummary>;
   create(
     operation: JobOperation,
@@ -164,6 +192,7 @@ const maximumJobResponseBytes = 64 * 1024;
 const maximumEventResponseBytes = 128 * 1024;
 const maximumPreviewResponseBytes = 128 * 1024;
 const maximumDetectionResponseBytes = 128 * 1024;
+const maximumReviewResponseBytes = 512 * 1024;
 export const jobRequestTimeoutMs = 5_000;
 export const scanWorkflowTimeoutMs = 30_000;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
@@ -202,6 +231,20 @@ function hasOnlyKeys(value: Readonly<Record<string, unknown>>, allowed: readonly
 
 function safeInteger(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function validReviewDecision(decision: ReviewDecisionInput): boolean {
+  const candidate = decision as Readonly<Record<string, unknown>>;
+  if (typeof candidate.clientDecisionId !== 'string' || !uuidPattern.test(candidate.clientDecisionId)
+    || typeof candidate.targetDetectionId !== 'string' || !uuidPattern.test(candidate.targetDetectionId)) return false;
+  if (candidate.action === 'ACCEPT') return candidate.reasonCode === 'CONFIRMED_BY_REVIEWER'
+    && candidate.entityType === undefined;
+  if (candidate.action === 'REJECT') return candidate.reasonCode === 'FALSE_POSITIVE'
+    && candidate.entityType === undefined;
+  return candidate.action === 'RETYPE'
+    && candidate.reasonCode === 'INCORRECT_ENTITY_TYPE'
+    && typeof candidate.entityType === 'string'
+    && entityTypes.has(candidate.entityType as PreviewEntityType);
 }
 
 function dateTime(value: unknown): value is string {
@@ -560,7 +603,7 @@ export function projectDetectionPage(value: unknown, expectedJobId: string): Det
     || (value.nextCursor !== null && value.nextCursor !== value.cursor + value.detections.length)) {
     throw new Error('DETECTION_RESPONSE_INVALID');
   }
-  const details = value.detections.map((item): PreviewDetectionSummary => {
+  const details = value.detections.map((item): JobDetectionSummary => {
     if (!isRecord(item)
       || !hasOnlyKeys(item, ['id', 'entityType', 'start', 'end', 'offsetUnit', 'confidence', 'sources'])
       || typeof item.id !== 'string' || !uuidPattern.test(item.id)
@@ -577,6 +620,7 @@ export function projectDetectionPage(value: unknown, expectedJobId: string): Det
       throw new Error('DETECTION_RESPONSE_INVALID');
     }
     return Object.freeze({
+      id: item.id,
       entityType: item.entityType as PreviewEntityType,
       start: item.start,
       end: item.end,
@@ -627,6 +671,75 @@ export function projectDetectionPage(value: unknown, expectedJobId: string): Det
   });
 }
 
+export function projectReviewSet(value: unknown, expectedJobId: string): ReviewSetSummary {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'jobId', 'jobRevision', 'extractionRevision', 'reviewRevision', 'digest', 'decisions'
+    ])
+    || value.schemaVersion !== '1.0.0'
+    || value.jobId !== expectedJobId
+    || !safeInteger(value.jobRevision, 1)
+    || typeof value.extractionRevision !== 'string' || !digestPattern.test(value.extractionRevision)
+    || !safeInteger(value.reviewRevision, 0, 1000)
+    || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
+    || !Array.isArray(value.decisions)
+    || value.decisions.length !== value.reviewRevision
+    || value.decisions.length > 1000) {
+    throw new Error('REVIEW_RESPONSE_INVALID');
+  }
+  const clientIds = new Set<string>();
+  const decisions = value.decisions.map((item, index): ReviewDecisionSummary => {
+    if (!isRecord(item)
+      || !hasOnlyKeys(item, [
+        'revision', 'clientDecisionId', 'targetDetectionId', 'action', 'entityType',
+        'reasonCode', 'principal', 'occurredAt'
+      ])
+      || item.revision !== index + 1
+      || typeof item.clientDecisionId !== 'string' || !uuidPattern.test(item.clientDecisionId)
+      || clientIds.has(item.clientDecisionId)
+      || typeof item.targetDetectionId !== 'string' || !uuidPattern.test(item.targetDetectionId)
+      || item.principal !== 'LOCAL_SESSION'
+      || !dateTime(item.occurredAt)) {
+      throw new Error('REVIEW_RESPONSE_INVALID');
+    }
+    clientIds.add(item.clientDecisionId);
+    if (item.action === 'ACCEPT' && item.reasonCode === 'CONFIRMED_BY_REVIEWER'
+      && item.entityType === undefined) {
+      return Object.freeze({
+        revision: item.revision, clientDecisionId: item.clientDecisionId,
+        targetDetectionId: item.targetDetectionId, action: item.action,
+        reasonCode: item.reasonCode, principal: item.principal, occurredAt: item.occurredAt
+      });
+    }
+    if (item.action === 'REJECT' && item.reasonCode === 'FALSE_POSITIVE'
+      && item.entityType === undefined) {
+      return Object.freeze({
+        revision: item.revision, clientDecisionId: item.clientDecisionId,
+        targetDetectionId: item.targetDetectionId, action: item.action,
+        reasonCode: item.reasonCode, principal: item.principal, occurredAt: item.occurredAt
+      });
+    }
+    if (item.action === 'RETYPE' && item.reasonCode === 'INCORRECT_ENTITY_TYPE'
+      && typeof item.entityType === 'string' && entityTypes.has(item.entityType as PreviewEntityType)) {
+      return Object.freeze({
+        revision: item.revision, clientDecisionId: item.clientDecisionId,
+        targetDetectionId: item.targetDetectionId, action: item.action,
+        entityType: item.entityType as PreviewEntityType, reasonCode: item.reasonCode,
+        principal: item.principal, occurredAt: item.occurredAt
+      });
+    }
+    throw new Error('REVIEW_RESPONSE_INVALID');
+  });
+  return Object.freeze({
+    jobId: expectedJobId,
+    jobRevision: value.jobRevision,
+    extractionRevision: value.extractionRevision,
+    reviewRevision: value.reviewRevision,
+    digest: value.digest,
+    decisions: Object.freeze(decisions)
+  });
+}
+
 function mediaTypeForFile(file: File): 'text/plain' | 'text/markdown' {
   const separator = file.name.lastIndexOf('.');
   const extension = separator < 1 ? '' : file.name.slice(separator).toLowerCase();
@@ -674,7 +787,8 @@ async function requestJson(
   signal: AbortSignal,
   maximumResponseBytes: number,
   invalidResponseCode: string,
-  requestFailureCode = 'JOB_REQUEST_FAILED'
+  requestFailureCode = 'JOB_REQUEST_FAILED',
+  conflictCode?: string
 ): Promise<unknown> {
   const response = await fetchImplementation(url, {
     method: init.method,
@@ -691,7 +805,10 @@ async function requestJson(
     referrerPolicy: 'no-referrer',
     signal
   });
-  if (url.origin !== origin.origin || !response.ok) throw new Error(requestFailureCode);
+  if (url.origin !== origin.origin || !response.ok) {
+    if (response.status === 409 && conflictCode !== undefined) throw new Error(conflictCode);
+    throw new Error(requestFailureCode);
+  }
   const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
   if (mediaType !== 'application/json') throw new Error(invalidResponseCode);
   return readBoundedJsonResponse(response, maximumResponseBytes, invalidResponseCode);
@@ -794,16 +911,20 @@ export function createLocalJobClient(
         job = await client.get(job.id, signal);
         onProgress(job.state);
       }
-      const [eventPage, detectionPage] = await Promise.all([
+      const [eventPage, detectionPage, review] = await Promise.all([
         client.listEvents(job.id, 0, 100, signal),
-        client.listDetections(job.id, 0, 100, signal)
+        client.listDetections(job.id, 0, 100, signal),
+        client.getReviewSet(job.id, signal)
       ]);
-      if (detectionPage.jobRevision !== job.revision) throw new Error('DETECTION_RESPONSE_INVALID');
+      if (detectionPage.jobRevision !== job.revision || review.jobRevision !== job.revision) {
+        throw new Error('DETECTION_RESPONSE_INVALID');
+      }
       return Object.freeze({
         ...detectionPage,
         outcome: job.state,
         job,
-        events: eventPage.events
+        events: eventPage.events,
+        review
       });
     },
 
@@ -886,6 +1007,41 @@ export function createLocalJobClient(
       ), jobId));
     },
 
+    getReviewSet(jobId, signal) {
+      return invoke(signal, async (operationSignal) => projectReviewSet(await requestJson(
+        origin, session.bearerToken, fetchImplementation, jobUrl(jobId, '/review-decisions'),
+        { method: 'GET' }, operationSignal, maximumReviewResponseBytes, 'REVIEW_RESPONSE_INVALID',
+        'REVIEW_REQUEST_FAILED'
+      ), jobId));
+    },
+
+    appendReviewDecisions(
+      jobId,
+      expectedJobRevision,
+      expectedExtractionRevision,
+      expectedReviewRevision,
+      decisions,
+      signal
+    ) {
+      if (!safeInteger(expectedJobRevision, 1)
+        || typeof expectedExtractionRevision !== 'string' || !digestPattern.test(expectedExtractionRevision)
+        || !safeInteger(expectedReviewRevision, 0, 1000)
+        || decisions.length < 1 || decisions.length > 100
+        || decisions.some((decision) => !validReviewDecision(decision))
+        || new Set(decisions.map(({ clientDecisionId }) => clientDecisionId)).size !== decisions.length) {
+        throw new TypeError('The review decision request is invalid.');
+      }
+      const body = JSON.stringify({
+        schemaVersion: '1.0.0', expectedJobRevision, expectedExtractionRevision,
+        expectedReviewRevision, decisions
+      });
+      return invoke(signal, async (operationSignal) => projectReviewSet(await requestJson(
+        origin, session.bearerToken, fetchImplementation, jobUrl(jobId, '/review-decisions'),
+        { method: 'POST', body }, operationSignal, maximumReviewResponseBytes,
+        'REVIEW_RESPONSE_INVALID', 'REVIEW_REQUEST_FAILED', 'REVIEW_REVISION_CONFLICT'
+      ), jobId));
+    },
+
     scanPreview(file, signal) {
       const separator = file.name.lastIndexOf('.');
       const extension = separator < 1 ? '' : file.name.slice(separator).toLowerCase();
@@ -964,6 +1120,8 @@ export function createDisconnectedJobClient(): LocalJobClient {
     scan: unavailable,
     redact: unavailable,
     listDetections: unavailable,
+    getReviewSet: unavailable,
+    appendReviewDecisions: unavailable,
     scanPreview: unavailable,
     create: unavailable,
     get: unavailable,
