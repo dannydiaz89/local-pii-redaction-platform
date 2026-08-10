@@ -3196,6 +3196,82 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0",
+    "title": "Ephemeral preview scan report",
+    "description": "Privacy-minimized counts from an authenticated process-local browser preview scan.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "counts"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "const": "SCAN"
+      },
+      "outcome": {
+        "enum": [
+          "SUCCEEDED",
+          "NEEDS_REVIEW"
+        ]
+      },
+      "counts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "detections",
+          "conflicts",
+          "byEntity"
+        ],
+        "properties": {
+          "detections": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "byEntity": {
+            "type": "object",
+            "maxProperties": 24,
+            "propertyNames": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "SCAN",
+        "outcome": "SUCCEEDED",
+        "counts": {
+          "detections": 1,
+          "conflicts": 0,
+          "byEntity": {
+            "EMAIL": 1
+          }
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/models/model-manifest/1.0.0",
     "title": "Model manifest",
     "description": "Verified local model, tokenizer, protocol, provenance, and capability declaration.",

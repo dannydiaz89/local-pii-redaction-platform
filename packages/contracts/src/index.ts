@@ -4,3 +4,4 @@ export * from './capabilities.js';
 export * from './validator.js';
 export * from './writer-receipt.js';
 export * from './verification-attestation.js';
+export * from './local-preview.js';

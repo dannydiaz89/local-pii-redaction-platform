@@ -3,7 +3,7 @@ info:
   title: Local PII Redaction API
   version: 0.1.0
   description: Local-first job and artifact control-plane skeleton. Artifact bytes are never embedded in JSON.
-x-implementation-status: metadata-job-control
+x-implementation-status: ephemeral-preview-and-metadata-job-control
 servers:
   - url: http://127.0.0.1:{port}
     description: Local loopback profile
@@ -49,6 +49,27 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/policy/policy-catalog.schema.json"
+  /v1/preview/scan:
+    post:
+      operationId: scanEphemeralPreview
+      description: Authenticated process-local rules scan. Request bytes are not added to an artifact or job store.
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema: { enum: [text, markdown] }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, contentMediaType: application/octet-stream }
+      responses:
+        "200":
+          description: Privacy-minimized aggregate preview result
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/preview-scan-report.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId

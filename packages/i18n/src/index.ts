@@ -14,6 +14,8 @@ export interface MessageParameters {
   readonly 'intake.hint': { readonly extensions: string; readonly limit: string };
   readonly 'intake.ready': { readonly format: string; readonly size: string };
   readonly 'intake.tooLarge': { readonly limit: string };
+  readonly 'preview.complete': { readonly count: string };
+  readonly 'preview.conflicts': { readonly count: string };
 }
 
 type ParameterizedMessageId = keyof MessageParameters;

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { localPreviewMaximumInputBytes } from '@local-pii/contracts';
+
 import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
 import { createLocalJobClient, projectPolicyCatalog } from '../src/job-api.js';
+import { webPreviewMaximumInputBytes } from '../src/preview-limit.js';
 
 const session = {
   apiOrigin: 'http://127.0.0.1:4174',
@@ -130,6 +133,10 @@ describe('browser capability client', () => {
 });
 
 describe('browser policy and job client', () => {
+  it('keeps the browser preview ceiling aligned with the canonical API contract', () => {
+    expect(webPreviewMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
+  });
+
   it('projects a closed policy catalog without presentation copy', () => {
     expect(projectPolicyCatalog(policyResponse())).toEqual({ defaultPolicy: policy, policies: [policy] });
     expect(() => projectPolicyCatalog({ ...policyResponse(), displayName: 'not canonical' })).toThrow(
@@ -147,6 +154,12 @@ describe('browser policy and job client', () => {
     const fetchImplementation = vi.fn<typeof fetch>((input) => {
       const url = requestUrl(input);
       if (url.pathname === '/v1/policies') return Promise.resolve(jsonResponse(policyResponse()));
+      if (url.pathname === '/v1/preview/scan') {
+        return Promise.resolve(jsonResponse({
+          schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+          counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } }
+        }));
+      }
       if (url.pathname.endsWith('/events')) {
         return Promise.resolve(jsonResponse({
           schemaVersion: '1.0.0', jobId, nextCursor: 1,
@@ -165,6 +178,10 @@ describe('browser policy and job client', () => {
     const signal = new AbortController().signal;
 
     await expect(client.loadPolicies(signal)).resolves.toMatchObject({ defaultPolicy: { id: policy.id } });
+    const previewFile = new File(['synthetic'], 'private-input.txt', { type: 'text/plain' });
+    await expect(client.scanPreview(previewFile, signal)).resolves.toEqual({
+      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 }
+    });
     await expect(client.create('SCAN', policy, '603df129-c778-4b13-8b2a-0fe745593c8f', signal)).resolves.toMatchObject({
       id: jobId, state: 'QUEUED'
     });
@@ -184,6 +201,7 @@ describe('browser policy and job client', () => {
     }));
     expect(normalizedCalls.map(({ url }) => url)).toEqual([
       'http://127.0.0.1:4174/v1/policies',
+      'http://127.0.0.1:4174/v1/preview/scan?format=text',
       'http://127.0.0.1:4174/v1/jobs',
       `http://127.0.0.1:4174/v1/jobs/${jobId}`,
       `http://127.0.0.1:4174/v1/jobs/${jobId}/events?after=0&limit=25`,
@@ -192,11 +210,14 @@ describe('browser policy and job client', () => {
     expect(normalizedCalls.every(({ credentials, cache, redirect, referrerPolicy }) =>
       credentials === 'omit' && cache === 'no-store' && redirect === 'error' && referrerPolicy === 'no-referrer'
     )).toBe(true);
-    expect(normalizedCalls[1]?.headers).toMatchObject({
+    expect(normalizedCalls[2]?.headers).toMatchObject({
       authorization: `Bearer ${session.bearerToken}`,
       'idempotency-key': '603df129-c778-4b13-8b2a-0fe745593c8f'
     });
-    const createBody = normalizedCalls[1]?.body;
+    expect(normalizedCalls[1]?.body).toBe(previewFile);
+    expect(normalizedCalls[1]?.headers).toMatchObject({ 'content-type': 'application/octet-stream' });
+    expect(normalizedCalls[1]?.url).not.toContain(previewFile.name);
+    const createBody = normalizedCalls[2]?.body;
     if (typeof createBody !== 'string') throw new TypeError('The job request body was not serialized.');
     expect(JSON.parse(createBody) as unknown).toEqual({
       schemaVersion: '1.0.0', operation: 'SCAN',
@@ -216,6 +237,7 @@ describe('browser policy and job client', () => {
     expect(() => client.listEvents(jobId, 0, 101, signal)).toThrow(TypeError);
     expect(() => client.create('SCAN', { ...policy, id: '../policy' },
       '603df129-c778-4b13-8b2a-0fe745593c8f', signal)).toThrow('POLICY_RESPONSE_INVALID');
+    expect(() => client.scanPreview(new File(['x'], 'synthetic.pdf'), signal)).toThrow(TypeError);
 
     let transportSignal: AbortSignal | undefined;
     const hanging = vi.fn<typeof fetch>((_input, init) => {

@@ -92,14 +92,17 @@ Origins. Secret-free health/readiness probes and the authenticated canonical
 `GET /v1/capabilities` and `GET /v1/policies` routes are implemented with bounded handlers,
 privacy-safe errors, abort propagation, and clean shutdown. The policy catalog exposes only pinned
 IDs, versions, digests, risk tiers, and example status; presentation copy stays in the UI catalog.
+Authenticated `POST /v1/preview/scan` accepts at most 8 MiB of raw TXT/Markdown bytes for a
+process-local rules scan and returns only detection/conflict/category counts. It creates no artifact
+or job record and never returns filenames, document values, offsets, or source digests.
 Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
 only pinned operational metadata. The storage-neutral
 [`@local-pii/job-store`](./packages/job-store) boundary provides revision, idempotency, transition,
 and minimized-event semantics; the development API composes its volatile reference adapter, so jobs
-execute no work and disappear when the process exits. Uploads, artifact persistence, processing,
-review, and downloads remain disabled until their durable implementations and authorization gates
-are implemented.
+execute no work and disappear when the process exits. Durable uploads, artifact persistence,
+asynchronous processing, review, redaction, and downloads remain disabled until their durable
+implementations and authorization gates are implemented.
 
 ## Web foundation
 
@@ -119,10 +122,12 @@ secrets, local/session storage, cookies, or remote catalogs. Its bounded client 
 credentials, referrers, and caching, then projects only aggregate values from the capability
 response. A separate bounded, typed client now discovers the pinned policy catalog and implements
 the metadata-only job create/status/events/cancellation request boundary; the shell renders only the
-localized default-policy name and does not invoke job actions yet. Once connected, the document intake checks only a selected file's extension and size
-against the live format-specific limits; it does not read or upload the file bytes and stores no
-selection in browser persistence. Until the trusted local launcher injects that object, the standalone preview correctly shows a
-disconnected state. Upload and processing remain intentionally absent.
+localized default-policy name and does not invoke durable job actions yet. Once connected, the
+document intake admits TXT/Markdown files up to 8 MiB and can send their raw bytes to the
+authenticated same-origin loopback endpoint for an ephemeral rules-only scan. The UI displays only
+localized aggregate counts, retains nothing in browser persistence, and sends no filename. Until the
+trusted local launcher injects its session, the standalone preview correctly shows a disconnected
+state. Durable upload, review, redaction, and download remain intentionally absent.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a
@@ -251,13 +256,14 @@ output collisions.
   hard runtime memory limit or proof that swap, core dumps, filesystem journals, snapshots, or
   shell redirection retained no bytes. Controlled reference-hardware and cross-platform resource
   qualification remain open.
-- There is no upload or job-processing HTTP API, durable job-store implementation, qualified
-  contextual model, or review workflow yet. Authenticated metadata-only job create/status/events/
+- There is no durable upload or asynchronous job-processing HTTP API, durable job-store
+  implementation, qualified contextual model, or review workflow yet. The authenticated ephemeral
+  preview accepts bounded raw bytes in memory and returns only aggregate counts. Metadata-only job create/status/events/
   cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
   store no document content.
-  The implemented web shell is limited to secured capability/policy preflight, local file-metadata
-  admission, and design-system/localization foundations. Its typed job client is deliberately not
-  connected to UI actions until the upload and durable-artifact boundary exists.
+  The implemented web shell is limited to secured capability/policy preflight, an ephemeral
+  rules-only scan, and design-system/localization foundations. Its durable job controls remain
+  disconnected until the artifact, retention, and authorization boundary exists.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
   launch and packaged-install path qualification remain open. The OS opener receives no secret in
   its process arguments. The external-browser handoff does not defend against an adversarial local

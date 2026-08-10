@@ -41,6 +41,9 @@ function readyJobClient(): LocalJobClient {
         riskTier: 'LOW', example: true
       }]
     }),
+    scanPreview: () => Promise.resolve({
+      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 }
+    }),
     create: unavailable,
     get: unavailable,
     listEvents: unavailable,
@@ -54,7 +57,7 @@ describe('web application foundation', () => {
 
     expect(await screen.findByText('Local engine is ready')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Your document stays under your control.' })).toBeTruthy();
-    expect(screen.getByText('100 MiB')).toBeTruthy();
+    expect(screen.getByText('8 MiB')).toBeTruthy();
     expect(screen.getByText('Development labels')).toBeTruthy();
     expect(screen.getByLabelText('Document file')).toBeTruthy();
     expect(screen.queryByRole('combobox')).toBeNull();
@@ -73,7 +76,24 @@ describe('web application foundation', () => {
 
     expect(screen.getByText('MD file, 1 KiB, passes the local preflight checks.')).toBeTruthy();
     expect(screen.queryByText('private-customer-record.md')).toBeNull();
-    expect(screen.getByText(/stores no selection in browser persistence/u)).toBeTruthy();
+    expect(screen.getByText(/not kept in browser persistence/u)).toBeTruthy();
+  });
+
+  it('runs an ephemeral local scan and renders only minimized localized counts', async () => {
+    const user = userEvent.setup();
+    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
+    await screen.findByText('Local engine is ready');
+    const selected = new File(['Synthetic contact: preview-canary@example.test'], 'private-source.txt', {
+      type: 'text/plain'
+    });
+
+    await user.upload(screen.getByLabelText('Document file'), selected);
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+
+    expect(await screen.findByText('1 potential item found.')).toBeTruthy();
+    expect(screen.getByText('Email addresses')).toBeTruthy();
+    expect(screen.queryByText('preview-canary@example.test')).toBeNull();
+    expect(screen.queryByText('private-source.txt')).toBeNull();
   });
 
   it('rejects unsupported and oversized selections using privacy-safe local messages', async () => {
@@ -86,14 +106,14 @@ describe('web application foundation', () => {
     expect(screen.getByRole('alert').textContent).toContain('supported extensions');
 
     const oversized = new File(['synthetic'], 'synthetic.txt', { type: 'text/plain' });
-    Object.defineProperty(oversized, 'size', { value: 104_857_601 });
+    Object.defineProperty(oversized, 'size', { value: 8_388_609 });
     await user.upload(input, oversized);
-    expect(screen.getByRole('alert').textContent).toContain('100 MiB');
+    expect(screen.getByRole('alert').textContent).toContain('8 MiB');
   });
 
   it('keeps stress locales test-only while preserving canonical capability values', async () => {
     render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} initialLocale="ar-XB" />);
-    await waitFor(() => { expect(screen.getAllByText(/١٠٠/u).length).toBeGreaterThan(0); });
+    await waitFor(() => { expect(screen.getAllByText(/٨/u).length).toBeGreaterThan(0); });
 
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.documentElement.lang).toBe('ar-XB');

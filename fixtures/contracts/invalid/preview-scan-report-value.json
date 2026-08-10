@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "SCAN",
+  "outcome": "SUCCEEDED",
+  "counts": { "detections": 1, "conflicts": 0, "byEntity": { "EMAIL": 1 } },
+  "matchedValue": "synthetic-canary@example.test"
+}

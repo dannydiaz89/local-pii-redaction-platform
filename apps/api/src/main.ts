@@ -4,6 +4,7 @@ import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profi
 
 import { runTrustedLocalLauncher } from './launcher.js';
 import { createVolatileJobControl } from './job-control.js';
+import { createLocalPreviewScan } from './preview-scan.js';
 
 const webRoot = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
       application: localTextApplication,
       jobs: createVolatileJobControl(),
       policies: { get: (signal) => { signal?.throwIfAborted(); return Promise.resolve(policyCatalog); } },
+      preview: createLocalPreviewScan(localTextApplication),
       readiness: { check: (signal) => { signal?.throwIfAborted(); return Promise.resolve(); } }
     }, { webRoot }, lifecycle.signal);
   } finally {

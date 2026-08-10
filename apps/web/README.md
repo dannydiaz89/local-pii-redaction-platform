@@ -6,6 +6,7 @@ Accessible, localized React shell for the future local review workflow.
 
 - Renders the capability, pinned-policy, and local file-metadata preflight plus the local-processing disclosure.
 - Provides a bounded typed client for metadata-only job create/status/events/cancellation requests.
+- Runs an authenticated ephemeral rules-only preview scan and renders localized aggregate counts.
 - Consumes the one-time in-memory launcher bootstrap without browser persistence.
 - Uses shared primitives and semantic tokens from `@local-pii/ui`.
 - Resolves all user-facing copy through bundled catalogs in `@local-pii/i18n`.
@@ -14,10 +15,11 @@ Accessible, localized React shell for the future local review workflow.
 
 ## Current scope
 
-The application can check a selected file's extension and size against live capabilities without
-reading or uploading its bytes, and it displays the default policy through localized presentation
-copy. The job client is not yet connected to a UI action: the application does not upload files,
-create processing jobs, or provide the detection review workspace. Running Vite directly intentionally shows the disconnected state
+The application accepts a TXT or Markdown file up to 8 MiB, sends only its raw bytes to the
+same-origin numeric-loopback API, and renders privacy-minimized category counts. The filename is not
+sent and neither bytes nor results enter browser persistence, an artifact repository, or a job
+store. The durable job client is not yet connected to a UI action, and the application does not
+provide review, redaction, or download. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.
 
 ## Development

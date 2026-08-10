@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "SCAN",
+  "outcome": "SUCCEEDED",
+  "counts": { "detections": 2, "conflicts": 0, "byEntity": { "EMAIL": 1, "PHONE": 1 } }
+}

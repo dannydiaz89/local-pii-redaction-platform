@@ -1,6 +1,8 @@
 import type {
+  CommonEntityTypeContract,
   JobsJobContract,
-  JobsJobEventPageContract
+  JobsJobEventPageContract,
+  JobsPreviewScanReportContract
 } from '@local-pii/contracts';
 
 import {
@@ -9,10 +11,13 @@ import {
   runBoundedLocalRequest,
   type LocalApiSession
 } from './api.js';
+import { webPreviewMaximumInputBytes } from './preview-limit.js';
 
 export type JobOperation = JobsJobContract.Job['operation'];
 export type JobState = JobsJobContract.Job['state'];
 export type JobEventType = JobsJobEventPageContract.JobEvent['type'];
+export type PreviewEntityType = CommonEntityTypeContract.EntityType;
+export type PreviewOutcome = JobsPreviewScanReportContract.EphemeralPreviewScanReport['outcome'];
 
 export interface PolicyReference {
   readonly id: string;
@@ -52,8 +57,16 @@ export interface JobEventPageSummary {
   readonly events: readonly JobEventSummary[];
 }
 
+export interface PreviewScanSummary {
+  readonly outcome: PreviewOutcome;
+  readonly detections: number;
+  readonly conflicts: number;
+  readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;
+}
+
 export interface LocalJobClient {
   loadPolicies(signal: AbortSignal): Promise<PolicyCatalogSummary>;
+  scanPreview(file: File, signal: AbortSignal): Promise<PreviewScanSummary>;
   create(
     operation: JobOperation,
     policy: PolicyReference,
@@ -68,6 +81,7 @@ export interface LocalJobClient {
 const maximumPolicyResponseBytes = 64 * 1024;
 const maximumJobResponseBytes = 64 * 1024;
 const maximumEventResponseBytes = 128 * 1024;
+const maximumPreviewResponseBytes = 64 * 1024;
 export const jobRequestTimeoutMs = 5_000;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/u;
@@ -83,6 +97,12 @@ const states = new Set<JobState>([
 ]);
 const eventTypes = new Set<JobEventType>([
   'JOB_CREATED', 'STATE_CHANGED', 'REVIEW_REQUIRED', 'JOB_COMPLETED', 'JOB_FAILED', 'CANCELLATION_REQUESTED'
+]);
+const entityTypes = new Set<PreviewEntityType>([
+  'PERSON', 'EMAIL', 'PHONE', 'ADDRESS', 'LOCATION', 'ORGANIZATION', 'DATE_OF_BIRTH', 'SSN',
+  'NATIONAL_ID', 'PASSPORT', 'DRIVER_LICENSE', 'CREDIT_CARD', 'BANK_ACCOUNT', 'ROUTING_NUMBER',
+  'MEDICAL_RECORD', 'HEALTH_PLAN_ID', 'ACCOUNT_ID', 'USERNAME', 'IP_ADDRESS', 'MAC_ADDRESS',
+  'API_KEY', 'ACCESS_TOKEN', 'PASSWORD', 'CUSTOM'
 ]);
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -145,6 +165,41 @@ export function projectPolicyCatalog(value: unknown): PolicyCatalogSummary {
   const defaultPolicy = policies.find(({ id }) => id === value.defaultPolicyId);
   if (defaultPolicy === undefined) throw new Error('POLICY_RESPONSE_INVALID');
   return Object.freeze({ defaultPolicy, policies });
+}
+
+export function projectPreviewScan(value: unknown): PreviewScanSummary {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, ['schemaVersion', 'operation', 'outcome', 'counts'])
+    || value.schemaVersion !== '1.0.0'
+    || value.operation !== 'SCAN'
+    || (value.outcome !== 'SUCCEEDED' && value.outcome !== 'NEEDS_REVIEW')
+    || !isRecord(value.counts)
+    || !hasOnlyKeys(value.counts, ['detections', 'conflicts', 'byEntity'])
+    || !safeInteger(value.counts.detections, 0, 10_000)
+    || !safeInteger(value.counts.conflicts, 0, 10_000)
+    || !isRecord(value.counts.byEntity)
+    || Object.keys(value.counts.byEntity).length > entityTypes.size) {
+    throw new Error('PREVIEW_RESPONSE_INVALID');
+  }
+  const byEntity: Partial<Record<PreviewEntityType, number>> = {};
+  let total = 0;
+  for (const [entityType, count] of Object.entries(value.counts.byEntity)) {
+    if (!entityTypes.has(entityType as PreviewEntityType) || !safeInteger(count, 1, 10_000)) {
+      throw new Error('PREVIEW_RESPONSE_INVALID');
+    }
+    byEntity[entityType as PreviewEntityType] = count;
+    total += count;
+  }
+  if (total !== value.counts.detections
+    || (value.outcome === 'SUCCEEDED') !== (value.counts.conflicts === 0)) {
+    throw new Error('PREVIEW_RESPONSE_INVALID');
+  }
+  return Object.freeze({
+    outcome: value.outcome,
+    detections: value.counts.detections,
+    conflicts: value.counts.conflicts,
+    byEntity: Object.freeze(byEntity)
+  });
 }
 
 function projectJob(value: unknown): JobStatusSummary {
@@ -234,17 +289,23 @@ async function requestJson(
   bearerToken: string,
   fetchImplementation: typeof fetch,
   url: URL,
-  init: Readonly<{ readonly method: 'GET' | 'POST'; readonly body?: string; readonly idempotencyKey?: string }>,
+  init: Readonly<{
+    readonly method: 'GET' | 'POST';
+    readonly body?: BodyInit;
+    readonly contentType?: string;
+    readonly idempotencyKey?: string;
+  }>,
   signal: AbortSignal,
   maximumResponseBytes: number,
-  invalidResponseCode: string
+  invalidResponseCode: string,
+  requestFailureCode = 'JOB_REQUEST_FAILED'
 ): Promise<unknown> {
   const response = await fetchImplementation(url, {
     method: init.method,
     headers: {
       authorization: `Bearer ${bearerToken}`,
       accept: 'application/json',
-      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(init.body === undefined ? {} : { 'content-type': init.contentType ?? 'application/json' }),
       ...(init.idempotencyKey === undefined ? {} : { 'idempotency-key': init.idempotencyKey })
     },
     ...(init.body === undefined ? {} : { body: init.body }),
@@ -254,7 +315,7 @@ async function requestJson(
     referrerPolicy: 'no-referrer',
     signal
   });
-  if (url.origin !== origin.origin || !response.ok) throw new Error('JOB_REQUEST_FAILED');
+  if (url.origin !== origin.origin || !response.ok) throw new Error(requestFailureCode);
   const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
   if (mediaType !== 'application/json') throw new Error(invalidResponseCode);
   return readBoundedJsonResponse(response, maximumResponseBytes, invalidResponseCode);
@@ -278,6 +339,29 @@ export function createLocalJobClient(
       return invoke(signal, async (operationSignal) => projectPolicyCatalog(await requestJson(
         origin, session.bearerToken, fetchImplementation, new URL('/v1/policies', origin),
         { method: 'GET' }, operationSignal, maximumPolicyResponseBytes, 'POLICY_RESPONSE_INVALID'
+      )));
+    },
+
+    scanPreview(file, signal) {
+      const separator = file.name.lastIndexOf('.');
+      const extension = separator < 1 ? '' : file.name.slice(separator).toLowerCase();
+      const format = extension === '.txt'
+        ? 'text'
+        : extension === '.md' || extension === '.markdown'
+          ? 'markdown'
+          : undefined;
+      if (format === undefined
+        || !Number.isSafeInteger(file.size)
+        || file.size < 0
+        || file.size > webPreviewMaximumInputBytes) {
+        throw new TypeError('The preview file is invalid.');
+      }
+      const url = new URL('/v1/preview/scan', origin);
+      url.searchParams.set('format', format);
+      return invoke(signal, async (operationSignal) => projectPreviewScan(await requestJson(
+        origin, session.bearerToken, fetchImplementation, url,
+        { method: 'POST', body: file, contentType: 'application/octet-stream' },
+        operationSignal, maximumPreviewResponseBytes, 'PREVIEW_RESPONSE_INVALID', 'PREVIEW_REQUEST_FAILED'
       )));
     },
 
@@ -333,6 +417,7 @@ export function createDisconnectedJobClient(): LocalJobClient {
   const unavailable = (): Promise<never> => Promise.reject(new Error('LOCAL_SESSION_MISSING'));
   return {
     loadPolicies: unavailable,
+    scanPreview: unavailable,
     create: unavailable,
     get: unavailable,
     listEvents: unavailable,

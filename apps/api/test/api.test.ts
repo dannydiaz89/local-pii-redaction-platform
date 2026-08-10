@@ -3,13 +3,15 @@ import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { validateContract } from '@local-pii/contracts';
+import { localPreviewMaximumInputBytes, validateContract } from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
+import { localTextApplication } from '@local-pii/profile-local';
 
 import {
   apiDefaultHandlerTimeoutMs,
   apiMaximumBodyBytes,
   buildApi,
+  createLocalPreviewScan,
   createVolatileJobControl,
   generateLocalSessionToken,
   localApiHostname,
@@ -56,6 +58,12 @@ function dependencies(overrides: Partial<ApiDependencies> = {}): ApiDependencies
     application: { getCapabilities: () => Promise.resolve(capabilityManifest()) },
     jobs: createVolatileJobControl(),
     policies: { get: () => Promise.resolve(policyCatalog()) },
+    preview: {
+      scan: () => Promise.resolve({
+        schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+        counts: { detections: 0, conflicts: 0, byEntity: {} }
+      })
+    },
     readiness: { check: () => Promise.resolve() },
     ...overrides
   };
@@ -222,6 +230,78 @@ describe('local API composition', () => {
     expect(validateContract(policyCatalogSchemaId, response.json()).valid).toBe(true);
     expect(response.body).not.toContain('displayName');
     expect(response.body).not.toContain('description');
+  });
+
+  it('scans bounded preview bytes through the real core without returning source values', async () => {
+    const plantedValue = 'preview-canary@example.test';
+    const response = await server(dependencies({
+      preview: createLocalPreviewScan(localTextApplication)
+    })).inject({
+      method: 'POST',
+      url: '/v1/preview/scan?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from(`Synthetic contact: ${plantedValue}`, 'utf8')
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+      counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } }
+    });
+    expect(response.body).not.toContain(plantedValue);
+    expect(response.body).not.toMatch(/displayName|digest|offset|path|reference|text/iu);
+  });
+
+  it('rejects malformed and over-limit preview bodies with canonical safe errors', async () => {
+    const instance = server(dependencies({ preview: createLocalPreviewScan(localTextApplication) }));
+    const corrupt = await instance.inject({
+      method: 'POST', url: '/v1/preview/scan?format=markdown',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from([0xc3, 0x28])
+    });
+    expect(corrupt.statusCode).toBe(422);
+    expectCanonicalError(corrupt);
+    expect(corrupt.body).not.toMatch(/c3|0x|buffer/iu);
+
+    const oversized = await instance.inject({
+      method: 'POST', url: '/v1/preview/scan?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.alloc(localPreviewMaximumInputBytes + 1, 0x61)
+    });
+    expect(oversized.statusCode).toBe(413);
+    expectCanonicalError(oversized);
+  });
+
+  it('admits only one preview body at a time', async () => {
+    let markStarted: (() => void) | undefined;
+    let finishScan: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const preview: ApiDependencies['preview'] = {
+      scan: () => new Promise((resolve) => {
+        markStarted?.();
+        finishScan = () => {
+          resolve({
+            schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+            counts: { detections: 0, conflicts: 0, byEntity: {} }
+          });
+        };
+      })
+    };
+    const instance = server(dependencies({ preview }));
+    const request = {
+      method: 'POST' as const,
+      url: '/v1/preview/scan?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from('synthetic', 'utf8')
+    };
+
+    const first = instance.inject(request);
+    await started;
+    const competing = await instance.inject(request);
+    expect(competing.statusCode).toBe(429);
+    expect(competing.json()).toMatchObject({ error: { code: 'RATE_LIMITED', retryable: true } });
+    finishScan?.();
+    expect((await first).statusCode).toBe(200);
   });
 
   it('maps readiness failures to a canonical 503 without exposing exceptions', async () => {

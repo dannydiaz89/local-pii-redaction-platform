@@ -8,6 +8,7 @@ import Fastify, {
 } from 'fastify';
 
 import {
+  localPreviewMaximumInputBytes,
   validateContract,
   type CapabilitiesCapabilityManifestContract,
   type CommonErrorsContract,
@@ -19,6 +20,7 @@ import type { ApplicationContext } from '@local-pii/core';
 import { SafeError } from '@local-pii/domain';
 
 import type { CancelJobRequest, CreateJobRequest, JobControlPort } from './job-control.js';
+import type { PreviewFormat, PreviewScanPort } from './preview-scan.js';
 import {
   isLocalWebShellRoute,
   registerLocalWebShell,
@@ -51,6 +53,7 @@ export interface ApiDependencies {
   readonly application: CapabilityApplicationPort;
   readonly jobs: JobControlPort;
   readonly policies: PolicyCatalogPort;
+  readonly preview: PreviewScanPort;
   readonly readiness: ApiReadinessPort;
 }
 
@@ -79,6 +82,7 @@ const errorSchemaV3Id = 'https://local-pii.dev/schemas/common/errors/3.0.0';
 const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
+const previewScanSchemaId = 'https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0';
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -214,6 +218,7 @@ function statusFor(error: SafeError): number {
   if (error instanceof HttpSafeError) return error.httpStatusCode;
   if (error.code === 'OPERATION_CANCELLED') return 408;
   if (error.code === 'INPUT_TOO_LARGE') return 413;
+  if (error.code === 'FORMAT_CORRUPT') return 422;
   if (error.code === 'FORMAT_UNSUPPORTED') return 415;
   if (error.code === 'POLICY_UNSATISFIABLE') return 422;
   if (error.code === 'AUTHORIZATION_DENIED') return 403;
@@ -337,6 +342,16 @@ function eventQuery(request: FastifyRequest): { readonly afterCursor: number; re
   return { afterCursor, limit };
 }
 
+function previewFormat(request: FastifyRequest): PreviewFormat {
+  const query = request.query;
+  if (query === null || typeof query !== 'object' || Array.isArray(query)) throw requestFailure(request);
+  const record = query as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || (record.format !== 'text' && record.format !== 'markdown')) {
+    throw requestFailure(request);
+  }
+  return record.format;
+}
+
 function idempotencyKey(request: FastifyRequest): string {
   const value = request.headers['idempotency-key'];
   if (typeof value !== 'string' || !idempotencyKeyPattern.test(value)) throw requestFailure(request);
@@ -429,6 +444,8 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
   const allowedOrigins = validateSessionPolicy(options.session);
   const jobIdempotencyScope = `session-${createHash('sha256').update(options.session.bearerToken, 'utf8').digest('hex')}`;
   const lifecycle = new AbortController();
+  const activePreviewRequests = new WeakSet<FastifyRequest>();
+  let previewActive = false;
   const handlerTimeoutMs = options.handlerTimeoutMs ?? apiDefaultHandlerTimeoutMs;
   if (!Number.isSafeInteger(handlerTimeoutMs) || handlerTimeoutMs < 100 || handlerTimeoutMs > 60_000) {
     throw new TypeError('The API handler timeout is outside the supported range.');
@@ -449,6 +466,29 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
     forceCloseConnections: true,
     return503OnClosing: true
   });
+
+  const reservePreview = (request: FastifyRequest): void => {
+    if (previewActive) {
+      throw new HttpSafeError(429, {
+        code: 'RATE_LIMITED',
+        message: 'Another local preview scan is already running.',
+        retryable: true,
+        correlationId: requestCorrelationId(request)
+      });
+    }
+    previewActive = true;
+    activePreviewRequests.add(request);
+  };
+  const releasePreview = (request: FastifyRequest): void => {
+    if (!activePreviewRequests.delete(request)) return;
+    previewActive = false;
+  };
+
+  server.addContentTypeParser(
+    'application/octet-stream',
+    { parseAs: 'buffer' },
+    (_request, body, done) => { done(null, body); }
+  );
 
   server.setErrorHandler((error, request, reply) => {
     const mapped = safeError(error, requestCorrelationId(request));
@@ -531,6 +571,20 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       dependencies.policies.get(signal)
     );
     return sendCanonical(reply, policyCatalogSchemaId, catalog);
+  });
+  server.post('/v1/preview/scan', {
+    bodyLimit: localPreviewMaximumInputBytes,
+    onRequest: (request, _reply, done) => { reservePreview(request); done(); },
+    onError: (request, _reply, _error, done) => { releasePreview(request); done(); },
+    onResponse: (request, _reply, done) => { releasePreview(request); done(); }
+  }, async (request, reply) => {
+    if (!Buffer.isBuffer(request.body)) throw requestFailure(request);
+    const report = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.preview.scan(request.body as Buffer, previewFormat(request), {
+        correlationId: requestCorrelationId(request)
+      }, signal)
+    );
+    return sendCanonical(reply, previewScanSchemaId, report);
   });
   server.post('/v1/jobs', async (request, reply) => {
     const body = canonicalBody(request, createJobRequestSchemaId) as CreateJobRequest;

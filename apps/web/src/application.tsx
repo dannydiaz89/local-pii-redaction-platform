@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   formatInteger,
@@ -11,7 +11,13 @@ import { Button, Callout, Card, FileField, Metric, StatusBadge } from '@local-pi
 
 import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
-import type { LocalJobClient, PolicyCatalogSummary } from './job-api.js';
+import type {
+  LocalJobClient,
+  PolicyCatalogSummary,
+  PreviewEntityType,
+  PreviewScanSummary
+} from './job-api.js';
+import { webPreviewMaximumInputBytes } from './preview-limit.js';
 
 type PreflightState =
   | { readonly kind: 'checking' }
@@ -25,6 +31,12 @@ export interface WebApplicationProps {
   readonly initialLocale?: AppLocale;
 }
 
+type PreviewState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'scanning' }
+  | { readonly kind: 'complete'; readonly summary: PreviewScanSummary }
+  | { readonly kind: 'failed' };
+
 function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
   if (mode === 'LOCAL_HYBRID') return 'capability.localHybrid';
   return 'capability.rulesOnly';
@@ -34,6 +46,15 @@ function policyMessage(policyId: string): PlainMessageId {
   if (policyId === 'development-labels') return 'policy.developmentLabels';
   if (policyId === 'high-risk-disclosure') return 'policy.highRiskDisclosure';
   return 'policy.configured';
+}
+
+function entityMessage(entityType: PreviewEntityType): PlainMessageId {
+  const messages: Partial<Record<PreviewEntityType, PlainMessageId>> = {
+    EMAIL: 'entity.email', PHONE: 'entity.phone', SSN: 'entity.ssn', CREDIT_CARD: 'entity.creditCard',
+    IP_ADDRESS: 'entity.ipAddress', API_KEY: 'entity.apiKey', ACCESS_TOKEN: 'entity.accessToken',
+    PASSWORD: 'entity.password'
+  };
+  return messages[entityType] ?? 'entity.other';
 }
 
 function formatByteSize(locale: AppLocale, byteLength: number): string {
@@ -52,6 +73,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [attempt, setAttempt] = useState(0);
   const [preflight, setPreflight] = useState<PreflightState>({ kind: 'checking' });
   const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
+  const [selectedFile, setSelectedFile] = useState<File>();
+  const [preview, setPreview] = useState<PreviewState>({ kind: 'idle' });
+  const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
 
@@ -65,6 +89,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     const controller = new AbortController();
     setPreflight({ kind: 'checking' });
     setFilePreflight({ kind: 'none' });
+    setSelectedFile(undefined);
+    setPreview({ kind: 'idle' });
+    previewController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
       jobClient.loadPolicies(controller.signal)
@@ -83,6 +110,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     return () => { controller.abort(); };
   }, [attempt, capabilityClient, jobClient]);
 
+  useEffect(() => () => { previewController.current?.abort(); }, []);
+
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
     : preflight.kind === 'checking'
@@ -93,6 +122,18 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const supportedExtensions = preflight.kind === 'ready'
     ? preflight.summary.supportedFiles.map(({ extension }) => extension)
     : [];
+  const previewCapabilities = preflight.kind === 'ready'
+    ? {
+      supportedFiles: preflight.summary.supportedFiles.map((format) => ({
+        ...format,
+        maximumInputBytes: Math.min(format.maximumInputBytes, webPreviewMaximumInputBytes)
+      }))
+    }
+    : { supportedFiles: [] };
+  const maximumPreviewBytes = Math.min(
+    preflight.kind === 'ready' ? preflight.summary.maximumInputBytes : webPreviewMaximumInputBytes,
+    webPreviewMaximumInputBytes
+  );
   const intakeMessage = filePreflight.kind === 'ready'
     ? message(locale, 'intake.ready', {
       format: filePreflight.extension.slice(1).toUpperCase(),
@@ -152,7 +193,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                     <Metric
                       label={t('capability.inputLimit')}
                       value={message(locale, 'units.mebibytes', {
-                        count: formatInteger(locale, Math.floor(preflight.summary.maximumInputBytes / 1024 / 1024))
+                        count: formatInteger(locale, Math.floor(maximumPreviewBytes / 1024 / 1024))
                       })}
                     />
                   </dl>
@@ -186,14 +227,18 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                 label={t('intake.label')}
                 hint={message(locale, 'intake.hint', {
                   extensions: supportedExtensions.join(', '),
-                  limit: formatByteSize(locale, preflight.summary.maximumInputBytes)
+                  limit: formatByteSize(locale, maximumPreviewBytes)
                 })}
                 accept={supportedExtensions.join(',')}
                 onChange={(event) => {
+                  previewController.current?.abort();
                   const selected = event.currentTarget.files?.length === 1
                     ? event.currentTarget.files[0]
                     : undefined;
-                  setFilePreflight(preflightSelectedFile(selected, preflight.summary));
+                  const result = preflightSelectedFile(selected, previewCapabilities);
+                  setFilePreflight(result);
+                  setSelectedFile(result.kind === 'ready' ? selected : undefined);
+                  setPreview({ kind: 'idle' });
                 }}
               />
             ) : (
@@ -210,6 +255,62 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   : filePreflight.kind === 'unsupported' || filePreflight.kind === 'too-large'
                     ? 'critical'
                     : 'neutral'}>{intakeMessage}</Callout>
+              </div>
+            ) : null}
+            {selectedFile !== undefined && filePreflight.kind === 'ready' ? (
+              <Button
+                disabled={preview.kind === 'scanning'}
+                onClick={() => {
+                  const controller = new AbortController();
+                  previewController.current?.abort();
+                  previewController.current = controller;
+                  setPreview({ kind: 'scanning' });
+                  void jobClient.scanPreview(selectedFile, controller.signal).then(
+                    (summary) => {
+                      if (!controller.signal.aborted) setPreview({ kind: 'complete', summary });
+                    },
+                    () => {
+                      if (!controller.signal.aborted) setPreview({ kind: 'failed' });
+                    }
+                  );
+                }}
+              >{preview.kind === 'scanning' ? t('preview.scanning') : t('preview.scan')}</Button>
+            ) : null}
+            {preview.kind !== 'idle' ? (
+              <div role={preview.kind === 'failed' ? 'alert' : 'status'} aria-live="polite">
+                {preview.kind === 'scanning' ? (
+                  <Callout>{t('preview.scanning')}</Callout>
+                ) : preview.kind === 'failed' ? (
+                  <Callout tone="critical">{t('preview.failed')}</Callout>
+                ) : (
+                  <Callout tone={preview.summary.conflicts === 0 ? 'positive' : 'critical'}>
+                    <p>{preview.summary.detections === 0
+                      ? t('preview.clean')
+                      : preview.summary.detections === 1
+                        ? t('preview.completeOne')
+                        : message(locale, 'preview.complete', {
+                          count: formatInteger(locale, preview.summary.detections)
+                        })}</p>
+                    {preview.summary.conflicts > 0 ? (
+                      <p>{message(locale, 'preview.conflicts', {
+                        count: formatInteger(locale, preview.summary.conflicts)
+                      })}</p>
+                    ) : null}
+                    {Object.keys(preview.summary.byEntity).length > 0 ? (
+                      <div>
+                        <h3>{t('preview.categories')}</h3>
+                        <ul className="preview-categories">
+                          {Object.entries(preview.summary.byEntity).map(([entityType, count]) => (
+                            <li key={entityType}>
+                              <span>{t(entityMessage(entityType as PreviewEntityType))}</span>
+                              <strong>{formatInteger(locale, count)}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </Callout>
+                )}
               </div>
             ) : null}
             <p className="intake-privacy">{t('intake.privacy')}</p>
