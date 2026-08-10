@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 
-import type { JobsPreviewScanReportContract } from '@local-pii/contracts';
+import {
+  localPreviewMaximumDetectionDetails,
+  type JobsPreviewReviewReportContract,
+  type JobsPreviewScanReportContract
+} from '@local-pii/contracts';
 import type { ApplicationContext, TextArtifact, TextProcessingApplication } from '@local-pii/core';
 import { parseSha256Digest, SafeError, type EntityType } from '@local-pii/domain';
 import { textCapabilityRequirement } from '@local-pii/profile-local';
 
 export type PreviewFormat = 'text' | 'markdown';
 export type PreviewScanReport = Readonly<JobsPreviewScanReportContract.EphemeralPreviewScanReport>;
+export type PreviewReviewReport = Readonly<JobsPreviewReviewReportContract.EphemeralPreviewReviewReport>;
 
 export interface PreviewScanPort {
   scan(
@@ -14,7 +19,7 @@ export interface PreviewScanPort {
     format: PreviewFormat,
     context: ApplicationContext,
     signal?: AbortSignal
-  ): Promise<PreviewScanReport>;
+  ): Promise<PreviewReviewReport>;
 }
 
 const utf8Bom = new Uint8Array([0xef, 0xbb, 0xbf]);
@@ -89,6 +94,31 @@ export function createLocalPreviewScan(application: TextProcessingApplication): 
         ...(signal === undefined ? {} : { signal })
       }, context);
       signal?.throwIfAborted();
+      const evidenceById = new Map<string, (typeof result.evidence)[number]>(
+        result.evidence.map((item) => [item.id, item])
+      );
+      const detections = result.resolution.spans
+        .slice(0, localPreviewMaximumDetectionDetails)
+        .map((span) => {
+          const sources = [...new Set(span.evidenceIds.map((id) => evidenceById.get(id)?.source)
+            .filter((source) => source !== undefined))].sort();
+          if (sources.length === 0) {
+            throw new SafeError({
+              code: 'INTERNAL_ERROR',
+              message: 'The preview detection evidence could not be reconciled.',
+              retryable: false,
+              correlationId: context.correlationId
+            });
+          }
+          return Object.freeze({
+            entityType: span.entityType,
+            start: span.start,
+            end: span.end,
+            offsetUnit: 'UNICODE_CODE_POINT' as const,
+            confidence: span.confidence,
+            sources: Object.freeze(sources) as JobsPreviewReviewReportContract.EphemeralPreviewReviewReport['detections'][number]['sources']
+          });
+        });
       return Object.freeze({
         schemaVersion: '1.0.0',
         operation: 'SCAN',
@@ -97,7 +127,9 @@ export function createLocalPreviewScan(application: TextProcessingApplication): 
           detections: result.resolution.spans.length,
           conflicts: result.resolution.conflicts.length,
           byEntity: entityCounts(result.resolution.spans.map(({ entityType }) => entityType))
-        })
+        }),
+        detections,
+        detailsLimited: result.resolution.spans.length > localPreviewMaximumDetectionDetails
       });
     }
   };

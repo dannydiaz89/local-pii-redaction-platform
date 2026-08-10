@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   formatInteger,
+  formatList,
+  formatPercent,
   localeDirection,
   message,
   type AppLocale,
@@ -14,6 +16,7 @@ import { preflightSelectedFile, type FilePreflightResult } from './file-prefligh
 import type {
   LocalJobClient,
   PolicyCatalogSummary,
+  PreviewDetectionSource,
   PreviewEntityType,
   PreviewScanSummary
 } from './job-api.js';
@@ -57,6 +60,18 @@ function entityMessage(entityType: PreviewEntityType): PlainMessageId {
   return messages[entityType] ?? 'entity.other';
 }
 
+function sourceMessage(source: PreviewDetectionSource): PlainMessageId {
+  const messages: Record<PreviewDetectionSource, PlainMessageId> = {
+    REGEX: 'source.regex',
+    CHECKSUM: 'source.checksum',
+    STRUCTURED: 'source.structured',
+    DICTIONARY: 'source.dictionary',
+    MODEL: 'source.model',
+    MANUAL: 'source.manual'
+  };
+  return messages[source];
+}
+
 function formatByteSize(locale: AppLocale, byteLength: number): string {
   const mebibyte = 1024 * 1024;
   if (byteLength >= mebibyte && byteLength % mebibyte === 0) {
@@ -75,6 +90,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
   const [selectedFile, setSelectedFile] = useState<File>();
   const [preview, setPreview] = useState<PreviewState>({ kind: 'idle' });
+  const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const previewController = useRef<AbortController | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
@@ -91,6 +107,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setFilePreflight({ kind: 'none' });
     setSelectedFile(undefined);
     setPreview({ kind: 'idle' });
+    setDetectionFilter('ALL');
     previewController.current?.abort();
     void Promise.all([
       capabilityClient.load(controller.signal),
@@ -144,6 +161,12 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
       : filePreflight.kind === 'unsupported'
         ? t('intake.unsupported')
         : t('intake.none');
+  const detailCategories = preview.kind === 'complete'
+    ? [...new Set(preview.summary.details.map(({ entityType }) => entityType))].sort()
+    : [];
+  const visibleDetails = preview.kind === 'complete'
+    ? preview.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
+    : [];
 
   return (
     <div className="app-shell">
@@ -168,7 +191,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
           </ul>
         </section>
 
-        <div className="workspace-grid">
+        <div className={`workspace-grid${preview.kind === 'complete' ? ' has-results' : ''}`}>
           <Card aria-labelledby="preflight-title">
             <div className="card-heading">
               <div>
@@ -239,6 +262,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setFilePreflight(result);
                   setSelectedFile(result.kind === 'ready' ? selected : undefined);
                   setPreview({ kind: 'idle' });
+                  setDetectionFilter('ALL');
                 }}
               />
             ) : (
@@ -307,6 +331,55 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    ) : null}
+                    {preview.summary.details.length > 0 ? (
+                      <div className="preview-review">
+                        <div className="preview-review-heading">
+                          <h3>{t('preview.details')}</h3>
+                          <div className="preview-filter">
+                            <label htmlFor="detection-filter">{t('preview.filter')}</label>
+                            <select
+                              id="detection-filter"
+                              value={detectionFilter}
+                              onChange={(event) => {
+                                const next = event.currentTarget.value;
+                                if (next === 'ALL' || detailCategories.includes(next as PreviewEntityType)) {
+                                  setDetectionFilter(next as PreviewEntityType | 'ALL');
+                                }
+                              }}
+                            >
+                              <option value="ALL">{t('preview.filterAll')}</option>
+                              {detailCategories.map((entityType) => (
+                                <option key={entityType} value={entityType}>{t(entityMessage(entityType))}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <ol className="preview-detections">
+                          {visibleDetails.map((detail) => (
+                            <li key={`${detail.entityType}:${String(detail.start)}:${String(detail.end)}`}>
+                              <strong>{t(entityMessage(detail.entityType))}</strong>
+                              <span>{message(locale, 'preview.location', {
+                                start: formatInteger(locale, detail.start + 1),
+                                end: formatInteger(locale, detail.end)
+                              })}</span>
+                              <span>{message(locale, 'preview.confidence', {
+                                percent: formatPercent(locale, detail.confidence)
+                              })}</span>
+                              <span>{message(locale, 'preview.sources', {
+                                sources: formatList(locale, detail.sources.map((source) => t(sourceMessage(source))))
+                              })}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        {preview.summary.detailsLimited ? (
+                          <p>{message(locale, 'preview.detailsLimited', {
+                            count: formatInteger(locale, preview.summary.details.length)
+                          })}</p>
+                        ) : null}
+                        <p className="preview-details-privacy">{t('preview.confidenceHint')}</p>
+                        <p className="preview-details-privacy">{t('preview.detailsPrivacy')}</p>
                       </div>
                     ) : null}
                   </Callout>

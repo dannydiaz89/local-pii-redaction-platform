@@ -3196,6 +3196,153 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/jobs/preview-review-report/1.0.0",
+    "title": "Ephemeral preview review report",
+    "description": "A bounded, value-free detection list from an authenticated process-local browser preview scan.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "counts",
+      "detections",
+      "detailsLimited"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "const": "SCAN"
+      },
+      "outcome": {
+        "enum": [
+          "SUCCEEDED",
+          "NEEDS_REVIEW"
+        ]
+      },
+      "counts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "detections",
+          "conflicts",
+          "byEntity"
+        ],
+        "properties": {
+          "detections": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "byEntity": {
+            "type": "object",
+            "maxProperties": 24,
+            "propertyNames": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            }
+          }
+        }
+      },
+      "detections": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entityType",
+            "start",
+            "end",
+            "offsetUnit",
+            "confidence",
+            "sources"
+          ],
+          "properties": {
+            "entityType": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "offsetUnit": {
+              "const": "UNICODE_CODE_POINT"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "REGEX",
+                  "CHECKSUM",
+                  "STRUCTURED",
+                  "DICTIONARY",
+                  "MODEL",
+                  "MANUAL"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "detailsLimited": {
+        "type": "boolean"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "SCAN",
+        "outcome": "SUCCEEDED",
+        "counts": {
+          "detections": 1,
+          "conflicts": 0,
+          "byEntity": {
+            "EMAIL": 1
+          }
+        },
+        "detections": [
+          {
+            "entityType": "EMAIL",
+            "start": 8,
+            "end": 25,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "confidence": 0.99,
+            "sources": [
+              "REGEX"
+            ]
+          }
+        ],
+        "detailsLimited": false
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0",
     "title": "Ephemeral preview scan report",
     "description": "Privacy-minimized counts from an authenticated process-local browser preview scan.",

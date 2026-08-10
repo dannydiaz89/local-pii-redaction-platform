@@ -2,6 +2,7 @@ import type {
   CommonEntityTypeContract,
   JobsJobContract,
   JobsJobEventPageContract,
+  JobsPreviewReviewReportContract,
   JobsPreviewScanReportContract
 } from '@local-pii/contracts';
 
@@ -11,13 +12,17 @@ import {
   runBoundedLocalRequest,
   type LocalApiSession
 } from './api.js';
-import { webPreviewMaximumInputBytes } from './preview-limit.js';
+import {
+  webPreviewMaximumDetectionDetails,
+  webPreviewMaximumInputBytes
+} from './preview-limit.js';
 
 export type JobOperation = JobsJobContract.Job['operation'];
 export type JobState = JobsJobContract.Job['state'];
 export type JobEventType = JobsJobEventPageContract.JobEvent['type'];
 export type PreviewEntityType = CommonEntityTypeContract.EntityType;
 export type PreviewOutcome = JobsPreviewScanReportContract.EphemeralPreviewScanReport['outcome'];
+export type PreviewDetectionSource = JobsPreviewReviewReportContract.EphemeralPreviewReviewReport['detections'][number]['sources'][number];
 
 export interface PolicyReference {
   readonly id: string;
@@ -62,6 +67,16 @@ export interface PreviewScanSummary {
   readonly detections: number;
   readonly conflicts: number;
   readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;
+  readonly details: readonly PreviewDetectionSummary[];
+  readonly detailsLimited: boolean;
+}
+
+export interface PreviewDetectionSummary {
+  readonly entityType: PreviewEntityType;
+  readonly start: number;
+  readonly end: number;
+  readonly confidence: number;
+  readonly sources: readonly PreviewDetectionSource[];
 }
 
 export interface LocalJobClient {
@@ -81,7 +96,7 @@ export interface LocalJobClient {
 const maximumPolicyResponseBytes = 64 * 1024;
 const maximumJobResponseBytes = 64 * 1024;
 const maximumEventResponseBytes = 128 * 1024;
-const maximumPreviewResponseBytes = 64 * 1024;
+const maximumPreviewResponseBytes = 128 * 1024;
 export const jobRequestTimeoutMs = 5_000;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/u;
@@ -103,6 +118,9 @@ const entityTypes = new Set<PreviewEntityType>([
   'NATIONAL_ID', 'PASSPORT', 'DRIVER_LICENSE', 'CREDIT_CARD', 'BANK_ACCOUNT', 'ROUTING_NUMBER',
   'MEDICAL_RECORD', 'HEALTH_PLAN_ID', 'ACCOUNT_ID', 'USERNAME', 'IP_ADDRESS', 'MAC_ADDRESS',
   'API_KEY', 'ACCESS_TOKEN', 'PASSWORD', 'CUSTOM'
+]);
+const detectionSources = new Set<PreviewDetectionSource>([
+  'REGEX', 'CHECKSUM', 'STRUCTURED', 'DICTIONARY', 'MODEL', 'MANUAL'
 ]);
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -169,7 +187,7 @@ export function projectPolicyCatalog(value: unknown): PolicyCatalogSummary {
 
 export function projectPreviewScan(value: unknown): PreviewScanSummary {
   if (!isRecord(value)
-    || !hasOnlyKeys(value, ['schemaVersion', 'operation', 'outcome', 'counts'])
+    || !hasOnlyKeys(value, ['schemaVersion', 'operation', 'outcome', 'counts', 'detections', 'detailsLimited'])
     || value.schemaVersion !== '1.0.0'
     || value.operation !== 'SCAN'
     || (value.outcome !== 'SUCCEEDED' && value.outcome !== 'NEEDS_REVIEW')
@@ -178,7 +196,10 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
     || !safeInteger(value.counts.detections, 0, 10_000)
     || !safeInteger(value.counts.conflicts, 0, 10_000)
     || !isRecord(value.counts.byEntity)
-    || Object.keys(value.counts.byEntity).length > entityTypes.size) {
+    || Object.keys(value.counts.byEntity).length > entityTypes.size
+    || !Array.isArray(value.detections)
+    || value.detections.length > webPreviewMaximumDetectionDetails
+    || typeof value.detailsLimited !== 'boolean') {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
   const byEntity: Partial<Record<PreviewEntityType, number>> = {};
@@ -194,11 +215,51 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
     || (value.outcome === 'SUCCEEDED') !== (value.counts.conflicts === 0)) {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
+  const details = value.detections.map((item): PreviewDetectionSummary => {
+    if (!isRecord(item)
+      || !hasOnlyKeys(item, ['entityType', 'start', 'end', 'offsetUnit', 'confidence', 'sources'])
+      || typeof item.entityType !== 'string' || !entityTypes.has(item.entityType as PreviewEntityType)
+      || !safeInteger(item.start, 0, 10_000_000)
+      || !safeInteger(item.end, 1, 10_000_000)
+      || item.start >= item.end
+      || item.offsetUnit !== 'UNICODE_CODE_POINT'
+      || typeof item.confidence !== 'number' || !Number.isFinite(item.confidence)
+      || item.confidence < 0 || item.confidence > 1
+      || !Array.isArray(item.sources) || item.sources.length < 1 || item.sources.length > detectionSources.size
+      || item.sources.some((source) => typeof source !== 'string'
+        || !detectionSources.has(source as PreviewDetectionSource))
+      || new Set(item.sources).size !== item.sources.length
+      || byEntity[item.entityType as PreviewEntityType] === undefined) {
+      throw new Error('PREVIEW_RESPONSE_INVALID');
+    }
+    return Object.freeze({
+      entityType: item.entityType as PreviewEntityType,
+      start: item.start,
+      end: item.end,
+      confidence: item.confidence,
+      sources: Object.freeze(item.sources as PreviewDetectionSource[])
+    });
+  });
+  if (details.length !== Math.min(value.counts.detections, webPreviewMaximumDetectionDetails)
+    || value.detailsLimited !== (value.counts.detections > webPreviewMaximumDetectionDetails)) {
+    throw new Error('PREVIEW_RESPONSE_INVALID');
+  }
+  for (let index = 1; index < details.length; index += 1) {
+    const prior = details[index - 1];
+    const current = details[index];
+    if (prior === undefined || current === undefined
+      || prior.start > current.start
+      || (prior.start === current.start && prior.end < current.end)) {
+      throw new Error('PREVIEW_RESPONSE_INVALID');
+    }
+  }
   return Object.freeze({
     outcome: value.outcome,
     detections: value.counts.detections,
     conflicts: value.counts.conflicts,
-    byEntity: Object.freeze(byEntity)
+    byEntity: Object.freeze(byEntity),
+    details: Object.freeze(details),
+    detailsLimited: value.detailsLimited
   });
 }
 
@@ -356,7 +417,7 @@ export function createLocalJobClient(
         || file.size > webPreviewMaximumInputBytes) {
         throw new TypeError('The preview file is invalid.');
       }
-      const url = new URL('/v1/preview/scan', origin);
+      const url = new URL('/v1/preview/review', origin);
       url.searchParams.set('format', format);
       return invoke(signal, async (operationSignal) => projectPreviewScan(await requestJson(
         origin, session.bearerToken, fetchImplementation, url,

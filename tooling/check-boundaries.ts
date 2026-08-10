@@ -217,6 +217,53 @@ export function moduleSpecifiersInSource(source: string, fileName = 'source.ts')
   return [...specifiers];
 }
 
+/** Returns only module specifiers that survive TypeScript type erasure. */
+export function runtimeModuleSpecifiersInSource(source: string, fileName = 'source.ts'): readonly string[] {
+  const scriptKind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKind);
+  const specifiers = new Set<string>();
+  const add = (expression: ts.Expression): void => {
+    const specifier = moduleNameFromExpression(expression);
+    if (specifier !== undefined) specifiers.add(specifier);
+  };
+  const importIsTypeOnly = (node: ts.ImportDeclaration): boolean => {
+    const clause = node.importClause;
+    if (clause === undefined) return false;
+    if (clause.phaseModifier === ts.SyntaxKind.TypeKeyword) return true;
+    return clause.name === undefined
+      && clause.namedBindings !== undefined
+      && ts.isNamedImports(clause.namedBindings)
+      && clause.namedBindings.elements.length > 0
+      && clause.namedBindings.elements.every((element) => element.isTypeOnly);
+  };
+  const exportIsTypeOnly = (node: ts.ExportDeclaration): boolean => node.isTypeOnly
+    || (node.exportClause !== undefined
+      && ts.isNamedExports(node.exportClause)
+      && node.exportClause.elements.length > 0
+      && node.exportClause.elements.every((element) => element.isTypeOnly));
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && !importIsTypeOnly(node)) add(node.moduleSpecifier);
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined && !exportIsTypeOnly(node)) {
+      add(node.moduleSpecifier);
+    }
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      add(node.moduleReference.expression);
+    }
+    if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] !== undefined) {
+        add(node.arguments[0]);
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'require' && node.arguments[0] !== undefined) {
+        add(node.arguments[0]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return [...specifiers];
+}
+
 function isModuleOrSubpath(specifier: string, prefix: string): boolean {
   return specifier === prefix || specifier.startsWith(`${prefix}/`);
 }
@@ -268,6 +315,7 @@ export function checkSourceDependencyDirection(
   } = {}
 ): readonly BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
+  const runtimeSpecifiers = new Set(runtimeModuleSpecifiersInSource(source, path));
   for (const specifier of moduleSpecifiersInSource(source, path)) {
     const workspacePackage = workspacePackageFromSpecifier(specifier);
     if (specifier.startsWith('@local-pii/') && workspacePackage === undefined) {
@@ -275,6 +323,15 @@ export function checkSourceDependencyDirection(
       continue;
     }
     if (workspacePackage !== undefined) {
+      if (options.webRuntime === true
+        && workspacePackage === 'contracts'
+        && runtimeSpecifiers.has(specifier)) {
+        violations.push(violation(
+          path,
+          'imports @local-pii/contracts at browser runtime; use type-only imports and browser-safe drift-checked constants'
+        ));
+        continue;
+      }
       if (
         options.webRuntime === true
         && workspacePackage === 'ui'

@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { localPreviewMaximumInputBytes } from '@local-pii/contracts';
+import {
+  localPreviewMaximumDetectionDetails,
+  localPreviewMaximumInputBytes
+} from '@local-pii/contracts';
 
 import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
-import { createLocalJobClient, projectPolicyCatalog } from '../src/job-api.js';
-import { webPreviewMaximumInputBytes } from '../src/preview-limit.js';
+import { createLocalJobClient, projectPolicyCatalog, projectPreviewScan } from '../src/job-api.js';
+import {
+  webPreviewMaximumDetectionDetails,
+  webPreviewMaximumInputBytes
+} from '../src/preview-limit.js';
 
 const session = {
   apiOrigin: 'http://127.0.0.1:4174',
@@ -135,6 +141,7 @@ describe('browser capability client', () => {
 describe('browser policy and job client', () => {
   it('keeps the browser preview ceiling aligned with the canonical API contract', () => {
     expect(webPreviewMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
+    expect(webPreviewMaximumDetectionDetails).toBe(localPreviewMaximumDetectionDetails);
   });
 
   it('projects a closed policy catalog without presentation copy', () => {
@@ -150,14 +157,41 @@ describe('browser policy and job client', () => {
     );
   });
 
+  it('rejects inconsistent or content-bearing preview review responses', () => {
+    const valid = {
+      schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+      counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
+      detections: [{
+        entityType: 'EMAIL', start: 5, end: 12, offsetUnit: 'UNICODE_CODE_POINT',
+        confidence: 0.99, sources: ['REGEX']
+      }],
+      detailsLimited: false
+    };
+    expect(projectPreviewScan(valid)).toMatchObject({ details: [{ start: 5, end: 12 }] });
+    expect(() => projectPreviewScan({
+      ...valid,
+      detections: [{ ...valid.detections[0], matchedValue: 'synthetic@example.test' }]
+    })).toThrow('PREVIEW_RESPONSE_INVALID');
+    expect(() => projectPreviewScan({ ...valid, detailsLimited: true })).toThrow('PREVIEW_RESPONSE_INVALID');
+    expect(() => projectPreviewScan({
+      ...valid,
+      detections: [{ ...valid.detections[0], start: 12, end: 5 }]
+    })).toThrow('PREVIEW_RESPONSE_INVALID');
+  });
+
   it('uses a bounded metadata-only request matrix for jobs and events', async () => {
     const fetchImplementation = vi.fn<typeof fetch>((input) => {
       const url = requestUrl(input);
       if (url.pathname === '/v1/policies') return Promise.resolve(jsonResponse(policyResponse()));
-      if (url.pathname === '/v1/preview/scan') {
+      if (url.pathname === '/v1/preview/review') {
         return Promise.resolve(jsonResponse({
           schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
-          counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } }
+          counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
+          detections: [{
+            entityType: 'EMAIL', start: 5, end: 12, offsetUnit: 'UNICODE_CODE_POINT',
+            confidence: 0.99, sources: ['REGEX']
+          }],
+          detailsLimited: false
         }));
       }
       if (url.pathname.endsWith('/events')) {
@@ -180,7 +214,9 @@ describe('browser policy and job client', () => {
     await expect(client.loadPolicies(signal)).resolves.toMatchObject({ defaultPolicy: { id: policy.id } });
     const previewFile = new File(['synthetic'], 'private-input.txt', { type: 'text/plain' });
     await expect(client.scanPreview(previewFile, signal)).resolves.toEqual({
-      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 }
+      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
+      details: [{ entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] }],
+      detailsLimited: false
     });
     await expect(client.create('SCAN', policy, '603df129-c778-4b13-8b2a-0fe745593c8f', signal)).resolves.toMatchObject({
       id: jobId, state: 'QUEUED'
@@ -201,7 +237,7 @@ describe('browser policy and job client', () => {
     }));
     expect(normalizedCalls.map(({ url }) => url)).toEqual([
       'http://127.0.0.1:4174/v1/policies',
-      'http://127.0.0.1:4174/v1/preview/scan?format=text',
+      'http://127.0.0.1:4174/v1/preview/review?format=text',
       'http://127.0.0.1:4174/v1/jobs',
       `http://127.0.0.1:4174/v1/jobs/${jobId}`,
       `http://127.0.0.1:4174/v1/jobs/${jobId}/events?after=0&limit=25`,

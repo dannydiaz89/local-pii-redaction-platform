@@ -94,7 +94,10 @@ privacy-safe errors, abort propagation, and clean shutdown. The policy catalog e
 IDs, versions, digests, risk tiers, and example status; presentation copy stays in the UI catalog.
 Authenticated `POST /v1/preview/scan` accepts at most 8 MiB of raw TXT/Markdown bytes for a
 process-local rules scan and returns only detection/conflict/category counts. It creates no artifact
-or job record and never returns filenames, document values, offsets, or source digests.
+or job record and never returns filenames, document values, offsets, or source digests. The additive
+`POST /v1/preview/review` route returns at most 100 value-free detection rows containing only entity
+type, Unicode code-point offsets, detector confidence, and bounded evidence-source enums; the
+aggregate endpoint remains available for clients that do not need locations.
 Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
 only pinned operational metadata. The storage-neutral
@@ -125,7 +128,9 @@ the metadata-only job create/status/events/cancellation request boundary; the sh
 localized default-policy name and does not invoke durable job actions yet. Once connected, the
 document intake admits TXT/Markdown files up to 8 MiB and can send their raw bytes to the
 authenticated same-origin loopback endpoint for an ephemeral rules-only scan. The UI displays only
-localized aggregate counts, retains nothing in browser persistence, and sends no filename. Until the
+localized aggregate counts plus a filterable list of at most 100 value-free locations, confidence
+scores, and evidence sources. It retains nothing in browser persistence and sends no filename or
+matched value back in the response. Until the
 trusted local launcher injects its session, the standalone preview correctly shows a disconnected
 state. Durable upload, review, redaction, and download remain intentionally absent.
 
@@ -258,11 +263,12 @@ output collisions.
   qualification remain open.
 - There is no durable upload or asynchronous job-processing HTTP API, durable job-store
   implementation, qualified contextual model, or review workflow yet. The authenticated ephemeral
-  preview accepts bounded raw bytes in memory and returns only aggregate counts. Metadata-only job create/status/events/
+  preview accepts bounded raw bytes in memory and returns aggregate counts plus at most 100
+  value-free detection locations. Metadata-only job create/status/events/
   cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
   store no document content.
   The implemented web shell is limited to secured capability/policy preflight, an ephemeral
-  rules-only scan, and design-system/localization foundations. Its durable job controls remain
+  rules-only scan with a native category filter, and design-system/localization foundations. Its durable job controls remain
   disconnected until the artifact, retention, and authorization boundary exists.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
   launch and packaged-install path qualification remain open. The OS opener receives no secret in

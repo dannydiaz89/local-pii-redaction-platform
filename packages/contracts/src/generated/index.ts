@@ -21,6 +21,7 @@ export * as JobsCreateJobRequestContract from './jobs-create-job-request.js';
 export * as JobsJobEventPageContract from './jobs-job-event-page.js';
 export * as JobsJobEventContract from './jobs-job-event.js';
 export * as JobsJobContract from './jobs-job.js';
+export * as JobsPreviewReviewReportContract from './jobs-preview-review-report.js';
 export * as JobsPreviewScanReportContract from './jobs-preview-scan-report.js';
 export * as ModelsModelManifestContract from './models-model-manifest.js';
 export * as PolicyPolicyCatalogContract from './policy-policy-catalog.js';

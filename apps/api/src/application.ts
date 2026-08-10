@@ -83,6 +83,7 @@ const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
 const previewScanSchemaId = 'https://local-pii.dev/schemas/jobs/preview-scan-report/1.0.0';
+const previewReviewSchemaId = 'https://local-pii.dev/schemas/jobs/preview-review-report/1.0.0';
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -584,7 +585,26 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
         correlationId: requestCorrelationId(request)
       }, signal)
     );
-    return sendCanonical(reply, previewScanSchemaId, report);
+    return sendCanonical(reply, previewScanSchemaId, {
+      schemaVersion: report.schemaVersion,
+      operation: report.operation,
+      outcome: report.outcome,
+      counts: report.counts
+    });
+  });
+  server.post('/v1/preview/review', {
+    bodyLimit: localPreviewMaximumInputBytes,
+    onRequest: (request, _reply, done) => { reservePreview(request); done(); },
+    onError: (request, _reply, _error, done) => { releasePreview(request); done(); },
+    onResponse: (request, _reply, done) => { releasePreview(request); done(); }
+  }, async (request, reply) => {
+    if (!Buffer.isBuffer(request.body)) throw requestFailure(request);
+    const report = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.preview.scan(request.body as Buffer, previewFormat(request), {
+        correlationId: requestCorrelationId(request)
+      }, signal)
+    );
+    return sendCanonical(reply, previewReviewSchemaId, report);
   });
   server.post('/v1/jobs', async (request, reply) => {
     const body = canonicalBody(request, createJobRequestSchemaId) as CreateJobRequest;

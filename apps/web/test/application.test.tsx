@@ -42,7 +42,9 @@ function readyJobClient(): LocalJobClient {
       }]
     }),
     scanPreview: () => Promise.resolve({
-      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 }
+      outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
+      details: [{ entityType: 'EMAIL', start: 19, end: 46, confidence: 0.99, sources: ['REGEX'] }],
+      detailsLimited: false
     }),
     create: unavailable,
     get: unavailable,
@@ -81,7 +83,7 @@ describe('web application foundation', () => {
 
   it('runs an ephemeral local scan and renders only minimized localized counts', async () => {
     const user = userEvent.setup();
-    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
     await screen.findByText('Local engine is ready');
     const selected = new File(['Synthetic contact: preview-canary@example.test'], 'private-source.txt', {
       type: 'text/plain'
@@ -91,9 +93,40 @@ describe('web application foundation', () => {
     await user.click(screen.getByRole('button', { name: 'Scan locally' }));
 
     expect(await screen.findByText('1 potential item found.')).toBeTruthy();
-    expect(screen.getByText('Email addresses')).toBeTruthy();
+    expect(screen.getAllByText('Email addresses').length).toBeGreaterThan(1);
+    expect(screen.getByRole('heading', { level: 3, name: 'Detection details' })).toBeTruthy();
+    expect(screen.getByLabelText('Filter detections')).toBeTruthy();
+    expect(screen.getByText('Characters 20–46')).toBeTruthy();
+    expect(screen.getByText('Detector confidence: 99%')).toBeTruthy();
+    expect(screen.getByText('Evidence source: pattern rule')).toBeTruthy();
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it('filters value-free detection locations with a native control', async () => {
+    const user = userEvent.setup();
+    const jobs: LocalJobClient = {
+      ...readyJobClient(),
+      scanPreview: () => Promise.resolve({
+        outcome: 'SUCCEEDED', detections: 2, conflicts: 0, byEntity: { EMAIL: 1, PHONE: 1 },
+        details: [
+          { entityType: 'EMAIL', start: 5, end: 12, confidence: 0.99, sources: ['REGEX'] },
+          { entityType: 'PHONE', start: 20, end: 30, confidence: 0.96, sources: ['REGEX'] }
+        ],
+        detailsLimited: false
+      })
+    };
+    render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await screen.findByText('Characters 6–12');
+    expect(screen.getByText('Characters 21–30')).toBeTruthy();
+
+    await user.selectOptions(screen.getByLabelText('Filter detections'), 'EMAIL');
+    expect(screen.getByText('Characters 6–12')).toBeTruthy();
+    expect(screen.queryByText('Characters 21–30')).toBeNull();
   });
 
   it('rejects unsupported and oversized selections using privacy-safe local messages', async () => {

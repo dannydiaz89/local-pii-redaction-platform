@@ -3,7 +3,11 @@ import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { localPreviewMaximumInputBytes, validateContract } from '@local-pii/contracts';
+import {
+  localPreviewMaximumDetectionDetails,
+  localPreviewMaximumInputBytes,
+  validateContract
+} from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
 import { localTextApplication } from '@local-pii/profile-local';
 
@@ -61,7 +65,8 @@ function dependencies(overrides: Partial<ApiDependencies> = {}): ApiDependencies
     preview: {
       scan: () => Promise.resolve({
         schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
-        counts: { detections: 0, conflicts: 0, byEntity: {} }
+        counts: { detections: 0, conflicts: 0, byEntity: {} },
+        detections: [], detailsLimited: false
       })
     },
     readiness: { check: () => Promise.resolve() },
@@ -252,6 +257,57 @@ describe('local API composition', () => {
     expect(response.body).not.toMatch(/displayName|digest|offset|path|reference|text/iu);
   });
 
+  it('returns bounded value-free detection locations for ephemeral browser review', async () => {
+    const plantedValue = 'preview-canary@example.test';
+    const response = await server(dependencies({
+      preview: createLocalPreviewScan(localTextApplication)
+    })).inject({
+      method: 'POST',
+      url: '/v1/preview/review?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from(`Synthetic contact: ${plantedValue}`, 'utf8')
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
+      counts: { detections: 1, conflicts: 0, byEntity: { EMAIL: 1 } },
+      detections: [{
+        entityType: 'EMAIL', start: 19, end: 46, offsetUnit: 'UNICODE_CODE_POINT',
+        confidence: 0.99, sources: ['REGEX']
+      }],
+      detailsLimited: false
+    });
+    expect(response.body).not.toContain(plantedValue);
+    expect(response.body).not.toMatch(/displayName|digest|path|reference|matchedValue|text/iu);
+  });
+
+  it('limits ephemeral detection detail rows without changing aggregate counts', async () => {
+    const plantedValues = Array.from(
+      { length: localPreviewMaximumDetectionDetails + 1 },
+      (_, index) => `synthetic${String(index).padStart(3, '0')}@example.test`
+    );
+    const response = await server(dependencies({
+      preview: createLocalPreviewScan(localTextApplication)
+    })).inject({
+      method: 'POST',
+      url: '/v1/preview/review?format=text',
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' },
+      payload: Buffer.from(plantedValues.join('\n'), 'utf8')
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      readonly counts: { readonly detections: number };
+      readonly detections: readonly unknown[];
+      readonly detailsLimited: boolean;
+    }>();
+    expect(body.counts.detections).toBe(localPreviewMaximumDetectionDetails + 1);
+    expect(body.detections).toHaveLength(localPreviewMaximumDetectionDetails);
+    expect(body.detailsLimited).toBe(true);
+    expect(plantedValues.every((value) => !response.body.includes(value))).toBe(true);
+  });
+
   it('rejects malformed and over-limit preview bodies with canonical safe errors', async () => {
     const instance = server(dependencies({ preview: createLocalPreviewScan(localTextApplication) }));
     const corrupt = await instance.inject({
@@ -282,7 +338,8 @@ describe('local API composition', () => {
         finishScan = () => {
           resolve({
             schemaVersion: '1.0.0', operation: 'SCAN', outcome: 'SUCCEEDED',
-            counts: { detections: 0, conflicts: 0, byEntity: {} }
+            counts: { detections: 0, conflicts: 0, byEntity: {} },
+            detections: [], detailsLimited: false
           });
         };
       })

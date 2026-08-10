@@ -16,6 +16,10 @@ export interface MessageParameters {
   readonly 'intake.tooLarge': { readonly limit: string };
   readonly 'preview.complete': { readonly count: string };
   readonly 'preview.conflicts': { readonly count: string };
+  readonly 'preview.location': { readonly start: string; readonly end: string };
+  readonly 'preview.confidence': { readonly percent: string };
+  readonly 'preview.sources': { readonly sources: string };
+  readonly 'preview.detailsLimited': { readonly count: string };
 }
 
 type ParameterizedMessageId = keyof MessageParameters;
@@ -72,6 +76,19 @@ export function localeDirection(locale: AppLocale): TextDirection {
 export function formatInteger(locale: AppLocale, value: number): string {
   const formattingLocale = locale === 'ar-XB' ? 'ar-EG-u-nu-arab' : 'en';
   return new Intl.NumberFormat(formattingLocale, { maximumFractionDigits: 0 }).format(value);
+}
+
+export function formatPercent(locale: AppLocale, value: number): string {
+  const formattingLocale = locale === 'ar-XB' ? 'ar-EG-u-nu-arab' : 'en';
+  return new Intl.NumberFormat(formattingLocale, {
+    style: 'percent',
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+export function formatList(locale: AppLocale, values: readonly string[]): string {
+  const formattingLocale = locale === 'ar-XB' ? 'ar-EG' : 'en';
+  return new Intl.ListFormat(formattingLocale, { style: 'long', type: 'conjunction' }).format(values);
 }
 
 export function isAppLocale(value: unknown): value is AppLocale {

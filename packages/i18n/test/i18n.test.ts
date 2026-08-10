@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatInteger,
+  formatList,
+  formatPercent,
   isAppLocale,
   localeDirection,
   message,
@@ -28,6 +30,8 @@ describe('localization foundation', () => {
   it('formats numbers with the active presentation locale without changing canonical values', () => {
     expect(formatInteger('en', 12_345)).toBe('12,345');
     expect(formatInteger('ar-XB', 12_345)).not.toBe('12,345');
+    expect(formatPercent('en', 0.99)).toBe('99%');
+    expect(formatList('en', ['pattern rule', 'checksum'])).toBe('pattern rule and checksum');
     expect(isAppLocale('fr')).toBe(false);
   });
 });

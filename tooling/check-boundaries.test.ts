@@ -6,7 +6,8 @@ import {
   checkPackageManifest,
   checkSourceDependencyDirection,
   checkWebManifest,
-  moduleSpecifiersInSource
+  moduleSpecifiersInSource,
+  runtimeModuleSpecifiersInSource
 } from './check-boundaries.js';
 
 describe('boundary checker', () => {
@@ -33,6 +34,29 @@ describe('boundary checker', () => {
       "import { Button } from '@local-pii/ui'; export const View = () => <Button />;",
       'view.tsx'
     )).toEqual(['@local-pii/ui']);
+  });
+
+  it('distinguishes type-only imports from browser runtime imports', () => {
+    expect(runtimeModuleSpecifiersInSource([
+      "import type { Detection } from '@local-pii/contracts';",
+      "import { type Job } from '@local-pii/contracts';",
+      "import { localPreviewMaximumInputBytes } from '@local-pii/contracts';"
+    ].join('\n'))).toEqual(['@local-pii/contracts']);
+
+    expect(checkSourceDependencyDirection(
+      'apps/web/src/example.ts',
+      "import { localPreviewMaximumInputBytes } from '@local-pii/contracts';",
+      ['contracts', 'i18n', 'ui'],
+      { webRuntime: true }
+    ).map(({ message }) => message)).toEqual([
+      'imports @local-pii/contracts at browser runtime; use type-only imports and browser-safe drift-checked constants'
+    ]);
+    expect(checkSourceDependencyDirection(
+      'apps/web/src/example.ts',
+      "import type { Detection } from '@local-pii/contracts';",
+      ['contracts', 'i18n', 'ui'],
+      { webRuntime: true }
+    )).toEqual([]);
   });
 
   it('rejects server, durable infrastructure, and non-public workspace imports from the CLI', () => {

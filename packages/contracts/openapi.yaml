@@ -70,6 +70,27 @@ paths:
             application/json:
               schema:
                 $ref: "./schemas/jobs/preview-scan-report.schema.json"
+  /v1/preview/review:
+    post:
+      operationId: reviewEphemeralPreview
+      description: Authenticated process-local rules scan returning bounded value-free locations and confidence evidence.
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema: { enum: [text, markdown] }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, contentMediaType: application/octet-stream }
+      responses:
+        "200":
+          description: Bounded value-free detection review result
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/jobs/preview-review-report.schema.json"
   /v1/jobs/{jobId}:
     parameters:
       - name: jobId
