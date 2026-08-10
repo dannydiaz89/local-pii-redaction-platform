@@ -8,9 +8,10 @@ import {
   type AppLocale,
   type PlainMessageId
 } from '@local-pii/i18n';
-import { Button, Callout, Card, Metric, SelectField, StatusBadge } from '@local-pii/ui';
+import { Button, Callout, Card, FileField, Metric, SelectField, StatusBadge } from '@local-pii/ui';
 
 import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
+import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
 
 type PreflightState =
   | { readonly kind: 'checking' }
@@ -34,10 +35,22 @@ function localeLabel(locale: AppLocale, option: AppLocale): string {
   return message(locale, 'locale.en');
 }
 
+function formatByteSize(locale: AppLocale, byteLength: number): string {
+  const mebibyte = 1024 * 1024;
+  if (byteLength >= mebibyte && byteLength % mebibyte === 0) {
+    return message(locale, 'units.mebibytes', { count: formatInteger(locale, byteLength / mebibyte) });
+  }
+  if (byteLength >= 1024 && byteLength % 1024 === 0) {
+    return message(locale, 'units.kibibytes', { count: formatInteger(locale, byteLength / 1024) });
+  }
+  return message(locale, 'units.bytes', { count: formatInteger(locale, byteLength) });
+}
+
 export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebApplicationProps) {
   const [locale, setLocale] = useState<AppLocale>(initialLocale);
   const [attempt, setAttempt] = useState(0);
   const [preflight, setPreflight] = useState<PreflightState>({ kind: 'checking' });
+  const [filePreflight, setFilePreflight] = useState<FilePreflightResult>({ kind: 'none' });
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
 
@@ -50,6 +63,7 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
   useEffect(() => {
     const controller = new AbortController();
     setPreflight({ kind: 'checking' });
+    setFilePreflight({ kind: 'none' });
     void capabilityClient.load(controller.signal).then(
       (summary) => { if (!controller.signal.aborted) setPreflight({ kind: 'ready', summary }); },
       (error: unknown) => {
@@ -70,6 +84,19 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
       : preflight.kind === 'disconnected'
         ? t('preflight.disconnected')
         : t('preflight.unavailable');
+  const supportedExtensions = preflight.kind === 'ready'
+    ? preflight.summary.supportedFiles.map(({ extension }) => extension)
+    : [];
+  const intakeMessage = filePreflight.kind === 'ready'
+    ? message(locale, 'intake.ready', {
+      format: filePreflight.extension.slice(1).toUpperCase(),
+      size: formatByteSize(locale, filePreflight.byteLength)
+    })
+    : filePreflight.kind === 'too-large'
+      ? message(locale, 'intake.tooLarge', { limit: formatByteSize(locale, filePreflight.maximumInputBytes) })
+      : filePreflight.kind === 'unsupported'
+        ? t('intake.unsupported')
+        : t('intake.none');
 
   return (
     <div className="app-shell">
@@ -142,20 +169,51 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
             </div>
           </Card>
 
-          <Card aria-labelledby="workflow-title" className="workflow-card">
+          <Card aria-labelledby="intake-title" className="intake-card">
             <div className="card-heading">
               <div>
                 <p className="section-number" aria-hidden="true">02</p>
-                <h2 id="workflow-title">{t('workflow.title')}</h2>
+                <h2 id="intake-title">{t('intake.title')}</h2>
               </div>
-              <StatusBadge>{t('status.planned')}</StatusBadge>
+              <StatusBadge tone={preflight.kind === 'ready' ? 'positive' : 'warning'}>
+                {preflight.kind === 'ready' ? t('status.available') : t('status.waiting')}
+              </StatusBadge>
             </div>
-            <ol className="workflow-list">
-              <li><span>1</span>{t('workflow.stepOne')}</li>
-              <li><span>2</span>{t('workflow.stepTwo')}</li>
-              <li><span>3</span>{t('workflow.stepThree')}</li>
-            </ol>
-            <p className="coming-soon">{t('workflow.comingSoon')}</p>
+            <p className="muted">{t('intake.body')}</p>
+            {preflight.kind === 'ready' ? (
+              <FileField
+                id="document-file"
+                label={t('intake.label')}
+                hint={message(locale, 'intake.hint', {
+                  extensions: supportedExtensions.join(', '),
+                  limit: formatByteSize(locale, preflight.summary.maximumInputBytes)
+                })}
+                accept={supportedExtensions.join(',')}
+                onChange={(event) => {
+                  const selected = event.currentTarget.files?.length === 1
+                    ? event.currentTarget.files[0]
+                    : undefined;
+                  setFilePreflight(preflightSelectedFile(selected, preflight.summary));
+                }}
+              />
+            ) : (
+              <Callout>{t('intake.waiting')}</Callout>
+            )}
+            {preflight.kind === 'ready' ? (
+              <div
+                className="intake-result"
+                role={filePreflight.kind === 'unsupported' || filePreflight.kind === 'too-large' ? 'alert' : 'status'}
+                aria-live="polite"
+              >
+                <Callout tone={filePreflight.kind === 'ready'
+                  ? 'positive'
+                  : filePreflight.kind === 'unsupported' || filePreflight.kind === 'too-large'
+                    ? 'critical'
+                    : 'neutral'}>{intakeMessage}</Callout>
+              </div>
+            ) : null}
+            <p className="intake-privacy">{t('intake.privacy')}</p>
+            <p className="coming-soon">{t('intake.next')}</p>
           </Card>
         </div>
       </main>

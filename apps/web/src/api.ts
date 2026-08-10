@@ -3,11 +3,17 @@ import type { CapabilitiesCapabilityManifestContract } from '@local-pii/contract
 export type EngineMode = CapabilitiesCapabilityManifestContract.CapabilityManifest['engineMode'];
 export type LocalEngineMode = Exclude<EngineMode, 'REMOTE'>;
 
+export interface SupportedFileFormat {
+  readonly extension: string;
+  readonly maximumInputBytes: number;
+}
+
 export interface CapabilitySummary {
   readonly engineMode: LocalEngineMode;
   readonly formatCount: number;
   readonly availableDetectorCount: number;
   readonly maximumInputBytes: number;
+  readonly supportedFiles: readonly SupportedFileFormat[];
 }
 
 export interface CapabilityClient {
@@ -88,6 +94,39 @@ function boundedInteger(value: unknown, maximum: number): value is number {
   return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 && value <= maximum;
 }
 
+function supportedFiles(
+  formats: readonly unknown[],
+  globalMaximumInputBytes: number
+): readonly SupportedFileFormat[] {
+  const limits = new Map<string, number>();
+  for (const format of formats) {
+    if (
+      !isRecord(format)
+      || !Array.isArray(format.extensions)
+      || format.extensions.length < 1
+      || format.extensions.length > 32
+      || !Array.isArray(format.operations)
+      || format.operations.length < 1
+      || format.operations.length > 32
+      || !isRecord(format.limits)
+      || !boundedInteger(format.limits.maximumInputBytes, globalMaximumInputBytes)
+      || format.limits.maximumInputBytes < 1
+    ) throw new Error('CAPABILITY_RESPONSE_INVALID');
+    if (!format.operations.includes('SCAN')) continue;
+    for (const extension of format.extensions) {
+      if (typeof extension !== 'string' || !/^\.[a-z0-9]{1,16}$/u.test(extension)) {
+        throw new Error('CAPABILITY_RESPONSE_INVALID');
+      }
+      const current = limits.get(extension);
+      limits.set(extension, Math.min(current ?? globalMaximumInputBytes, format.limits.maximumInputBytes));
+    }
+  }
+  if (limits.size < 1 || limits.size > 64) throw new Error('CAPABILITY_RESPONSE_INVALID');
+  return Object.freeze([...limits.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, 'en'))
+    .map(([extension, maximumInputBytes]) => Object.freeze({ extension, maximumInputBytes })));
+}
+
 export function projectCapabilitySummary(value: unknown): CapabilitySummary {
   if (!isRecord(value) || !localEngineModes.has(value.engineMode as LocalEngineMode)) {
     throw new Error('CAPABILITY_RESPONSE_INVALID');
@@ -101,6 +140,7 @@ export function projectCapabilitySummary(value: unknown): CapabilitySummary {
   if (!isRecord(value.limits) || !boundedInteger(value.limits.maximumInputBytes, 1024 * 1024 * 1024)) {
     throw new Error('CAPABILITY_RESPONSE_INVALID');
   }
+  const maximumInputBytes = value.limits.maximumInputBytes;
   const availableDetectorCount = value.detectors.filter((detector) => {
     return isRecord(detector) && detector.availability === 'AVAILABLE';
   }).length;
@@ -108,7 +148,8 @@ export function projectCapabilitySummary(value: unknown): CapabilitySummary {
     engineMode: value.engineMode as LocalEngineMode,
     formatCount: value.formats.length,
     availableDetectorCount,
-    maximumInputBytes: value.limits.maximumInputBytes
+    maximumInputBytes,
+    supportedFiles: supportedFiles(value.formats, maximumInputBytes)
   };
 }
 

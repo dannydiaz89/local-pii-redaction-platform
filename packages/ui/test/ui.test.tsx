@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Button, Callout, Card, Metric, SelectField, StatusBadge } from '../src/index.js';
+import { Button, Callout, Card, FileField, Metric, SelectField, StatusBadge } from '../src/index.js';
 
 describe('design-system primitives', () => {
   it('compose from native controls and semantic content without accessibility violations', async () => {
@@ -19,6 +19,7 @@ describe('design-system primitives', () => {
           <SelectField id="locale" label="Language" value="en" onChange={vi.fn()}>
             <option value="en">English</option>
           </SelectField>
+          <FileField id="document" label="Document" hint="TXT files only" accept=".txt" onChange={vi.fn()} />
           <Button>Retry</Button>
         </Card>
       </main>
@@ -26,6 +27,8 @@ describe('design-system primitives', () => {
 
     expect(getByRole('button', { name: 'Retry' }).getAttribute('type')).toBe('button');
     expect(getByLabelText('Language').tagName).toBe('SELECT');
+    expect(getByLabelText('Document').getAttribute('type')).toBe('file');
+    expect(getByLabelText('Document').getAttribute('aria-describedby')).toBe('document-hint');
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 });

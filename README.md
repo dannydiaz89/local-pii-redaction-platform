@@ -109,8 +109,10 @@ The capability preflight accepts only a numeric-loopback API origin and a per-la
 in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
 secrets, local/session storage, cookies, or remote catalogs. Its bounded client denies redirects,
 credentials, referrers, and caching, then projects only aggregate values from the capability
-response. Until the trusted local launcher injects that object, the standalone preview correctly
-shows a disconnected state; uploads and processing controls are intentionally absent.
+response. Once connected, the document intake checks only a selected file's extension and size
+against the live format-specific limits; it does not read or upload the file bytes and stores no
+selection in browser persistence. Until the trusted local launcher injects that object, the standalone preview correctly shows a
+disconnected state. Upload and processing remain intentionally absent.
 
 The development local launcher now provides that handoff on macOS and Linux. It builds the application,
 starts one numeric-loopback origin for both the web shell and API, and gives the OS browser opener a

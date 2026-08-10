@@ -9,6 +9,11 @@ export type MessageId = keyof typeof englishCatalog;
 
 export interface MessageParameters {
   readonly 'units.mebibytes': { readonly count: string };
+  readonly 'units.kibibytes': { readonly count: string };
+  readonly 'units.bytes': { readonly count: string };
+  readonly 'intake.hint': { readonly extensions: string; readonly limit: string };
+  readonly 'intake.ready': { readonly format: string; readonly size: string };
+  readonly 'intake.tooLarge': { readonly limit: string };
 }
 
 type ParameterizedMessageId = keyof MessageParameters;

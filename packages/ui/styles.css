@@ -26,9 +26,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; min-inline-size: 20rem; background: var(--color-canvas); }
-button, select { font: inherit; }
+button, input, select { font: inherit; }
 
-:where(a, button, select):focus-visible {
+:where(a, button, input, select):focus-visible {
   outline: .2rem solid var(--color-focus);
   outline-offset: .2rem;
 }
@@ -90,6 +90,30 @@ button, select { font: inherit; }
   color: var(--color-ink);
   background: var(--color-surface);
 }
+
+.ui-file-field { gap: var(--space-2); }
+.ui-file-field input {
+  inline-size: 100%;
+  min-block-size: 3rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-small);
+  padding: var(--space-2);
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+.ui-file-field input::file-selector-button {
+  min-block-size: 2.35rem;
+  margin-inline-end: var(--space-3);
+  border: 0;
+  border-radius: calc(var(--radius-small) - .1rem);
+  padding: .45rem .8rem;
+  color: white;
+  background: var(--color-accent);
+  font-weight: 750;
+  cursor: pointer;
+}
+.ui-file-field input:disabled, .ui-file-field input:disabled::file-selector-button { cursor: not-allowed; opacity: .65; }
+.ui-field-hint { max-inline-size: 60ch; color: var(--color-muted); font-size: .86rem; line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; }

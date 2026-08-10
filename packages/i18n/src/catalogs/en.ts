@@ -7,7 +7,6 @@
  */
 export const englishCatalog = {
   'app.name': 'Local PII',
-  'app.tagline': 'Private document review, on this device.',
   'nav.skip': 'Skip to main content',
   'locale.label': 'Interface language',
   'locale.en': 'English',
@@ -33,12 +32,20 @@ export const englishCatalog = {
   'capability.inputLimit': 'Maximum input',
   'capability.rulesOnly': 'Rules only',
   'capability.localHybrid': 'Local hybrid',
-  'workflow.title': 'Document workflow',
-  'workflow.stepOne': 'Choose a document',
-  'workflow.stepTwo': 'Review findings',
-  'workflow.stepThree': 'Export a verified copy',
-  'workflow.comingSoon': 'Coming in the next application slice',
+  'intake.title': 'Choose a document',
+  'intake.body': 'Check a local file against the formats and size limit reported by this application launch.',
+  'intake.label': 'Document file',
+  'intake.hint': 'Supported files: {extensions}. Format-specific limits apply, up to {limit}.',
+  'intake.waiting': 'Connect to the local engine before choosing a document.',
+  'intake.none': 'No document is selected.',
+  'intake.ready': '{format} file, {size}, passes the local preflight checks.',
+  'intake.unsupported': 'Choose a file with one of the supported extensions.',
+  'intake.tooLarge': 'Choose a file no larger than {limit}.',
+  'intake.privacy': 'This screen checks only the file name extension and size. It does not read or upload the file contents, and it stores no selection in browser persistence.',
+  'intake.next': 'Upload and processing will be enabled after the durable retention boundary is qualified.',
   'status.available': 'Available',
-  'status.planned': 'Planned',
-  'units.mebibytes': '{count} MiB'
+  'status.waiting': 'Waiting',
+  'units.mebibytes': '{count} MiB',
+  'units.kibibytes': '{count} KiB',
+  'units.bytes': '{count} bytes'
 } as const;

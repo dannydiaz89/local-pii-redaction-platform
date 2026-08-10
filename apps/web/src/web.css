@@ -46,12 +46,10 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .ui-callout p:first-child { margin-block-start: 0; }
 .ui-callout .ui-button { margin-block-start: var(--space-2); }
 
-.workflow-card { background: var(--color-ink); color: var(--color-surface); }
-.workflow-card .section-number, .workflow-card .coming-soon { color: #a7c9b8; }
-.workflow-card .ui-status { color: #f1d592; }
-.workflow-list { display: grid; gap: 1.15rem; margin-block: var(--space-5); padding: 0; list-style: none; }
-.workflow-list li { display: flex; align-items: center; gap: .85rem; }
-.workflow-list span { display: grid; place-items: center; flex: 0 0 2rem; block-size: 2rem; border: 1px solid currentColor; border-radius: 50%; font-size: .78rem; }
+.intake-card { display: grid; align-content: start; gap: var(--space-3); }
+.intake-card > .muted, .intake-card > .coming-soon, .intake-card > .intake-privacy { margin-block: 0; }
+.intake-result { min-block-size: 3.5rem; }
+.intake-privacy { color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
 

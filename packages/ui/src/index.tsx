@@ -1,4 +1,10 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, PropsWithChildren, ReactNode } from 'react';
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  InputHTMLAttributes,
+  PropsWithChildren,
+  ReactNode
+} from 'react';
 
 export function Button({ className = '', type = 'button', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button className={`ui-button ${className}`.trim()} type={type} {...props} />;
@@ -36,6 +42,26 @@ export function SelectField({
     <div className="ui-field">
       <label htmlFor={id}>{label}</label>
       <select id={id} value={value} onChange={onChange}>{children}</select>
+    </div>
+  );
+}
+
+export function FileField({
+  id,
+  label,
+  hint,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'aria-describedby' | 'id' | 'type'> & {
+  readonly id: string;
+  readonly label: ReactNode;
+  readonly hint: ReactNode;
+}) {
+  const hintId = `${id}-hint`;
+  return (
+    <div className="ui-field ui-file-field">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} type="file" aria-describedby={hintId} {...props} />
+      <span id={hintId} className="ui-field-hint">{hint}</span>
     </div>
   );
 }

@@ -10,7 +10,16 @@ const session = {
 function capabilityResponse(): Readonly<Record<string, unknown>> {
   return {
     engineMode: 'RULES_ONLY',
-    formats: [{ id: 'text' }, { id: 'markdown' }],
+    formats: [
+      {
+        id: 'text', extensions: ['.txt'], operations: ['SCAN'],
+        limits: { maximumInputBytes: 104_857_600 }
+      },
+      {
+        id: 'markdown', extensions: ['.md', '.markdown'], operations: ['SCAN'],
+        limits: { maximumInputBytes: 52_428_800 }
+      }
+    ],
     detectors: [
       { id: 'rules', availability: 'AVAILABLE' },
       { id: 'model', availability: 'DISABLED' }
@@ -25,7 +34,12 @@ describe('browser capability client', () => {
       engineMode: 'RULES_ONLY',
       formatCount: 2,
       availableDetectorCount: 1,
-      maximumInputBytes: 104_857_600
+      maximumInputBytes: 104_857_600,
+      supportedFiles: [
+        { extension: '.markdown', maximumInputBytes: 52_428_800 },
+        { extension: '.md', maximumInputBytes: 52_428_800 },
+        { extension: '.txt', maximumInputBytes: 104_857_600 }
+      ]
     });
     expect(() => projectCapabilitySummary({ ...capabilityResponse(), engineMode: 'SURPRISE' })).toThrow(
       'CAPABILITY_RESPONSE_INVALID'
@@ -33,6 +47,10 @@ describe('browser capability client', () => {
     expect(() => projectCapabilitySummary({ ...capabilityResponse(), engineMode: 'REMOTE' })).toThrow(
       'CAPABILITY_RESPONSE_INVALID'
     );
+    expect(() => projectCapabilitySummary({
+      ...capabilityResponse(),
+      formats: [{ id: 'unsafe', extensions: ['../../txt'], operations: ['SCAN'], limits: { maximumInputBytes: 1 } }]
+    })).toThrow('CAPABILITY_RESPONSE_INVALID');
   });
 
   it('uses the exact numeric-loopback session with no redirects, referrer, credentials, or cache', async () => {

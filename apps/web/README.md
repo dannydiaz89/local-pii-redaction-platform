@@ -4,7 +4,7 @@ Accessible, localized React shell for the future local review workflow.
 
 ## Responsibilities
 
-- Renders the capability preflight and local-processing disclosure.
+- Renders the capability and local file-metadata preflight plus the local-processing disclosure.
 - Consumes the one-time in-memory launcher bootstrap without browser persistence.
 - Uses shared primitives and semantic tokens from `@local-pii/ui`.
 - Resolves all user-facing copy through bundled catalogs in `@local-pii/i18n`.
@@ -13,9 +13,10 @@ Accessible, localized React shell for the future local review workflow.
 
 ## Current scope
 
-The application does not yet upload files, create processing jobs, or provide the detection review
-workspace. Running Vite directly intentionally shows the disconnected state because no trusted API
-bootstrap is present.
+The application can check a selected file's extension and size against live capabilities without
+reading or uploading its bytes. It does not yet upload files, create processing jobs, or provide the
+detection review workspace. Running Vite directly intentionally shows the disconnected state
+because no trusted API bootstrap is present.
 
 ## Development
 
