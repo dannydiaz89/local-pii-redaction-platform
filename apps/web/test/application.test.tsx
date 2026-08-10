@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WebApplication } from '../src/application.js';
 import type { CapabilityClient } from '../src/api.js';
 import { preflightSelectedFile } from '../src/file-preflight.js';
+import type { LocalJobClient } from '../src/job-api.js';
 
 afterEach(() => { cleanup(); });
 
@@ -27,13 +28,34 @@ function readyClient(): CapabilityClient {
   };
 }
 
+function readyJobClient(): LocalJobClient {
+  const unavailable = (): Promise<never> => Promise.reject(new Error('NOT_IMPLEMENTED'));
+  return {
+    loadPolicies: () => Promise.resolve({
+      defaultPolicy: {
+        id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}`,
+        riskTier: 'LOW', example: true
+      },
+      policies: [{
+        id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}`,
+        riskTier: 'LOW', example: true
+      }]
+    }),
+    create: unavailable,
+    get: unavailable,
+    listEvents: unavailable,
+    cancel: unavailable
+  };
+}
+
 describe('web application foundation', () => {
   it('renders the capability preflight as an accessible local-first journey', async () => {
-    const { container } = render(<WebApplication capabilityClient={readyClient()} />);
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
 
     expect(await screen.findByText('Local engine is ready')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Your document stays under your control.' })).toBeTruthy();
     expect(screen.getByText('100 MiB')).toBeTruthy();
+    expect(screen.getByText('Development labels')).toBeTruthy();
     expect(screen.getByLabelText('Document file')).toBeTruthy();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(document.documentElement.lang).toBe('en');
@@ -42,7 +64,7 @@ describe('web application foundation', () => {
 
   it('checks only selected file metadata without copying its name into application status', async () => {
     const user = userEvent.setup();
-    render(<WebApplication capabilityClient={readyClient()} />);
+    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
     await screen.findByText('Local engine is ready');
     const input = screen.getByLabelText('Document file');
     const selected = new File([new Uint8Array(1024)], 'private-customer-record.md', { type: 'text/markdown' });
@@ -56,7 +78,7 @@ describe('web application foundation', () => {
 
   it('rejects unsupported and oversized selections using privacy-safe local messages', async () => {
     const user = userEvent.setup({ applyAccept: false });
-    render(<WebApplication capabilityClient={readyClient()} />);
+    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
     await screen.findByText('Local engine is ready');
     const input = screen.getByLabelText('Document file');
 
@@ -70,7 +92,7 @@ describe('web application foundation', () => {
   });
 
   it('keeps stress locales test-only while preserving canonical capability values', async () => {
-    render(<WebApplication capabilityClient={readyClient()} initialLocale="ar-XB" />);
+    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} initialLocale="ar-XB" />);
     await waitFor(() => { expect(screen.getAllByText(/١٠٠/u).length).toBeGreaterThan(0); });
 
     expect(document.documentElement.dir).toBe('rtl');
@@ -94,7 +116,11 @@ describe('web application foundation', () => {
     const disconnected: CapabilityClient = {
       load: () => Promise.reject(new Error('LOCAL_SESSION_MISSING'))
     };
-    render(<WebApplication capabilityClient={disconnected} />);
+    const disconnectedJobs: LocalJobClient = {
+      ...readyJobClient(),
+      loadPolicies: () => Promise.reject(new Error('LOCAL_SESSION_MISSING'))
+    };
+    render(<WebApplication capabilityClient={disconnected} jobClient={disconnectedJobs} />);
     expect(await screen.findByText('Local API session is not connected')).toBeTruthy();
     expect(screen.queryByLabelText('Document file')).toBeNull();
     expect(screen.getByText('Connect to the local engine before choosing a document.')).toBeTruthy();

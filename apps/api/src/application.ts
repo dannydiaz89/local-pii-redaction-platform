@@ -12,7 +12,8 @@ import {
   type CapabilitiesCapabilityManifestContract,
   type CommonErrorsContract,
   type CommonErrorsV2Contract,
-  type CommonErrorsV3Contract
+  type CommonErrorsV3Contract,
+  type PolicyPolicyCatalogContract
 } from '@local-pii/contracts';
 import type { ApplicationContext } from '@local-pii/core';
 import { SafeError } from '@local-pii/domain';
@@ -25,6 +26,11 @@ import {
 } from './web-shell.js';
 
 export type CapabilityManifest = CapabilitiesCapabilityManifestContract.CapabilityManifest;
+type GeneratedPolicyCatalog = PolicyPolicyCatalogContract.PolicyCatalog;
+type PolicyReference = Readonly<GeneratedPolicyCatalog['policies'][number]>;
+export type PolicyCatalog = Readonly<Omit<GeneratedPolicyCatalog, 'policies'>> & {
+  readonly policies: readonly [PolicyReference, ...PolicyReference[]];
+};
 type ErrorEnvelope = CommonErrorsContract.TypedErrorEnvelope
   | CommonErrorsV2Contract.TypedErrorEnvelopeV2
   | CommonErrorsV3Contract.TypedErrorEnvelopeV3;
@@ -37,9 +43,14 @@ export interface ApiReadinessPort {
   check(signal?: AbortSignal): Promise<void>;
 }
 
+export interface PolicyCatalogPort {
+  get(signal?: AbortSignal): Promise<PolicyCatalog>;
+}
+
 export interface ApiDependencies {
   readonly application: CapabilityApplicationPort;
   readonly jobs: JobControlPort;
+  readonly policies: PolicyCatalogPort;
   readonly readiness: ApiReadinessPort;
 }
 
@@ -67,6 +78,7 @@ const errorSchemaV2Id = 'https://local-pii.dev/schemas/common/errors/2.0.0';
 const errorSchemaV3Id = 'https://local-pii.dev/schemas/common/errors/3.0.0';
 const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
+const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const idempotencyKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const jobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -513,6 +525,12 @@ export function buildApi(dependencies: ApiDependencies, options: BuildApiOptions
       dependencies.application.getCapabilities({ correlationId: requestCorrelationId(request) }, signal)
     );
     return sendCanonical(reply, capabilitySchemaId, manifest);
+  });
+  server.get('/v1/policies', async (request, reply) => {
+    const catalog = await invokeBounded(request, handlerTimeoutMs, lifecycle.signal, (signal) =>
+      dependencies.policies.get(signal)
+    );
+    return sendCanonical(reply, policyCatalogSchemaId, catalog);
   });
   server.post('/v1/jobs', async (request, reply) => {
     const body = canonicalBody(request, createJobRequestSchemaId) as CreateJobRequest;

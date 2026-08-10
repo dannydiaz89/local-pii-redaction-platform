@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "defaultPolicyId": "development-labels",
+  "policies": [{
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "riskTier": "LOW",
+    "example": true
+  }]
+}

@@ -89,8 +89,10 @@ input.
 composition root and a separate numeric-loopback starter. Each launch generates a 256-bit bearer
 token; protected routes enforce that token plus numeric-loopback Host and exact allow-listed browser
 Origins. Secret-free health/readiness probes and the authenticated canonical
-`GET /v1/capabilities` route are implemented with bounded handlers, privacy-safe errors, abort
-propagation, and clean shutdown. Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
+`GET /v1/capabilities` and `GET /v1/policies` routes are implemented with bounded handlers,
+privacy-safe errors, abort propagation, and clean shutdown. The policy catalog exposes only pinned
+IDs, versions, digests, risk tiers, and example status; presentation copy stays in the UI catalog.
+Authenticated `POST /v1/jobs`, `GET /v1/jobs/{jobId}`,
 `GET /v1/jobs/{jobId}/events`, and revision-bound `POST /v1/jobs/{jobId}/cancellation` now expose
 only pinned operational metadata. The storage-neutral
 [`@local-pii/job-store`](./packages/job-store) boundary provides revision, idempotency, transition,
@@ -115,7 +117,9 @@ The capability preflight accepts only a numeric-loopback API origin and a per-la
 in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
 secrets, local/session storage, cookies, or remote catalogs. Its bounded client denies redirects,
 credentials, referrers, and caching, then projects only aggregate values from the capability
-response. Once connected, the document intake checks only a selected file's extension and size
+response. A separate bounded, typed client now discovers the pinned policy catalog and implements
+the metadata-only job create/status/events/cancellation request boundary; the shell renders only the
+localized default-policy name and does not invoke job actions yet. Once connected, the document intake checks only a selected file's extension and size
 against the live format-specific limits; it does not read or upload the file bytes and stores no
 selection in browser persistence. Until the trusted local launcher injects that object, the standalone preview correctly shows a
 disconnected state. Upload and processing remain intentionally absent.
@@ -251,9 +255,9 @@ output collisions.
   contextual model, or review workflow yet. Authenticated metadata-only job create/status/events/
   cancellation routes use a volatile conformance adapter, retain nothing after process exit, and
   store no document content.
-  The implemented web shell is limited to secured capability preflight and
-  design-system/localization foundations; the HTTP surface remains the capability and health
-  scaffold described above.
+  The implemented web shell is limited to secured capability/policy preflight, local file-metadata
+  admission, and design-system/localization foundations. Its typed job client is deliberately not
+  connected to UI actions until the upload and durable-artifact boundary exists.
 - The automatic trusted-browser launcher currently supports macOS and Linux. Windows browser
   launch and packaged-install path qualification remain open. The OS opener receives no secret in
   its process arguments. The external-browser handoff does not defend against an adversarial local

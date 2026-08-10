@@ -17,6 +17,7 @@
     "@local-pii/detectors": "workspace:*",
     "@local-pii/domain": "workspace:*",
     "@local-pii/provider-ollama": "workspace:*",
+    "@local-pii/policy": "workspace:*",
     "@local-pii/redaction": "workspace:*",
     "@local-pii/verification": "workspace:*"
   }

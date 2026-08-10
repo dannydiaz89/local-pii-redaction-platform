@@ -3330,6 +3330,82 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/policy/policy-catalog/1.0.0",
+    "title": "Policy catalog",
+    "description": "Bounded privacy-safe catalog of pinned policies available to the local application.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "defaultPolicyId",
+      "policies"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "defaultPolicyId": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      },
+      "policies": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "digest",
+            "riskTier",
+            "example"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{2,63}$"
+            },
+            "version": {
+              "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+            },
+            "digest": {
+              "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+            },
+            "riskTier": {
+              "enum": [
+                "LOW",
+                "MODERATE",
+                "HIGH"
+              ]
+            },
+            "example": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "defaultPolicyId": "development-labels",
+        "policies": [
+          {
+            "id": "development-labels",
+            "version": "0.1.0",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "riskTier": "LOW",
+            "example": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/policy/redaction-policy/1.0.0",
     "title": "Redaction policy",
     "description": "Declarative fail-closed transformation and verification policy with no executable content.",

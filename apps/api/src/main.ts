@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { localTextApplication } from '@local-pii/profile-local';
+import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profile-local';
 
 import { runTrustedLocalLauncher } from './launcher.js';
 import { createVolatileJobControl } from './job-control.js';
@@ -18,9 +18,11 @@ async function main(): Promise<void> {
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', terminate);
   try {
+    const policyCatalog = createLocalPolicyCatalog();
     await runTrustedLocalLauncher({
       application: localTextApplication,
       jobs: createVolatileJobControl(),
+      policies: { get: (signal) => { signal?.throwIfAborted(); return Promise.resolve(policyCatalog); } },
       readiness: { check: (signal) => { signal?.throwIfAborted(); return Promise.resolve(); } }
     }, { webRoot }, lifecycle.signal);
   } finally {

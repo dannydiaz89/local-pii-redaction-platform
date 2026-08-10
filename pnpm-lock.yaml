@@ -220,6 +220,9 @@ importers:
       '@local-pii/domain':
         specifier: workspace:*
         version: link:../domain
+      '@local-pii/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:../provider-ollama

@@ -35,6 +35,16 @@ function dependencies(): ApiDependencies {
   return {
     application: { getCapabilities: () => Promise.resolve(manifest()) },
     jobs: createVolatileJobControl(),
+    policies: {
+      get: () => Promise.resolve({
+        schemaVersion: '1.0.0',
+        defaultPolicyId: 'development-labels',
+        policies: [{
+          id: 'development-labels', version: '0.1.0', digest: `sha256:${'b'.repeat(64)}`,
+          riskTier: 'LOW', example: true
+        }]
+      })
+    },
     readiness: { check: () => Promise.resolve() }
   };
 }

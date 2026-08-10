@@ -11,21 +11,29 @@ import { Button, Callout, Card, FileField, Metric, StatusBadge } from '@local-pi
 
 import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
+import type { LocalJobClient, PolicyCatalogSummary } from './job-api.js';
 
 type PreflightState =
   | { readonly kind: 'checking' }
-  | { readonly kind: 'ready'; readonly summary: CapabilitySummary }
+  | { readonly kind: 'ready'; readonly summary: CapabilitySummary; readonly policyCatalog: PolicyCatalogSummary }
   | { readonly kind: 'disconnected' }
   | { readonly kind: 'unavailable' };
 
 export interface WebApplicationProps {
   readonly capabilityClient: CapabilityClient;
+  readonly jobClient: LocalJobClient;
   readonly initialLocale?: AppLocale;
 }
 
 function engineModeMessage(mode: LocalEngineMode): PlainMessageId {
   if (mode === 'LOCAL_HYBRID') return 'capability.localHybrid';
   return 'capability.rulesOnly';
+}
+
+function policyMessage(policyId: string): PlainMessageId {
+  if (policyId === 'development-labels') return 'policy.developmentLabels';
+  if (policyId === 'high-risk-disclosure') return 'policy.highRiskDisclosure';
+  return 'policy.configured';
 }
 
 function formatByteSize(locale: AppLocale, byteLength: number): string {
@@ -39,7 +47,7 @@ function formatByteSize(locale: AppLocale, byteLength: number): string {
   return message(locale, 'units.bytes', { count: formatInteger(locale, byteLength) });
 }
 
-export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebApplicationProps) {
+export function WebApplication({ capabilityClient, jobClient, initialLocale = 'en' }: WebApplicationProps) {
   const locale = initialLocale;
   const [attempt, setAttempt] = useState(0);
   const [preflight, setPreflight] = useState<PreflightState>({ kind: 'checking' });
@@ -57,8 +65,13 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
     const controller = new AbortController();
     setPreflight({ kind: 'checking' });
     setFilePreflight({ kind: 'none' });
-    void capabilityClient.load(controller.signal).then(
-      (summary) => { if (!controller.signal.aborted) setPreflight({ kind: 'ready', summary }); },
+    void Promise.all([
+      capabilityClient.load(controller.signal),
+      jobClient.loadPolicies(controller.signal)
+    ]).then(
+      ([summary, policyCatalog]) => {
+        if (!controller.signal.aborted) setPreflight({ kind: 'ready', summary, policyCatalog });
+      },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         const kind = error instanceof Error && error.message === 'LOCAL_SESSION_MISSING'
@@ -68,7 +81,7 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
       }
     );
     return () => { controller.abort(); };
-  }, [attempt, capabilityClient]);
+  }, [attempt, capabilityClient, jobClient]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
@@ -132,6 +145,10 @@ export function WebApplication({ capabilityClient, initialLocale = 'en' }: WebAp
                     <Metric label={t('capability.mode')} value={t(engineModeMessage(preflight.summary.engineMode))} />
                     <Metric label={t('capability.formats')} value={formatInteger(locale, preflight.summary.formatCount)} />
                     <Metric label={t('capability.detectors')} value={formatInteger(locale, preflight.summary.availableDetectorCount)} />
+                    <Metric
+                      label={t('policy.default')}
+                      value={t(policyMessage(preflight.policyCatalog.defaultPolicy.id))}
+                    />
                     <Metric
                       label={t('capability.inputLimit')}
                       value={message(locale, 'units.mebibytes', {

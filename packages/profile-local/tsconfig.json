@@ -11,6 +11,7 @@
     { "path": "../detectors" },
     { "path": "../domain" },
     { "path": "../provider-ollama" },
+    { "path": "../policy" },
     { "path": "../redaction" },
     { "path": "../verification" }
   ],

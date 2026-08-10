@@ -30,7 +30,7 @@ export const capabilityRequestTimeoutMs = 5_000;
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
 const localEngineModes = new Set<LocalEngineMode>(['RULES_ONLY', 'LOCAL_HYBRID']);
 
-function assertSession(session: LocalApiSession): URL {
+export function assertLocalApiSession(session: LocalApiSession): URL {
   let origin: URL;
   try {
     origin = new URL(session.apiOrigin);
@@ -53,12 +53,16 @@ function assertSession(session: LocalApiSession): URL {
   return origin;
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
+export async function readBoundedJsonResponse(
+  response: Response,
+  maximumResponseBytes: number,
+  invalidResponseCode: string
+): Promise<unknown> {
   const declaredLength = response.headers.get('content-length');
-  if (declaredLength !== null && Number(declaredLength) > maximumCapabilityResponseBytes) {
-    throw new Error('CAPABILITY_RESPONSE_INVALID');
+  if (declaredLength !== null && Number(declaredLength) > maximumResponseBytes) {
+    throw new Error(invalidResponseCode);
   }
-  if (response.body === null) throw new Error('CAPABILITY_RESPONSE_INVALID');
+  if (response.body === null) throw new Error(invalidResponseCode);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -67,7 +71,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
       const result = await reader.read();
       if (result.done) break;
       total += result.value.byteLength;
-      if (total > maximumCapabilityResponseBytes) throw new Error('CAPABILITY_RESPONSE_INVALID');
+      if (total > maximumResponseBytes) throw new Error(invalidResponseCode);
       chunks.push(result.value);
     }
   } finally {
@@ -82,7 +86,39 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)) as unknown;
   } catch {
-    throw new Error('CAPABILITY_RESPONSE_INVALID');
+    throw new Error(invalidResponseCode);
+  }
+}
+
+export async function runBoundedLocalRequest<Result>(
+  signal: AbortSignal,
+  timeoutMs: number,
+  cancellationCode: string,
+  operation: (signal: AbortSignal) => Promise<Result>
+): Promise<Result> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+    throw new TypeError('The local API request deadline is invalid.');
+  }
+  const controller = new AbortController();
+  const relayAbort = (): void => { controller.abort(); };
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener('abort', relayAbort, { once: true });
+  const timer = setTimeout(() => { controller.abort(); }, timeoutMs);
+  let rejectCancellation: ((reason: Error) => void) | undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject;
+  });
+  const rejectOnAbort = (): void => {
+    rejectCancellation?.(new Error(cancellationCode));
+  };
+  controller.signal.addEventListener('abort', rejectOnAbort, { once: true });
+  if (controller.signal.aborted) rejectOnAbort();
+  try {
+    return await Promise.race([operation(controller.signal), cancelled]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', relayAbort);
+    controller.signal.removeEventListener('abort', rejectOnAbort);
   }
 }
 
@@ -158,28 +194,10 @@ export function createCapabilityClient(
   fetchImplementation: typeof fetch = fetch,
   timeoutMs = capabilityRequestTimeoutMs
 ): CapabilityClient {
-  const origin = assertSession(session);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
-    throw new TypeError('The capability request deadline is invalid.');
-  }
+  const origin = assertLocalApiSession(session);
   return {
     async load(signal) {
-      const operation = new AbortController();
-      const relayAbort = (): void => { operation.abort(); };
-      if (signal.aborted) operation.abort();
-      else signal.addEventListener('abort', relayAbort, { once: true });
-      const timer = setTimeout(() => { operation.abort(); }, timeoutMs);
-      let rejectCancellation: ((reason: Error) => void) | undefined;
-      const cancelled = new Promise<never>((_resolve, reject) => {
-        rejectCancellation = reject;
-      });
-      const rejectOnAbort = (): void => {
-        rejectCancellation?.(new Error('CAPABILITY_REQUEST_CANCELLED'));
-      };
-      operation.signal.addEventListener('abort', rejectOnAbort, { once: true });
-      if (operation.signal.aborted) rejectOnAbort();
-
-      const request = async (): Promise<CapabilitySummary> => {
+      return runBoundedLocalRequest(signal, timeoutMs, 'CAPABILITY_REQUEST_CANCELLED', async (operationSignal) => {
         const response = await fetchImplementation(new URL('/v1/capabilities', origin), {
           method: 'GET',
           headers: { authorization: `Bearer ${session.bearerToken}`, accept: 'application/json' },
@@ -187,20 +205,17 @@ export function createCapabilityClient(
           cache: 'no-store',
           redirect: 'error',
           referrerPolicy: 'no-referrer',
-          signal: operation.signal
+          signal: operationSignal
         });
         if (!response.ok) throw new Error('CAPABILITY_REQUEST_FAILED');
         const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
         if (mediaType !== 'application/json') throw new Error('CAPABILITY_RESPONSE_INVALID');
-        return projectCapabilitySummary(await readBoundedJson(response));
-      };
-      try {
-        return await Promise.race([request(), cancelled]);
-      } finally {
-        clearTimeout(timer);
-        signal.removeEventListener('abort', relayAbort);
-        operation.signal.removeEventListener('abort', rejectOnAbort);
-      }
+        return projectCapabilitySummary(await readBoundedJsonResponse(
+          response,
+          maximumCapabilityResponseBytes,
+          'CAPABILITY_RESPONSE_INVALID'
+        ));
+      });
     }
   };
 }

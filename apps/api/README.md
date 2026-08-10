@@ -5,7 +5,7 @@ Loopback-only HTTP composition root for the local web application.
 ## Responsibilities
 
 - Builds the Fastify server around injected application and readiness ports.
-- Exposes privacy-minimized liveness, readiness, and capability endpoints.
+- Exposes privacy-minimized liveness, readiness, capability, and pinned-policy catalog endpoints.
 - Exposes authenticated metadata-only job creation, status, event pagination, and cancellation.
 - Enforces numeric-loopback Host validation, exact browser-origin checks, bearer authorization,
   request deadlines, cancellation, and bounded shutdown.

@@ -15,7 +15,8 @@ import {
   localApiHostname,
   startLocalApi,
   type ApiDependencies,
-  type CapabilityManifest
+  type CapabilityManifest,
+  type PolicyCatalog
 } from '../src/index.js';
 
 const repositoryRoot = resolve(import.meta.dirname, '../../..');
@@ -26,6 +27,7 @@ const loopbackHost = '127.0.0.1';
 const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const jobEventPageSchemaId = 'https://local-pii.dev/schemas/jobs/job-event-page/1.0.0';
+const policyCatalogSchemaId = 'https://local-pii.dev/schemas/policy/policy-catalog/1.0.0';
 const servers: ReturnType<typeof buildApi>[] = [];
 
 function capabilityManifest(): CapabilityManifest {
@@ -35,10 +37,25 @@ function capabilityManifest(): CapabilityManifest {
   )) as CapabilityManifest;
 }
 
+function policyCatalog(): PolicyCatalog {
+  return {
+    schemaVersion: '1.0.0',
+    defaultPolicyId: 'development-labels',
+    policies: [{
+      id: 'development-labels',
+      version: '0.1.0',
+      digest: `sha256:${'b'.repeat(64)}`,
+      riskTier: 'LOW',
+      example: true
+    }]
+  };
+}
+
 function dependencies(overrides: Partial<ApiDependencies> = {}): ApiDependencies {
   return {
     application: { getCapabilities: () => Promise.resolve(capabilityManifest()) },
     jobs: createVolatileJobControl(),
+    policies: { get: () => Promise.resolve(policyCatalog()) },
     readiness: { check: () => Promise.resolve() },
     ...overrides
   };
@@ -193,6 +210,18 @@ describe('local API composition', () => {
     expect(correlations[0]).toMatch(/^cor_http_/u);
     expect(signals).toHaveLength(2);
     expect(signals.every((signal) => !signal.aborted)).toBe(true);
+  });
+
+  it('returns only canonical pinned policy metadata without presentation copy', async () => {
+    const response = await server().inject({
+      method: 'GET', url: '/v1/policies', headers: authorization()
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(policyCatalog());
+    expect(validateContract(policyCatalogSchemaId, response.json()).valid).toBe(true);
+    expect(response.body).not.toContain('displayName');
+    expect(response.body).not.toContain('description');
   });
 
   it('maps readiness failures to a canonical 503 without exposing exceptions', async () => {

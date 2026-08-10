@@ -68,7 +68,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   i18n: [],
   'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
-  'profile-local': ['adapter-text', 'core', 'detectors', 'domain', 'provider-ollama', 'redaction', 'verification'],
+  'profile-local': ['adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   'span-resolution': ['domain'],

@@ -8,6 +8,7 @@ Reusable composition root for the platform's current local TXT/Markdown processi
 - Publishes the current rules-only and experimental Ollama hybrid capability manifests.
 - Creates the explicitly requested Ollama hybrid application after provider preparation.
 - Supplies capability requirements shared by the CLI and local API.
+- Projects a bounded catalog of pinned bundled-policy metadata for the local API.
 
 ## Boundary
 
