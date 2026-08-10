@@ -188,6 +188,8 @@ describe('web application foundation', () => {
     expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Confidence' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Evidence sources' })).toBeTruthy();
+    expect(screen.getByText('Saved reviewer decisions: 0 of 1.')).toBeTruthy();
+    expect(screen.getByText(/These follow the automatic policy/u)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Previous detection' })).toBeNull();
     expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
@@ -281,6 +283,15 @@ describe('web application foundation', () => {
     tableRegion.focus();
     expect(document.activeElement).toBe(tableRegion);
     expect(screen.getByRole('table')).toBeTruthy();
+    expect(screen.getByText('Saved reviewer decisions: 0 of 2.')).toBeTruthy();
+    const nextUnreviewed = screen.getByRole('button', { name: 'Next unreviewed in this view' });
+    await user.click(nextUnreviewed);
+    const firstReview = screen.getByLabelText('Review decision: Characters 6–12');
+    expect(document.activeElement).toBe(firstReview);
+    await user.selectOptions(firstReview, 'ACCEPT');
+    await user.click(nextUnreviewed);
+    expect(document.activeElement).toBe(screen.getByLabelText('Review decision: Characters 21–30'));
+    expect(screen.getByText('1 unreviewed in this filtered page view')).toBeTruthy();
 
     await user.selectOptions(screen.getByLabelText('Filter detections'), 'EMAIL');
     expect(screen.getByText('Characters 6–12')).toBeTruthy();
@@ -339,6 +350,8 @@ describe('web application foundation', () => {
       expect.any(AbortSignal)
     );
     expect(screen.getByText(/Saved review decisions will be bound into the exact redaction plan/u)).toBeTruthy();
+    expect(screen.getByText('Saved reviewer decisions: 1 of 1.')).toBeTruthy();
+    expect(screen.getByText('Every detection has a saved reviewer decision.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Redact and preview' })).toBeTruthy();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
@@ -398,7 +411,13 @@ describe('web application foundation', () => {
 
     expect(await screen.findByText('Showing 1–1 of 2')).toBeTruthy();
     expect(screen.getByRole('table')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    const nextPage = screen.getByRole<HTMLButtonElement>('button', { name: 'Next page' });
+    await user.selectOptions(screen.getByLabelText('Review decision: Characters 20–46'), 'ACCEPT');
+    expect(nextPage.disabled).toBe(true);
+    expect(screen.getByText('Save or discard unsaved review decisions before changing pages.')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Discard unsaved decisions' }));
+    expect(nextPage.disabled).toBe(false);
+    await user.click(nextPage);
     expect(await screen.findByText('Characters 51–60')).toBeTruthy();
     expect(screen.getByText('Showing 2–2 of 2')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Previous page' }));

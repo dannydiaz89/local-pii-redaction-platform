@@ -24,6 +24,9 @@ export interface MessageParameters {
   readonly 'preview.conflictTypes': { readonly types: string };
   readonly 'preview.conflictSources': { readonly sources: string };
   readonly 'preview.conflictsLimited': { readonly count: string };
+  readonly 'review.progress': { readonly saved: string; readonly total: string };
+  readonly 'review.automaticRemaining': { readonly remaining: string };
+  readonly 'review.unreviewedOnPage': { readonly count: string };
   readonly 'redaction.previewTruncated': { readonly count: string };
   readonly 'job.progress': { readonly state: string };
   readonly 'job.events': { readonly count: string };

@@ -11,6 +11,10 @@ Accessible, localized React shell for the future local review workflow.
   filterable native detection table, server-owned page controls, and a native conflict table.
 - Provides native accept/reject/retype controls whose category choices come from the live capability
   manifest, then saves value-free actions to the server's append-only process-local review history.
+- Shows saved review progress across the complete scan, explains that remaining detections follow
+  automatic policy, and offers keyboard-focus movement between unreviewed rows on the current page.
+- Prevents server-page changes from carrying an unbounded draft batch; the reviewer must save or
+  explicitly discard current unsaved decisions before moving pages.
 - Keeps exact detected text hidden by default and reveals only the bounded current-page matches from
   the user-selected local file after an explicit action; cleartext never enters API JSON, review
   history, logs, or browser persistence.
@@ -46,7 +50,9 @@ contain sensitive values a detector missed, so pipeline verification is not pres
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the
 current application launch. Redaction always sends the exact current scan job, extraction revision,
 review revision, and review digest. Saved accept/reject/retype decisions are applied by the shared
-core and bound into the verified output plan; a stale or mismatched set fails closed. Boundary edits,
+core and bound into the verified output plan; a stale or mismatched set fails closed. The progress
+summary counts unique detection targets rather than append-only history entries, and it does not
+misrepresent unsaved drafts as decisions already bound into redaction. Boundary edits,
 manual additions, conflict decisions, durable resume/history,
 retained reports, and lifecycle deletion remain unavailable. Running Vite directly intentionally shows the disconnected state
 because no trusted API bootstrap is present.

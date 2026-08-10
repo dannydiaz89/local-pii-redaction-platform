@@ -29,6 +29,7 @@ import type {
 } from './job-api.js';
 import { webPreviewMaximumInputBytes } from './preview-limit.js';
 import { createRedactedTextPreview } from './redacted-preview.js';
+import { findUnreviewedDetectionId, summarizeReviewProgress } from './review-progress.js';
 import { readSourceDetectionContext, type SourceDetectionContext } from './source-context.js';
 
 type PreflightState =
@@ -179,6 +180,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const previewController = useRef<AbortController | undefined>(undefined);
   const sourceContextController = useRef<AbortController | undefined>(undefined);
   const sourceContextRegion = useRef<HTMLDivElement | null>(null);
+  const reviewControls = useRef(new Map<string, HTMLSelectElement>());
+  const reviewNavigationAnchor = useRef<string | undefined>(undefined);
   const direction = localeDirection(locale);
   const t = useMemo(() => (id: PlainMessageId) => message(locale, id), [locale]);
   const downloadUrl = useMemo(() => redaction.kind === 'complete'
@@ -324,12 +327,39 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     scan.kind === 'complete' ? scan.summary.review.decisions : []
   ), [scan]);
   const reviewDraftCount = Object.keys(reviewDrafts).length;
+  const reviewedDetectionIds = useMemo(
+    () => new Set(effectiveReviews.keys()),
+    [effectiveReviews]
+  );
+  const draftedDetectionIds = useMemo(
+    () => new Set(Object.keys(reviewDrafts)),
+    [reviewDrafts]
+  );
+  const reviewProgress = scan.kind === 'complete'
+    ? summarizeReviewProgress(scan.summary.detections, scan.summary.review.decisions)
+    : undefined;
+  const unresolvedOnPage = visibleDetails.filter(
+    ({ id }) => !reviewedDetectionIds.has(id) && !draftedDetectionIds.has(id)
+  ).length;
+  const pageNavigationBlocked = reviewDraftCount > 0 || reviewSaveState === 'saving';
   const supportedReviewEntityTypes = preflight.kind === 'ready'
     ? preflight.summary.supportedEntityTypes
     : [];
   const sourceContextDetail = sourceContext.kind === 'ready'
     ? detectionDetails?.find(({ id }) => id === sourceContext.context.detectionId)
     : undefined;
+  const focusUnreviewed = (direction: 'previous' | 'next'): void => {
+    const detectionId = findUnreviewedDetectionId(
+      visibleDetails,
+      reviewedDetectionIds,
+      draftedDetectionIds,
+      reviewNavigationAnchor.current,
+      direction
+    );
+    if (detectionId === undefined) return;
+    reviewNavigationAnchor.current = detectionId;
+    reviewControls.current.get(detectionId)?.focus();
+  };
 
   return (
     <div className="app-shell">
@@ -610,6 +640,25 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </div>
                           </div>
                         </div>
+                        {reviewProgress === undefined ? null : (
+                          <section className="review-progress" aria-labelledby="review-progress-title">
+                            <h4 id="review-progress-title">{t('review.progressTitle')}</h4>
+                            <progress
+                              aria-label={t('review.progressLabel')}
+                              value={reviewProgress.saved}
+                              max={scan.summary.detections}
+                            />
+                            <p>{message(locale, 'review.progress', {
+                              saved: formatInteger(locale, reviewProgress.saved),
+                              total: formatInteger(locale, scan.summary.detections)
+                            })}</p>
+                            <p>{reviewProgress.remaining === 0
+                              ? t('review.allSaved')
+                              : message(locale, 'review.automaticRemaining', {
+                                remaining: formatInteger(locale, reviewProgress.remaining)
+                              })}</p>
+                          </section>
+                        )}
                         {sourceContext.kind === 'loading' ? (
                           <Callout>{t('review.sourceContextLoading')}</Callout>
                         ) : sourceContext.kind === 'unavailable' ? (
@@ -663,7 +712,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                           tabIndex={0}
                           aria-labelledby="preview-details-heading"
                         >
-                          <table className="preview-table">
+                          <table id="detection-review-table" className="preview-table">
                             <thead>
                               <tr>
                                 <th scope="col">{t('preview.columnCategory')}</th>
@@ -716,8 +765,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                       {t('review.columnDecision')}: {decisionLabel}
                                     </label>
                                     <select
+                                      ref={(control) => {
+                                        if (control === null) reviewControls.current.delete(detail.id);
+                                        else reviewControls.current.set(detail.id, control);
+                                      }}
                                       id={`review-${detail.id}`}
                                       value={choice}
+                                      onFocus={() => { reviewNavigationAnchor.current = detail.id; }}
                                       onChange={(event) => {
                                         const action = event.currentTarget.value as ReviewChoice;
                                         setReviewSaveState('idle');
@@ -771,8 +825,31 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </tbody>
                           </table>
                         </div>
+                        <div className="review-navigation" aria-label={t('review.unreviewedNavigation')}>
+                          <Button
+                            aria-controls="detection-review-table"
+                            disabled={unresolvedOnPage === 0}
+                            onClick={() => { focusUnreviewed('previous'); }}
+                          >{t('review.previousUnreviewed')}</Button>
+                          <span>{message(locale, 'review.unreviewedOnPage', {
+                            count: formatInteger(locale, unresolvedOnPage)
+                          })}</span>
+                          <Button
+                            aria-controls="detection-review-table"
+                            disabled={unresolvedOnPage === 0}
+                            onClick={() => { focusUnreviewed('next'); }}
+                          >{t('review.nextUnreviewed')}</Button>
+                        </div>
                         <div className="review-actions">
                           <p>{t('review.scope')}</p>
+                          {reviewDraftCount > 0 ? (
+                            <Button
+                              onClick={() => {
+                                setReviewDrafts({});
+                                setReviewSaveState('idle');
+                              }}
+                            >{t('review.discard')}</Button>
+                          ) : null}
                           <Button
                             disabled={reviewDraftCount === 0 || reviewSaveState === 'saving'}
                             onClick={() => {
@@ -828,7 +905,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         </div>
                         <div className="page-controls" aria-label={t('job.pages')}>
                           <Button
-                            disabled={scan.loadingPage || scan.pageHistory.length === 0}
+                            disabled={scan.loadingPage || pageNavigationBlocked || scan.pageHistory.length === 0}
                             onClick={() => {
                               const priorCursor = scan.pageHistory.at(-1);
                               if (priorCursor === undefined) return;
@@ -858,7 +935,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             total: formatInteger(locale, scan.summary.detections)
                           })}</span>
                           <Button
-                            disabled={scan.loadingPage || scan.summary.nextCursor === null}
+                            disabled={scan.loadingPage || pageNavigationBlocked || scan.summary.nextCursor === null}
                             onClick={() => {
                               const nextCursor = scan.summary.nextCursor;
                               const controller = previewController.current;
@@ -882,6 +959,10 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             }}
                           >{t('job.nextPage')}</Button>
                         </div>
+                        {reviewDraftCount > 0
+                          && (scan.pageHistory.length > 0 || scan.summary.nextCursor !== null) ? (
+                            <p className="preview-details-privacy" role="status">{t('review.pageBlocked')}</p>
+                          ) : null}
                         <p className="preview-details-privacy">{t('preview.confidenceHint')}</p>
                         <p className="preview-details-privacy">{t('preview.detailsPrivacy')}</p>
                       </div>

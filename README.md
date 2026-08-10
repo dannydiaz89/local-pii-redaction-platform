@@ -160,7 +160,11 @@ conflict locations remain visible in a separate native table. Wide tables remain
 keyboard-scrollable at narrow viewports. Each accepted detection now has native review controls for
 accept, reject, or changing to an entity type advertised by the live capability manifest. Saved
 actions go to the server-authoritative append-only process-local review set with explicit stale-
-revision feedback; they are not stored in browser persistence. The detection table keeps matched
+revision feedback; they are not stored in browser persistence. The UI reports saved review progress
+against the full detection total and states explicitly that detections without a saved decision
+still follow the automatic policy. Previous/next unresolved controls move keyboard focus among the
+visible filtered rows, and server-page changes are blocked until drafts are saved or explicitly
+discarded. The detection table keeps matched
 text hidden by default. An explicit reveal reads only the bounded matches for the current page from
 the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
 never added to an API response or review record and is released from UI state when hidden, the page

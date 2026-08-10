@@ -24,6 +24,7 @@
     "apps/web/test/application.test.tsx": ["unit", "integration", "accessibility", "localization"],
     "apps/web/test/bootstrap.test.ts": ["unit", "integration", "security-privacy"],
     "apps/web/test/detected-text.test.ts": ["unit", "security-privacy", "localization"],
+    "apps/web/test/review-progress.test.ts": ["unit", "accessibility"],
     "apps/web/test/source-context.test.ts": ["unit", "security-privacy", "localization"],
     "apps/cli/test/cli.test.ts": ["end-to-end", "recovery", "security-privacy"],
     "apps/cli/test/skipped-canary-publication.test.ts": ["integration", "end-to-end", "format-conformance", "security-privacy"],

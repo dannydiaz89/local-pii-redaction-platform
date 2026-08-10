@@ -86,12 +86,18 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .source-context-scroll:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .2rem; }
 .source-context-scroll pre { margin: 0; padding: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-ink); font: .95rem/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; unicode-bidi: plaintext; }
 .source-context-scroll mark { border-radius: .2rem; padding-inline: .12rem; color: var(--color-ink); background: var(--color-highlight); font-weight: 800; }
+.review-progress { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 2fr); gap: var(--space-2) var(--space-4); align-items: center; border: 1px solid var(--color-border); border-radius: .5rem; padding: var(--space-3); background: var(--color-background); }
+.review-progress h4 { grid-column: 1 / -1; margin: 0; }
+.review-progress progress { inline-size: 100%; block-size: .8rem; accent-color: var(--color-accent); }
+.review-progress p { margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 .review-decision-cell { display: grid; gap: var(--space-2); min-inline-size: 13rem; }
 .review-decision-cell select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
 .review-decision-cell select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
 .review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .review-actions p { flex: 1 1 24rem; margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 .review-actions [role] { flex-basis: 100%; min-block-size: 1.5rem; }
+.review-navigation { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.review-navigation > span { color: var(--color-muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
 .preview-conflicts { display: grid; gap: var(--space-3); margin-block-start: var(--space-5); }
 .preview-conflicts h3, .preview-conflicts p { margin: 0; }
 .preview-conflict-warning { font-weight: 750; }
@@ -123,6 +129,7 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
   .preview-review-heading { align-items: stretch; flex-direction: column; }
   .preview-review-controls { align-items: stretch; flex-direction: column; }
   .source-context-heading { align-items: stretch; flex-direction: column; }
+  .review-progress { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) { .activity-dot { animation: none; } }
