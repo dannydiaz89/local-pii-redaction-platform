@@ -45,7 +45,7 @@ export interface CLIRedactionReportV2 {
 }
 export interface ArtifactSummary {
   displayName?: string;
-  mediaType?: 'text/plain' | 'text/markdown' | 'application/json';
+  mediaType?: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv';
   byteLength: number;
   digest: string;
   extractionRevision?: string;

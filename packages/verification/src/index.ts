@@ -13,7 +13,7 @@ import { resolveEvidence } from '@local-pii/span-resolution';
 export const textVerificationCapabilityDescriptor = {
   id: 'text-rescan-v1',
   version: '0.1.0',
-  formats: ['text', 'json'],
+  formats: ['text', 'json', 'csv'],
   checks: ['UTF8_REOPEN', 'DETERMINISTIC_RESCAN', 'SPAN_RESOLUTION']
 } as const;
 
@@ -193,7 +193,7 @@ const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const policyIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
-const canonicalTextMediaTypes = new Set(['text/plain', 'text/markdown', 'application/json']);
+const canonicalTextMediaTypes = new Set(['text/plain', 'text/markdown', 'application/json', 'text/csv']);
 const resolvedSpanIdPattern = /^rsp_[a-f0-9]{32}$/u;
 
 function isDigest(value: unknown): value is Sha256Digest {

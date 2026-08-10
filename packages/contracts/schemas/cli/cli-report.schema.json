@@ -78,7 +78,7 @@
     "capability": {
       "type": "object", "additionalProperties": false, "required": ["adapter", "version", "operations"],
       "properties": {
-        "adapter": { "enum": ["text", "json"] }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "adapter": { "enum": ["text", "json", "csv"] }, "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
         "operations": { "type": "array", "items": { "enum": ["SCAN", "REDACT", "VERIFY", "INSPECT"] }, "uniqueItems": true }
       }
     }
@@ -98,7 +98,7 @@
       "type": "object", "additionalProperties": false, "required": ["byteLength", "digest"],
       "properties": {
         "displayName": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "mediaType": { "enum": ["text/plain", "text/markdown", "application/json"] }, "byteLength": { "type": "integer", "minimum": 0 },
+        "mediaType": { "enum": ["text/plain", "text/markdown", "application/json", "text/csv"] }, "byteLength": { "type": "integer", "minimum": 0 },
         "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
         "extractionRevision": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
         "unicodeCodePoints": { "type": "integer", "minimum": 0 }, "hasUtf8Bom": { "type": "boolean" }

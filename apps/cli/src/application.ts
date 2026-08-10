@@ -1,5 +1,6 @@
 export {
   createExperimentalOllamaTextApplication,
+  csvCapabilityRequirement,
   jsonCapabilityRequirement,
   localFileApplication,
   localTextApplication,

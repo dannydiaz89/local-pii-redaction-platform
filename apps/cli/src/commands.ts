@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 
 import { createLocalJsonArtifactSession } from '@local-pii/adapter-json';
+import { createLocalCsvArtifactSession } from '@local-pii/adapter-csv';
 
 import {
   cleanupStaleTextStages,
@@ -24,6 +25,7 @@ import {
 
 import {
   createExperimentalOllamaTextApplication,
+  csvCapabilityRequirement,
   jsonCapabilityRequirement,
   localFileApplication,
   textCapabilityRequirement
@@ -64,10 +66,10 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact scan <file.txt|file.md|file.json> [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md|file.json> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
-  pii-redact verify <file.txt|file.md|file.json> [--json]
-  pii-redact inspect <file.txt|file.md|file.json> [--json]
+  pii-redact scan <file.txt|file.md|file.json|file.csv> [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
+  pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
+  pii-redact inspect <file.txt|file.md|file.json|file.csv> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
   pii-redact --version
   pii-redact --license
@@ -274,18 +276,25 @@ async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal
   });
 }
 
-function isJsonInput(input: string): boolean {
-  return extname(input).toLowerCase() === '.json';
+type LocalFormat = 'text' | 'json' | 'csv';
+
+function localFormat(input: string): LocalFormat {
+  const extension = extname(input).toLowerCase();
+  if (extension === '.json') return 'json';
+  if (extension === '.csv') return 'csv';
+  return 'text';
 }
 
 function localSession(input: string, output?: string, maximumInputBytes?: number) {
-  return isJsonInput(input)
-    ? createLocalJsonArtifactSession(input, output, maximumInputBytes)
-    : createLocalTextArtifactSession(input, output, maximumInputBytes);
+  const format = localFormat(input);
+  if (format === 'json') return createLocalJsonArtifactSession(input, output, maximumInputBytes);
+  if (format === 'csv') return createLocalCsvArtifactSession(input, output, maximumInputBytes);
+  return createLocalTextArtifactSession(input, output, maximumInputBytes);
 }
 
 function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'REDACT' | 'VERIFY', engine: 'rules' | 'ollama' = 'rules') {
-  if (isJsonInput(input)) {
+  const format = localFormat(input);
+  if (format !== 'text') {
     if (engine === 'ollama') {
       throw new SafeError({
         code: 'FORMAT_UNSUPPORTED',
@@ -294,7 +303,7 @@ function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'R
         correlationId: 'cor_cli_format'
       });
     }
-    return jsonCapabilityRequirement(operation);
+    return format === 'json' ? jsonCapabilityRequirement(operation) : csvCapabilityRequirement(operation);
   }
   return textCapabilityRequirement(operation, engine);
 }
@@ -505,7 +514,7 @@ async function runInspect(input: string, json: boolean, io: CliIo, signal?: Abor
       unicodeCodePoints: unicodeCodePointLength(artifact.text),
       hasUtf8Bom: artifact.hasUtf8Bom
     },
-    capability: { adapter: isJsonInput(input) ? 'json' : 'text', version: '0.1.0', operations: ['SCAN', 'REDACT', 'VERIFY', 'INSPECT'] }
+    capability: { adapter: localFormat(input), version: '0.1.0', operations: ['SCAN', 'REDACT', 'VERIFY', 'INSPECT'] }
   };
   writeResult(io, json, report, `${artifact.displayName}: ${String(artifact.byteLength)} bytes, ${String(unicodeCodePointLength(artifact.text))} Unicode code points.`);
   return 0;

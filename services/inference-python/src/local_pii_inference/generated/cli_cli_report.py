@@ -57,6 +57,7 @@ class Conflict(BaseModel):
 class Adapter(Enum):
     text = 'text'
     json = 'json'
+    csv = 'csv'
 
 
 class EntityType(StrEnum):
@@ -143,6 +144,7 @@ class MediaType(Enum):
     text_plain = 'text/plain'
     text_markdown = 'text/markdown'
     application_json = 'application/json'
+    text_csv = 'text/csv'
 
 
 class ArtifactSummary(BaseModel):

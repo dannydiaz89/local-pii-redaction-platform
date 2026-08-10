@@ -39,6 +39,14 @@ async function jsonFileForCli(content: string): Promise<string> {
   return input;
 }
 
+async function csvFileForCli(content: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'local-pii-csv-cli-'));
+  directories.push(root);
+  const input = join(root, 'document.csv');
+  await writeFile(input, content);
+  return input;
+}
+
 function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly stderr: string[] } {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -255,6 +263,11 @@ describe('CLI TXT vertical slice', () => {
     expect(manifest.formats).toContainEqual(expect.objectContaining({
       id: 'json',
       mediaTypes: ['application/json'],
+      qualification: 'DEVELOPMENT'
+    }));
+    expect(manifest.formats).toContainEqual(expect.objectContaining({
+      id: 'csv',
+      mediaTypes: ['text/csv'],
       qualification: 'DEVELOPMENT'
     }));
     expect(manifest.detectors.map(({ id }) => id)).toEqual([
@@ -737,6 +750,81 @@ describe('CLI TXT vertical slice', () => {
     const path = await jsonFileForCli('{"value":"alpha@example.test"}');
     const fetchImplementation = vi.fn(() => {
       throw new Error('JSON hybrid rejection must happen before a network request.');
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+    try {
+      const stream = capture();
+      expect(await executeCli([
+        'scan', path, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--json'
+      ], stream.io)).toBe(3);
+      expect(fetchImplementation).not.toHaveBeenCalled();
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('scans, natively redacts, reopens, and verifies CSV cells without normalizing untouched fields', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-csv-cli-'));
+    directories.push(root);
+    const input = join(root, 'records.csv');
+    const output = join(root, 'records.redacted.csv');
+    const raw = [
+      'name,email,note',
+      'Alice,alpha@example.test,"keep, exactly"',
+      'Bob,"+1 202-555-0147","quote ""stays"""',
+      'Casey,123-45-6789,safe',
+      ''
+    ].join('\r\n');
+    await writeFile(input, raw);
+    const before = await stat(input, { bigint: true });
+
+    const scan = capture();
+    expect(await executeCli(['scan', input, '--json'], scan.io), scan.stderr.join('')).toBe(0);
+    expect(JSON.parse(scan.stdout.join(''))).toMatchObject({
+      input: { mediaType: 'text/csv' },
+      counts: { detections: 3, byEntity: { EMAIL: 1, PHONE: 1, SSN: 1 } }
+    });
+    expect(scan.stdout.join('')).not.toContain('alpha@example.test');
+
+    const wrong = capture();
+    expect(await executeCli(['redact', input, '--output', join(root, 'records.txt'), '--json'], wrong.io)).toBe(3);
+    expect(JSON.parse(wrong.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    expect(await readdir(root)).toEqual(['records.csv']);
+
+    const redact = capture();
+    expect(await executeCli(['redact', input, '--output', output, '--json'], redact.io), redact.stderr.join('')).toBe(0);
+    expect(await readFile(output, 'utf8')).toBe([
+      'name,email,note',
+      'Alice,[EMAIL_1],"keep, exactly"',
+      'Bob,"[PHONE_1]","quote ""stays"""',
+      'Casey,[SSN_1],safe',
+      ''
+    ].join('\r\n'));
+    expect((JSON.parse(redact.stdout.join('')) as { readonly plan: { readonly writer: { readonly id: string } } }).plan.writer.id).toBe('csv-adapter');
+    expect(await readFile(input, 'utf8')).toBe(raw);
+    const after = await stat(input, { bigint: true });
+    expect({ mode: after.mode, size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs }).toEqual({
+      mode: before.mode,
+      size: before.size,
+      mtimeNs: before.mtimeNs,
+      ctimeNs: before.ctimeNs
+    });
+
+    const verify = capture();
+    expect(await executeCli(['verify', output, '--json'], verify.io)).toBe(0);
+    const inspect = capture();
+    expect(await executeCli(['inspect', input, '--json'], inspect.io)).toBe(0);
+    expect(JSON.parse(inspect.stdout.join(''))).toMatchObject({
+      artifact: { mediaType: 'text/csv' },
+      capability: { adapter: 'csv' }
+    });
+  });
+
+  it('rejects experimental Ollama for CSV before making a provider request', async () => {
+    const path = await csvFileForCli('value\nalpha@example.test\n');
+    const fetchImplementation = vi.fn(() => {
+      throw new Error('CSV hybrid rejection must happen before a network request.');
     });
     vi.stubGlobal('fetch', fetchImplementation);
     try {

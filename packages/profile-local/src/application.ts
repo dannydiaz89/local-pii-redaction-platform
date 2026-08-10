@@ -11,6 +11,7 @@ import {
   deterministicDetectorCapabilities
 } from '@local-pii/detectors';
 import { defaultMaximumInputBytes } from '@local-pii/adapter-text';
+import { defaultMaximumCsvInputBytes } from '@local-pii/adapter-csv';
 import { defaultMaximumJsonInputBytes } from '@local-pii/adapter-json';
 import { parseSha256Digest } from '@local-pii/domain';
 import {
@@ -69,6 +70,22 @@ export function jsonCapabilityRequirement(operation: CapabilityOperation): Capab
     transformationActions: operation === 'REDACT' ? ['TYPED_LABEL'] : [],
     verificationProfile: 'text-rescan-v1',
     maximumInputBytes: defaultMaximumJsonInputBytes,
+    minimumQualification: 'DEVELOPMENT'
+  };
+}
+
+export function csvCapabilityRequirement(operation: CapabilityOperation): CapabilityRequirement {
+  const needsDetection = operation !== 'INSPECT';
+  return {
+    contractVersion: '1.0.0',
+    engineModes: ['RULES_ONLY'],
+    formatId: 'csv',
+    operation,
+    detectorIds: needsDetection ? [...detectorIds] : [],
+    detectorKinds: needsDetection ? [...detectorKinds] : [],
+    transformationActions: operation === 'REDACT' ? ['TYPED_LABEL'] : [],
+    verificationProfile: 'text-rescan-v1',
+    maximumInputBytes: defaultMaximumCsvInputBytes,
     minimumQualification: 'DEVELOPMENT'
   };
 }

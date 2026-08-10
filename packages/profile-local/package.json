@@ -12,6 +12,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@local-pii/adapter-csv": "workspace:*",
     "@local-pii/adapter-json": "workspace:*",
     "@local-pii/adapter-text": "workspace:*",
     "@local-pii/core": "workspace:*",

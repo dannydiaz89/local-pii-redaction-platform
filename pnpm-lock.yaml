@@ -89,6 +89,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@local-pii/adapter-csv':
+        specifier: workspace:*
+        version: link:../../packages/adapter-csv
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../../packages/adapter-json
@@ -144,6 +147,21 @@ importers:
       vite:
         specifier: ^8.2.1
         version: 8.2.1(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.11)
+
+  packages/adapter-csv:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@local-pii/redaction':
+        specifier: workspace:*
+        version: link:../redaction
 
   packages/adapter-job-sqlite:
     dependencies:
@@ -238,6 +256,9 @@ importers:
 
   packages/profile-local:
     dependencies:
+      '@local-pii/adapter-csv':
+        specifier: workspace:*
+        version: link:../adapter-csv
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../adapter-json

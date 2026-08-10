@@ -1004,7 +1004,8 @@ export const schemaCatalog = [
           "adapter": {
             "enum": [
               "text",
-              "json"
+              "json",
+              "csv"
             ]
           },
           "version": {
@@ -1076,7 +1077,8 @@ export const schemaCatalog = [
             "enum": [
               "text/plain",
               "text/markdown",
-              "application/json"
+              "application/json",
+              "text/csv"
             ]
           },
           "byteLength": {

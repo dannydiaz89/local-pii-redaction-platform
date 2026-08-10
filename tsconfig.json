@@ -12,6 +12,7 @@
     { "path": "packages/span-resolution" },
     { "path": "packages/redaction" },
     { "path": "packages/adapter-text" },
+    { "path": "packages/adapter-csv" },
     { "path": "packages/adapter-json" },
     { "path": "packages/verification" },
     { "path": "packages/core" },

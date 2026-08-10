@@ -3,6 +3,10 @@ import {
   textAdapterCapabilityDescriptor
 } from '@local-pii/adapter-text';
 import {
+  csvAdapterCapabilityDescriptor,
+  defaultMaximumCsvInputBytes
+} from '@local-pii/adapter-csv';
+import {
   defaultMaximumJsonInputBytes,
   jsonAdapterCapabilityDescriptor
 } from '@local-pii/adapter-json';
@@ -43,6 +47,15 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     verificationProfiles: [...jsonAdapterCapabilityDescriptor.verificationProfiles],
     qualification: 'DEVELOPMENT'
   } as unknown as CapabilityManifest['formats'][number];
+  const csvFormat = {
+    ...csvAdapterCapabilityDescriptor,
+    mediaTypes: [...csvAdapterCapabilityDescriptor.mediaTypes],
+    extensions: [...csvAdapterCapabilityDescriptor.extensions],
+    operations: [...csvAdapterCapabilityDescriptor.operations],
+    features: csvAdapterCapabilityDescriptor.features.map((feature) => ({ ...feature })),
+    verificationProfiles: [...csvAdapterCapabilityDescriptor.verificationProfiles],
+    qualification: 'DEVELOPMENT'
+  } as unknown as CapabilityManifest['formats'][number];
 
   const verifier = {
     ...textVerificationCapabilityDescriptor,
@@ -55,10 +68,10 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
     id: 'local-rules-files',
-    version: '0.2.0',
+    version: '0.3.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
-    formats: [textFormat, jsonFormat],
+    formats: [textFormat, jsonFormat, csvFormat],
     detectors,
     transformations: [{
       ...typedLabelTransformationCapabilityDescriptor,
@@ -67,7 +80,7 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     }],
     verificationProfiles: [verifier],
     limits: {
-      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes),
+      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes, defaultMaximumCsvInputBytes),
       maximumCanonicalCodePoints: defaultDetectorLimits.maximumCodePoints,
       maximumDetections: defaultDetectorLimits.maximumDetections
     }
