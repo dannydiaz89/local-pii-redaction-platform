@@ -133,6 +133,38 @@ async function docxFileForCli(documentTextXml: string): Promise<string> {
   return input;
 }
 
+function syntheticPdfForCli(text: string): Buffer {
+  const escaped = text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)');
+  const commands = ['BT', '/F1 12 Tf', '72 720 Td', `(${escaped}) Tj`, 'ET'].join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>\n',
+    '<< /Type /Pages /Kids [4 0 R] /Count 1 >>\n',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\n',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>\n',
+    `<< /Length ${String(commands.length)} >>\nstream\n${commands}\nendstream\n`
+  ];
+  const header = '%PDF-1.4\n';
+  let body = '';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(header.length + body.length);
+    body += `${String(index + 1)} 0 obj\n${object}endobj\n`;
+  }
+  const xrefOffset = header.length + body.length;
+  const entries = offsets.map((offset, index) => index === 0
+    ? '0000000000 65535 f \n'
+    : `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  return Buffer.from(`${header}${body}xref\n0 6\n${entries}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`, 'ascii');
+}
+
+async function pdfFileForCli(text: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'local-pii-pdf-cli-'));
+  directories.push(root);
+  const input = join(root, 'document.pdf');
+  await writeFile(input, syntheticPdfForCli(text));
+  return input;
+}
+
 function capture(): { readonly io: CliIo; readonly stdout: string[]; readonly stderr: string[] } {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -360,6 +392,13 @@ describe('CLI TXT vertical slice', () => {
       id: 'docx',
       mediaTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
       operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN'],
+      qualification: 'EXPERIMENTAL'
+    }));
+    expect(manifest.formats).toContainEqual(expect.objectContaining({
+      id: 'pdf',
+      mediaTypes: ['application/pdf'],
+      operations: ['PROBE', 'INSPECT'],
+      assurance: 'EXTRACT_ONLY',
       qualification: 'EXPERIMENTAL'
     }));
     expect(manifest.detectors.map(({ id }) => id)).toEqual([
@@ -1113,6 +1152,55 @@ describe('CLI TXT vertical slice', () => {
         expect(await executeCli(argv, stream.io), argv.join(' ')).toBe(3);
         const failure = JSON.parse(stream.stderr.join('')) as { readonly error: { readonly code: string } };
         expect(['FORMAT_UNSUPPORTED', 'POLICY_UNSATISFIABLE'], argv.join(' ')).toContain(failure.error.code);
+      }
+      expect(fetchImplementation).not.toHaveBeenCalled();
+      await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('inspects only the strict synthetic PDF profile without exposing extracted text', async () => {
+    const path = await pdfFileForCli('PLANTED-PDF-CANARY@example.test');
+    const before = await stat(path, { bigint: true });
+    const stream = capture();
+    expect(await executeCli(['inspect', path, '--json'], stream.io), stream.stderr.join('')).toBe(0);
+    expect(JSON.parse(stream.stdout.join(''))).toMatchObject({
+      operation: 'INSPECT',
+      outcome: 'SUCCEEDED',
+      artifact: { mediaType: 'application/pdf' },
+      capability: { adapter: 'pdf', operations: ['INSPECT'] }
+    });
+    const after = await stat(path, { bigint: true });
+    expect({ ino: after.ino, size: after.size, mode: after.mode, mtimeNs: after.mtimeNs }).toEqual({
+      ino: before.ino, size: before.size, mode: before.mode, mtimeNs: before.mtimeNs
+    });
+    expect(stream.stdout.join('')).not.toContain('PLANTED-PDF-CANARY');
+    expect(stream.stdout.join('')).not.toContain(path);
+  });
+
+  it('rejects PDF scan, redaction, verification, and Ollama before output or provider access', async () => {
+    const path = await pdfFileForCli('PLANTED-PDF-CANARY@example.test');
+    const output = `${path.slice(0, -'.pdf'.length)}.redacted.pdf`;
+    const fetchImplementation = vi.fn(() => {
+      throw new Error('PDF rejection must happen before a network request.');
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+    try {
+      for (const argv of [
+        ['scan', path, '--json'],
+        ['redact', path, '--output', output, '--json'],
+        ['verify', path, '--json'],
+        ['scan', path, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--json']
+      ]) {
+        const stream = capture();
+        expect(await executeCli(argv, stream.io), argv.join(' ')).toBe(3);
+        const envelope = JSON.parse(stream.stderr.join('')) as unknown as {
+          readonly error?: { readonly code?: unknown };
+        };
+        expect(['FORMAT_UNSUPPORTED', 'POLICY_UNSATISFIABLE']).toContain(envelope.error?.code);
+        expect(stream.stderr.join('')).not.toContain('PLANTED-PDF-CANARY');
+        expect(stream.stderr.join('')).not.toContain(path);
       }
       expect(fetchImplementation).not.toHaveBeenCalled();
       await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' });

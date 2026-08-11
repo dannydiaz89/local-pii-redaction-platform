@@ -91,6 +91,7 @@ pnpm --silent pii-redact redact ./document.csv \
   --policy development-labels --output ./test-output/document.redacted.csv --json
 pnpm --silent pii-redact inspect ./document.docx --json
 pnpm --silent pii-redact scan ./document.docx --json
+pnpm --silent pii-redact inspect ./synthetic-literal-profile.pdf --json
 pnpm --silent pii-redact cleanup-stages \
   --output ./test-output/sample.redacted.txt --json
 ```
@@ -158,6 +159,13 @@ intentional rejected residual only at its digest-bound mapped location; any new 
 still blocks publication. Plans, reports, and API records contain offsets and provenance but never
 matched values. Boundary edits, manual additions, durable artifact/review persistence, reports,
 and restart/resume remain disabled.
+
+The real HTTP boundary also has a bounded abuse/disconnect evidence slice. It rejects malformed,
+oversized, or conflicting authentication and request framing without reflecting planted values;
+recognizable PDF/archive container signatures cannot be retained through the TXT/Markdown upload
+route; and a real client socket disconnect aborts non-cooperative application work. These tests use
+Node's numeric-loopback HTTP/1.1 behavior. Proxy/reverse-proxy smuggling, HTTP/2, multi-principal
+authorization, durable-object authorization, and a complete Windows/macOS CI matrix remain open.
 
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
@@ -347,15 +355,31 @@ relationships, comments, text boxes, fields, revisions, hidden text/styles, bina
 parts, and any non-qualified carrier shape still fail closed instead of being skipped. Privacy-safe
 unsupported errors expose only a closed reason category. XML input and internal replacement strings
 must satisfy the XML 1.0 character repertoire. Its `docx-extract-v1` evidence attests bounded ZIP
-structure, the feature allowlist, and typed native source mapping only. An adapter-local reconciliation foundation
-now reconciles the paragraph-only internal writer's exact plan/receipt, deterministic staged bytes,
-native reopen, canonical replacements, retained carrier inventory, untouched decompressed parts,
-and uniquely planted planned-source canaries on synthetic packages. It deliberately reuses the extraction
-parser, reports no independent or fidelity qualification, and rejects plans targeting accepted
-relationship/XML carriers. DOCX redaction and standalone verification therefore remain unexposed:
-complete carrier writers, an independent native leakage verifier, broader feature coverage,
+structure, the feature allowlist, and typed native source mapping only. Version 0.5 extends the
+experimental writer across paragraph/run text and every accepted typed relationship/XML carrier.
+It binds exact raw carrier ranges, XML-escapes attribute/text replacements, reparses changed external
+targets and the complete OOXML package before staging, and reconciles the exact plan/receipt,
+deterministic staged bytes, native reopen, canonical replacements, retained carrier inventory,
+untouched decompressed parts, and uniquely planted planned-source canaries on synthetic packages.
+The reconciliation deliberately reuses the extraction parser and reports no independent or fidelity
+qualification. DOCX redaction and standalone verification therefore remain unexposed: an independent
+native leakage verifier, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
+
+The rules-only CLI also has an experimental, synthetic-only `.pdf` inspection foundation through
+[`@local-pii/adapter-pdf`](./packages/adapter-pdf). It accepts only PDF 1.4 files with one complete
+classic xref revision, a closed catalog/flat-page graph, one uncompressed content stream per page,
+and bounded visible ASCII literal text using built-in Helvetica/WinAnsi and a closed `BT`/`Tf`/`Td`/
+`Tj`/`ET` operator set. Canonical reading order is page order followed by operator order. Unknown or
+unused objects, operators, encodings, filters, or dictionaries fail closed, as do encryption,
+incremental updates, metadata, actions/JavaScript, forms/XFA, annotations, attachments, optional
+content, images, XObjects, alternate fonts, scanned/mixed pages, and selected-file symlinks. The
+capability is `EXPERIMENTAL`, `EXTRACT_ONLY`, and advertises only probe/inspect. Scan is blocked
+because there is no complete typed page/object/glyph source map or qualified Unicode mapping;
+redaction, verification, rendering/preview, and OCR are also unavailable. This does not resolve
+OQ-009: production PDF parser/writer/verifier selection, licensing, independent extraction, native
+search/copy checks, renderer canaries, fidelity, and sandbox qualification remain open.
 
 `policies explain` is read-only: it compiles a bundled example and compares its requirements with
 the current rules-only file capabilities without opening a document or contacting Ollama. The
@@ -497,6 +521,7 @@ output collisions.
 - [`packages/adapter-text`](./packages/adapter-text): strict UTF-8 input and staged, non-overwriting writes
 - [`packages/adapter-csv`](./packages/adapter-csv): native CSV cell extraction, dialect mapping, and cell-only writes
 - [`packages/adapter-docx`](./packages/adapter-docx): strict experimental DOCX paragraph extraction and source mapping
+- [`packages/adapter-pdf`](./packages/adapter-pdf): strict synthetic-only PDF inspection foundation
 - [`packages/adapter-json`](./packages/adapter-json): native JSON value extraction, mapping, and value-only writes
 - [`packages/verification`](./packages/verification): privacy-minimized deterministic residual verification
 - [`packages/core`](./packages/core): use-case orchestration and provider/adapter ports

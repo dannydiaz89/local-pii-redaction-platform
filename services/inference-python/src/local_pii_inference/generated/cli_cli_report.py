@@ -59,6 +59,7 @@ class Adapter(Enum):
     json = 'json'
     csv = 'csv'
     docx = 'docx'
+    pdf = 'pdf'
 
 
 class EntityType(StrEnum):
@@ -147,6 +148,7 @@ class MediaType(Enum):
     application_json = 'application/json'
     text_csv = 'text/csv'
     application_vnd_openxmlformats_officedocument_wordprocessingml_document = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    application_pdf = 'application/pdf'
 
 
 class ArtifactSummary(BaseModel):

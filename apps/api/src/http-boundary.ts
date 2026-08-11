@@ -263,6 +263,7 @@ export async function invokeBounded<Result>(
   let rejectCancellation: (reason: Error) => void = () => undefined;
   const cancelled = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
   const abortRequest = (): void => {
+    if (controller.signal.aborted) return;
     controller.abort();
     rejectCancellation(new SafeError({
       code: 'OPERATION_CANCELLED',
@@ -271,6 +272,7 @@ export async function invokeBounded<Result>(
       correlationId: requestCorrelationId(request)
     }));
   };
+  const abortSocket = (): void => { abortRequest(); };
   const abortLifecycle = (): void => {
     controller.abort();
     rejectCancellation(new HttpSafeError(503, {
@@ -281,6 +283,7 @@ export async function invokeBounded<Result>(
     }));
   };
   request.raw.once('aborted', abortRequest);
+  request.raw.socket.once('close', abortSocket);
   if (lifecycleSignal.aborted) abortLifecycle();
   else lifecycleSignal.addEventListener('abort', abortLifecycle, { once: true });
   let timeout: NodeJS.Timeout | undefined;
@@ -296,6 +299,7 @@ export async function invokeBounded<Result>(
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
     request.raw.off('aborted', abortRequest);
+    request.raw.socket.off('close', abortSocket);
     lifecycleSignal.removeEventListener('abort', abortLifecycle);
   }
 }

@@ -15,6 +15,7 @@ import {
 import { defaultMaximumInputBytes } from '@local-pii/adapter-text';
 import { defaultMaximumCsvInputBytes } from '@local-pii/adapter-csv';
 import { defaultMaximumDocxInputBytes } from '@local-pii/adapter-docx';
+import { defaultMaximumPdfInputBytes } from '@local-pii/adapter-pdf';
 import { defaultMaximumJsonInputBytes } from '@local-pii/adapter-json';
 import { parseSha256Digest } from '@local-pii/domain';
 import {
@@ -105,6 +106,21 @@ export function docxCapabilityRequirement(operation: CapabilityOperation): Capab
     transformationActions: [],
     verificationProfile: 'docx-extract-v1',
     maximumInputBytes: defaultMaximumDocxInputBytes,
+    minimumQualification: 'EXPERIMENTAL'
+  };
+}
+
+export function pdfCapabilityRequirement(operation: CapabilityOperation): CapabilityRequirement {
+  return {
+    contractVersion: '1.0.0',
+    engineModes: ['RULES_ONLY'],
+    formatId: 'pdf',
+    operation,
+    detectorIds: [],
+    detectorKinds: [],
+    transformationActions: [],
+    verificationProfile: 'pdf-literal-extract-v1',
+    maximumInputBytes: defaultMaximumPdfInputBytes,
     minimumQualification: 'EXPERIMENTAL'
   };
 }

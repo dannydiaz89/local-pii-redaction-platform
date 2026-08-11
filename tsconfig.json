@@ -14,6 +14,7 @@
     { "path": "packages/adapter-text" },
     { "path": "packages/adapter-csv" },
     { "path": "packages/adapter-docx" },
+    { "path": "packages/adapter-pdf" },
     { "path": "packages/adapter-json" },
     { "path": "packages/verification" },
     { "path": "packages/core" },

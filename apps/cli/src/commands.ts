@@ -7,6 +7,10 @@ import {
   createLocalDocxArtifactSession,
   defaultMaximumDocxInputBytes
 } from '@local-pii/adapter-docx';
+import {
+  createLocalPdfArtifactSession,
+  defaultMaximumPdfInputBytes
+} from '@local-pii/adapter-pdf';
 
 import {
   cleanupStaleTextStages,
@@ -33,6 +37,7 @@ import {
   createExperimentalOllamaTextApplication,
   csvCapabilityRequirement,
   docxCapabilityRequirement,
+  pdfCapabilityRequirement,
   jsonCapabilityRequirement,
   localFileApplication,
   textCapabilityRequirement
@@ -97,7 +102,7 @@ const usage = `Usage:
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
-  pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx> [--json]
+  pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx|file.pdf> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
   pii-redact --version
   pii-redact --license
@@ -370,13 +375,14 @@ async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal
   });
 }
 
-type LocalFormat = 'text' | 'json' | 'csv' | 'docx';
+type LocalFormat = 'text' | 'json' | 'csv' | 'docx' | 'pdf';
 
 function localFormat(input: string): LocalFormat {
   const extension = extname(input).toLowerCase();
   if (extension === '.json') return 'json';
   if (extension === '.csv') return 'csv';
   if (extension === '.docx') return 'docx';
+  if (extension === '.pdf') return 'pdf';
   return 'text';
 }
 
@@ -397,6 +403,10 @@ function localSession(
     output,
     Math.min(maximumInputBytes ?? defaultMaximumDocxInputBytes, defaultMaximumDocxInputBytes)
   );
+  if (format === 'pdf') return createLocalPdfArtifactSession(
+    input,
+    Math.min(maximumInputBytes ?? defaultMaximumPdfInputBytes, defaultMaximumPdfInputBytes)
+  );
   return createLocalTextArtifactSession(input, output, maximumInputBytes);
 }
 
@@ -413,7 +423,8 @@ function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'R
     }
     if (format === 'json') return jsonCapabilityRequirement(operation);
     if (format === 'csv') return csvCapabilityRequirement(operation);
-    return docxCapabilityRequirement(operation);
+    if (format === 'docx') return docxCapabilityRequirement(operation);
+    return pdfCapabilityRequirement(operation);
   }
   return textCapabilityRequirement(operation, engine);
 }

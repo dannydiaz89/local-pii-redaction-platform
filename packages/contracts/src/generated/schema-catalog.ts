@@ -2173,7 +2173,8 @@ export const schemaCatalog = [
               "text",
               "json",
               "csv",
-              "docx"
+              "docx",
+              "pdf"
             ]
           },
           "version": {
@@ -2247,7 +2248,8 @@ export const schemaCatalog = [
               "text/markdown",
               "application/json",
               "text/csv",
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/pdf"
             ]
           },
           "byteLength": {

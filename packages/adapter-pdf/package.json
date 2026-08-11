@@ -1,6 +1,6 @@
 {
-  "name": "@local-pii/adapter-docx",
-  "version": "0.5.0",
+  "name": "@local-pii/adapter-pdf",
+  "version": "0.1.0",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "@local-pii/adapter-text": "workspace:*",
-    "@local-pii/contracts": "workspace:*",
-    "@local-pii/domain": "workspace:*",
-    "@local-pii/redaction": "workspace:*"
+    "@local-pii/domain": "workspace:*"
   }
 }

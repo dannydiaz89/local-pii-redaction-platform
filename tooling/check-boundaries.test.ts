@@ -236,6 +236,27 @@ describe('boundary checker', () => {
     ]);
   });
 
+  it('keeps the extraction-only PDF adapter off core, writer, and server dependencies', () => {
+    expect(checkPackageManifest('packages/adapter-pdf/package.json', 'adapter-pdf', {
+      name: '@local-pii/adapter-pdf',
+      exports: { '.': './dist/index.js' },
+      dependencies: {
+        '@local-pii/adapter-text': 'workspace:*',
+        '@local-pii/domain': 'workspace:*'
+      }
+    })).toEqual([]);
+
+    expect(checkSourceDependencyDirection(
+      'packages/adapter-pdf/src/example.ts',
+      "import { createServer } from 'node:http'; import { apply } from '@local-pii/redaction'; import Fastify from 'fastify';",
+      ['adapter-text', 'domain'],
+      { packageRuntime: 'adapter-pdf' }
+    ).map(({ message }) => message)).toEqual([
+      'imports @local-pii/redaction, outside its allow-listed dependency direction',
+      'imports or loads forbidden durable/server infrastructure fastify'
+    ]);
+  });
+
   it('allows the job metadata boundary to depend only on contracts and domain', () => {
     expect(checkPackageManifest('packages/job-store/package.json', 'job-store', {
       name: '@local-pii/job-store',

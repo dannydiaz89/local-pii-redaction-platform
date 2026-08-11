@@ -50,7 +50,8 @@ export interface Output {
     | 'text/markdown'
     | 'application/json'
     | 'text/csv'
-    | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    | 'application/pdf';
   byteLength: number;
   digest: string;
   extractionRevision?: string;

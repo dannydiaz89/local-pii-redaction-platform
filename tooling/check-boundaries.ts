@@ -10,6 +10,7 @@ type WorkspacePackage =
   | 'adapter-job-sqlite'
   | 'adapter-csv'
   | 'adapter-docx'
+  | 'adapter-pdf'
   | 'adapter-json'
   | 'adapter-text'
   | 'contracts'
@@ -47,6 +48,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'adapter-job-sqlite',
   'adapter-csv',
   'adapter-docx',
+  'adapter-pdf',
   'adapter-json',
   'adapter-text',
   'contracts',
@@ -74,6 +76,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   'adapter-job-sqlite': ['contracts', 'domain', 'job-store'],
   'adapter-csv': ['adapter-text', 'contracts', 'domain', 'redaction'],
   'adapter-docx': ['adapter-text', 'contracts', 'domain', 'redaction'],
+  'adapter-pdf': ['adapter-text', 'domain'],
   'adapter-json': ['adapter-text', 'contracts', 'domain', 'redaction'],
   'adapter-text': ['contracts', 'domain', 'redaction'],
   contracts: [],
@@ -82,7 +85,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   i18n: [],
   'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
-  'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
+  'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-pdf', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   sdk: ['contracts'],
@@ -96,6 +99,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   'adapter-job-sqlite': [],
   'adapter-csv': [],
   'adapter-docx': [],
+  'adapter-pdf': [],
   'adapter-json': [],
   'adapter-text': [],
   contracts: [],
@@ -117,6 +121,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
 const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
   'adapter-csv',
   'adapter-docx',
+  'adapter-pdf',
   'adapter-json',
   'adapter-text',
   'contracts',

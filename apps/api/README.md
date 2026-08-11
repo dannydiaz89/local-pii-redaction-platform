@@ -24,6 +24,8 @@ owns the authenticated HTTP routes and never imports client or UI code.
   versioned contracts.
 - Enforces numeric-loopback Host validation, exact browser-origin checks, bearer authorization,
   request deadlines, cancellation, and bounded shutdown.
+- Rejects conflicting HTTP/1.1 framing, bounded chunked-body overflow, and recognizable PDF/archive
+  signatures at the TXT/Markdown upload boundary; real socket disconnects abort active port work.
 - Serves the built web shell and performs the development browser bootstrap on macOS and Linux.
 
 ## Current scope
@@ -46,6 +48,8 @@ queues/reconciliation, or durable storage. Detection/conflict locations and revi
 values, excerpts, or evidence IDs. The
 external-browser handoff also does not protect against an
 adversarial local process that discovers the loopback port and wins the first-request race.
+The abuse suite is scoped to direct numeric-loopback Node HTTP/1.1. It is not evidence for a reverse
+proxy, HTTP/2, multiple principals, durable authorization, or every supported operating system.
 
 ## Source layout
 

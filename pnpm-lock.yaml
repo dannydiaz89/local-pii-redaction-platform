@@ -95,6 +95,9 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../../packages/adapter-docx
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../../packages/adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../../packages/adapter-json
@@ -180,6 +183,15 @@ importers:
       '@local-pii/redaction':
         specifier: workspace:*
         version: link:../redaction
+
+  packages/adapter-pdf:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/adapter-job-sqlite:
     dependencies:
@@ -280,6 +292,9 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../adapter-docx
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../adapter-json

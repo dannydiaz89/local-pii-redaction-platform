@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "INSPECT",
+  "outcome": "SUCCEEDED",
+  "artifact": {
+    "displayName": "synthetic.pdf",
+    "mediaType": "application/pdf",
+    "byteLength": 512,
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "unicodeCodePoints": 18,
+    "hasUtf8Bom": false
+  },
+  "capability": {
+    "adapter": "pdf",
+    "version": "0.1.0",
+    "operations": ["INSPECT"]
+  }
+}

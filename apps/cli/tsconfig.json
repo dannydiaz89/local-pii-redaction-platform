@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/adapter-csv" },
     { "path": "../../packages/adapter-docx" },
+    { "path": "../../packages/adapter-pdf" },
     { "path": "../../packages/adapter-json" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/domain" },

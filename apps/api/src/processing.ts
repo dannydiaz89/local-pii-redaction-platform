@@ -124,6 +124,23 @@ interface ArtifactRecord {
   bytes: Uint8Array | undefined;
 }
 
+const unsupportedContainerSignatures = Object.freeze([
+  Buffer.from('%PDF-', 'ascii'),
+  Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  Buffer.from([0x50, 0x4b, 0x05, 0x06]),
+  Buffer.from([0x50, 0x4b, 0x07, 0x08]),
+  Buffer.from([0x1f, 0x8b]),
+  Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]),
+  Buffer.from('Rar!\u001a\u0007', 'binary')
+]);
+
+function hasUnsupportedContainerSignature(bytes: Uint8Array): boolean {
+  return unsupportedContainerSignatures.some((signature) =>
+    bytes.byteLength >= signature.byteLength
+    && signature.every((byte, index) => bytes[index] === byte)
+  );
+}
+
 interface JobResult {
   readonly inputDigest: string;
   readonly extractionRevision: string;
@@ -603,6 +620,10 @@ export function createVolatileProcessingControl(
       if (bytes.byteLength !== artifact.metadata.byteLength || digestBytes(bytes) !== artifact.expectedDigest) {
         artifacts.delete(artifactId);
         fail('ARTIFACT_DIGEST_MISMATCH', 'The uploaded artifact did not match its declared digest.', false, correlationId);
+      }
+      if (hasUnsupportedContainerSignature(bytes)) {
+        artifacts.delete(artifactId);
+        fail('FORMAT_UNSUPPORTED', 'The uploaded artifact format is unavailable in this local API profile.', false, correlationId);
       }
       if (retainedBytes + bytes.byteLength > maximumRetainedBytes) {
         artifacts.delete(artifactId);

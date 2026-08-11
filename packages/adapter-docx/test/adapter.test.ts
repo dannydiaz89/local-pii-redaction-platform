@@ -684,7 +684,7 @@ describe('DOCX adapter', () => {
     expect(await readdir(root)).toEqual(['document.docx']);
   });
 
-  it('reconciles the paragraph-only writer against the exact stage while retaining every qualified carrier and untouched part', async () => {
+  it('reconciles a paragraph action against the exact stage while retaining every untouched carrier and part', async () => {
     const target = 'https://synthetic.invalid/profile';
     const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:r><w:t>alpha@example.test</w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
     const input = await writeSyntheticDocx(packageParts(document, [{
@@ -718,7 +718,7 @@ describe('DOCX adapter', () => {
     await session.discard(staged);
   });
 
-  it('fails the internal writer closed for a plan that targets an accepted relationship carrier', async () => {
+  it('writes and reconciles a plan targeting an accepted relationship carrier', async () => {
     const target = 'https://synthetic.invalid/private@example.test';
     const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
     const input = await writeSyntheticDocx(packageParts(document, [{
@@ -730,10 +730,133 @@ describe('DOCX adapter', () => {
     const source = await session.input();
     const start = codePointOffsetOf(source.text, 'private@example.test');
 
-    await expect(session.stage(planFor(source, [{
+    const plan = planFor(source, [{
       start,
       end: start + unicodeCodePointLength('private@example.test')
-    }]))).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    }]);
+    const staged = await session.stage(plan);
+
+    expect((await session.reopen(staged)).text).toContain('https://synthetic.invalid/[EMAIL_1]');
+    await expect(reconcileDocxStageFoundation(source, staged, plan)).resolves.toMatchObject({
+      outcome: 'RECONCILED_NONINDEPENDENT',
+      retainedCarrierCount: 1,
+      changedPartCount: 1
+    });
+    await session.discard(staged);
+    await expect(session.stage(planFor(source, [{ start: 0, end: unicodeCodePointLength(source.text) }])))
+      .rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    expect(await readdir(root)).toEqual(['document.docx']);
+  });
+
+  it('writes relationship, Word-attribute, and property-text carriers in one exact multi-part plan', async () => {
+    const relationshipValue = 'relationship@example.test';
+    const propertyValue = 'property@example.test';
+    const attributeValue = 'attribute@example.test';
+    const settingsNamespaces = `xmlns:w="${wordNamespace}" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"`;
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:hyperlink r:id="rId3"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const entries: SyntheticZipEntry[] = [
+      { name: '[Content_Types].xml', contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>` },
+      { name: '_rels/.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>` },
+      { name: 'word/document.xml', contents: document },
+      { name: 'word/_rels/document.xml.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}settings" Target="settings.xml"/><Relationship Id="rId3" Type="${officeRelationshipPrefix}hyperlink" Target="mailto:${relationshipValue}" TargetMode="External"/></Relationships>` },
+      { name: 'word/settings.xml', contents: `<w:settings ${settingsNamespaces}><w:compat><w:compatSetting w:name="${attributeValue}" w:uri="https://synthetic.invalid/settings" w:val="safe-profile"/></w:compat></w:settings>` },
+      { name: 'docProps/core.xml', contents: `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>${propertyValue}</dc:creator></cp:coreProperties>` }
+    ];
+    const input = await writeSyntheticDocx(entries);
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const spans = [relationshipValue, propertyValue, attributeValue].map((value) => {
+      const start = codePointOffsetOf(source.text, value);
+      return { start, end: start + unicodeCodePointLength(value) };
+    });
+    const plan = planFor(source, spans);
+    const staged = await session.stage(plan);
+    const reopened = await session.reopen(staged);
+
+    expect(reopened.text).not.toMatch(/relationship@example\.test|property@example\.test|attribute@example\.test/u);
+    expect(reopened.text).toContain('mailto:[EMAIL_1]');
+    expect(reopened.text).toContain('[EMAIL_2]');
+    expect(reopened.text).toContain('[EMAIL_3]');
+    await expect(reconcileDocxStageFoundation(source, staged, plan)).resolves.toMatchObject({
+      outcome: 'RECONCILED_NONINDEPENDENT',
+      expectedActionCount: 3,
+      appliedActionCount: 3,
+      retainedCarrierCount: 5,
+      changedPartCount: 3,
+      unchangedPartCount: 3,
+      uniqueSourceCanaryCount: 3
+    });
+    await session.discard(staged);
+    expect(await readdir(root)).toEqual(['document.docx']);
+  });
+
+  it.each(['"', "'"] as const)('XML-escapes a %s-quoted carrier replacement across astral and interior action boundaries', async (quote) => {
+    const carrierValue = '😀attribute@example.test-tail';
+    const selected = 'attribute@example.test';
+    const replacement = `label&<>"'😀`;
+    const settingsNamespaces = `xmlns:w="${wordNamespace}" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"`;
+    const entries: SyntheticZipEntry[] = [
+      { name: '[Content_Types].xml', contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>` },
+      { name: '_rels/.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>` },
+      { name: 'word/document.xml', contents: documentXml('<w:p><w:r><w:t>safe</w:t></w:r></w:p>') },
+      { name: 'word/_rels/document.xml.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}settings" Target="settings.xml"/></Relationships>` },
+      { name: 'word/settings.xml', contents: `<w:settings ${settingsNamespaces}><w:compat><w:compatSetting w:name=${quote}${carrierValue}${quote} w:uri="https://synthetic.invalid/settings" w:val="safe-profile"/></w:compat></w:settings>` }
+    ];
+    const input = await writeSyntheticDocx(entries);
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const start = codePointOffsetOf(source.text, selected);
+    const plan = withReplacement(planFor(source, [{ start, end: start + unicodeCodePointLength(selected) }]), replacement);
+    const staged = await session.stage(plan);
+    const reopened = await session.reopen(staged);
+
+    expect(reopened.text).toContain(`😀${replacement}-tail`);
+    await expect(reconcileDocxStageFoundation(source, staged, plan)).resolves.toMatchObject({
+      outcome: 'RECONCILED_NONINDEPENDENT',
+      expectedActionCount: 1,
+      retainedCarrierCount: 3,
+      changedPartCount: 1
+    });
+    await session.discard(staged);
+  });
+
+  it('writes a retained drawing attribute carrier in the same package part as visible Word content', async () => {
+    const selected = 'private-shape@example.test';
+    const body = `<w:p><w:r><w:t>safe visible text</w:t></w:r></w:p><w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor><wp:docPr id="1" name="${selected}"/><a:graphic><a:graphicData><wps:wsp><wps:spPr><a:prstGeom prst="line"><a:avLst/></a:prstGeom></wps:spPr><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:line wp14:anchorId="00AABBCC"/><w10:wrap/></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>`;
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:mc="${markupCompatibilityNamespace}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:a="${drawingNamespace}" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w10="urn:schemas-microsoft-com:office:word"><w:body>${body}<w:sectPr/></w:body></w:document>`;
+    const input = await docxFile(document);
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const start = codePointOffsetOf(source.text, selected);
+    const plan = planFor(source, [{ start, end: start + unicodeCodePointLength(selected) }]);
+    const staged = await session.stage(plan);
+
+    expect((await session.reopen(staged)).text).toContain('[EMAIL_1]');
+    await expect(reconcileDocxStageFoundation(source, staged, plan)).resolves.toMatchObject({
+      outcome: 'RECONCILED_NONINDEPENDENT',
+      expectedActionCount: 1,
+      changedPartCount: 1
+    });
+    await session.discard(staged);
+  });
+
+  it('rejects a carrier replacement that would invalidate the closed relationship grammar before staging', async () => {
+    const target = 'https://synthetic.invalid/profile';
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const input = await writeSyntheticDocx(packageParts(document, [{
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}hyperlink" Target="${target}" TargetMode="External"/></Relationships>`
+    }]));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const start = codePointOffsetOf(source.text, target);
+
+    await expect(session.stage(planFor(source, [{ start, end: start + unicodeCodePointLength(target) }])))
+      .rejects.toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'external_relationship' } });
     expect(await readdir(root)).toEqual(['document.docx']);
   });
 
@@ -777,6 +900,20 @@ describe('DOCX adapter', () => {
 
     expect(evidence.uniqueSourceCanaryCount).toBe(0);
     expect((await session.reopen(staged)).text).toBe(`[EMAIL_1] ${value}`);
+    await session.discard(staged);
+  });
+
+  it('does not misclassify an overlapping duplicate source value as a unique planted canary', async () => {
+    const input = await docxFile(documentXml('<w:p><w:r><w:t>aaaa</w:t></w:r></w:p>'));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const plan = planFor(source, [{ start: 0, end: 3 }]);
+    const staged = await session.stage(plan);
+
+    const evidence = await reconcileDocxStageFoundation(source, staged, plan);
+
+    expect(evidence.uniqueSourceCanaryCount).toBe(0);
     await session.discard(staged);
   });
 

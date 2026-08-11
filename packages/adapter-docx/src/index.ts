@@ -24,12 +24,12 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.4.0';
+export const docxAdapterVersion = '0.5.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:3970e0046133d3605f4caa257e9d0b5fcf5d322715637d06f13d1d1ac1c83617')
+  digest: parseSha256Digest('sha256:2e54f6b245808c31c1711a0252b526608aceaa741814fba9e435e2dea6f1bd24')
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',
@@ -369,11 +369,18 @@ function writeZip(entries: readonly ZipEntry[]): Buffer {
 interface XmlElement {
   readonly name: string;
   readonly attributes: Readonly<Record<string, string>>;
+  readonly attributeRegions: Readonly<Record<string, XmlAttributeRegion>>;
   readonly parent?: string;
   readonly openingStart: number;
   readonly openingEnd: number;
   readonly closing: boolean;
   readonly selfClosing: boolean;
+}
+
+interface XmlAttributeRegion {
+  readonly rawStart: number;
+  readonly rawEnd: number;
+  readonly quote: '"' | "'";
 }
 
 function isXml10CodePoint(codePoint: number): boolean {
@@ -404,8 +411,12 @@ function decodeXml(value: string): string {
   });
 }
 
-function parseAttributes(source: string): Readonly<Record<string, string>> {
+function parseAttributes(source: string, rawBase: number): {
+  readonly attributes: Readonly<Record<string, string>>;
+  readonly regions: Readonly<Record<string, XmlAttributeRegion>>;
+} {
   const attributes: Record<string, string> = {};
+  const regions: Record<string, XmlAttributeRegion> = {};
   let cursor = 0;
   while (cursor < source.length) {
     while (/\s/u.test(source[cursor] ?? '')) cursor += 1;
@@ -426,9 +437,10 @@ function parseAttributes(source: string): Readonly<Record<string, string>> {
     if (Object.hasOwn(attributes, name)) formatCorrupt();
     if (Object.keys(attributes).length >= maximumXmlAttributes) formatCorrupt();
     attributes[name] = decodeXml(source.slice(cursor, end));
+    regions[name] = Object.freeze({ rawStart: rawBase + cursor, rawEnd: rawBase + end, quote });
     cursor = end + 1;
   }
-  return Object.freeze(attributes);
+  return { attributes: Object.freeze(attributes), regions: Object.freeze(regions) };
 }
 
 function scanXml(xml: string, textElements: ReadonlySet<string> = new Set(['w:t'])): readonly XmlElement[] {
@@ -483,7 +495,10 @@ function scanXml(xml: string, textElements: ReadonlySet<string> = new Set(['w:t'
     if (nameMatch === null) formatCorrupt();
     const name = nameMatch[0];
     const parent = closing ? undefined : stack.at(-1);
-    const attributes = closing ? Object.freeze({}) : parseAttributes(body.slice(name.length));
+    const bodyStart = openingStart + 1 + raw.indexOf(body);
+    const parsedAttributes = closing
+      ? { attributes: Object.freeze({}), regions: Object.freeze({}) }
+      : parseAttributes(body.slice(name.length), bodyStart + name.length);
     if (closing) {
       if (body !== name || stack.pop() !== name) formatCorrupt();
     } else {
@@ -499,7 +514,8 @@ function scanXml(xml: string, textElements: ReadonlySet<string> = new Set(['w:t'
     if (elements.length >= maximumXmlElements) formatCorrupt();
     elements.push(Object.freeze({
       name,
-      attributes,
+      attributes: parsedAttributes.attributes,
+      attributeRegions: parsedAttributes.regions,
       ...(parent === undefined ? {} : { parent }),
       openingStart,
       openingEnd: openingEnd + 1,
@@ -541,7 +557,6 @@ interface SegmentRegion {
 
 interface ParsedTextPart {
   readonly name: string;
-  readonly xml: string;
   readonly segments: readonly SegmentRegion[];
 }
 
@@ -549,6 +564,7 @@ interface ParsedDocxPackage {
   readonly canonicalText: string;
   readonly parts: readonly ParsedTextPart[];
   readonly segments: readonly SegmentRegion[];
+  readonly carriers: readonly MappedXmlCarrierValue[];
   readonly canonicalRegions: readonly CanonicalRegion[];
   readonly extractionRevision: Sha256Digest;
 }
@@ -583,6 +599,16 @@ export interface DocxStageReconciliationFoundation {
 interface XmlCarrierValue {
   readonly value: string;
   readonly location: DocxRelationshipLocationV2 | DocxXmlValueLocationV2;
+  readonly part: string;
+  readonly rawStart: number;
+  readonly rawEnd: number;
+  readonly encoding: 'TEXT' | 'ATTRIBUTE';
+  readonly quote?: '"' | "'";
+}
+
+interface MappedXmlCarrierValue extends XmlCarrierValue {
+  readonly canonicalStart: number;
+  readonly canonicalEnd: number;
 }
 
 function carrierIdentity(carrier: XmlCarrierValue): string {
@@ -658,7 +684,6 @@ interface RawSegment {
 
 interface ParsedTextPartRaw {
   readonly descriptor: TextPartDescriptor;
-  readonly xml: string;
   readonly segments: readonly RawSegment[];
   readonly referencedHeaderFooterKinds: ReadonlyMap<string, 'header' | 'footer'>;
   readonly referencedFootnoteIds: ReadonlySet<number>;
@@ -864,7 +889,6 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
   if (currentSegments !== undefined || textOpening !== undefined || activeSpecialNote !== undefined) formatCorrupt();
   return {
     descriptor,
-    xml,
     segments: Object.freeze(provisional),
     referencedHeaderFooterKinds,
     referencedFootnoteIds,
@@ -886,6 +910,7 @@ function assembleTextParts(parts: readonly ParsedTextPartRaw[], carriers: readon
   const canonicalParts: string[] = [];
   const parsedParts: ParsedTextPart[] = [];
   const segments: SegmentRegion[] = [];
+  const mappedCarriers: MappedXmlCarrierValue[] = [];
   const canonicalRegions: CanonicalRegion[] = [];
   let canonicalLength = 0;
   const hash = createHash('sha256').update('local-pii:docx-extraction:v3\u0000', 'utf8');
@@ -932,7 +957,7 @@ function assembleTextParts(parts: readonly ParsedTextPartRaw[], carriers: readon
         })
       }));
     }
-    parsedParts.push(Object.freeze({ name: part.descriptor.name, xml: part.xml, segments: Object.freeze(partSegments) }));
+    parsedParts.push(Object.freeze({ name: part.descriptor.name, segments: Object.freeze(partSegments) }));
   }
   if (carriers.length > maximumCanonicalCarriers) formatCorrupt();
   for (const carrier of carriers) {
@@ -945,6 +970,7 @@ function assembleTextParts(parts: readonly ParsedTextPartRaw[], carriers: readon
     canonicalLength += unicodeCodePointLength(carrier.value);
     if (canonicalLength > maximumCanonicalCodePoints) formatCorrupt();
     canonicalParts.push(carrier.value);
+    mappedCarriers.push(Object.freeze({ ...carrier, canonicalStart: start, canonicalEnd: canonicalLength }));
     canonicalRegions.push(Object.freeze({
       schemaVersion: '2.0.0',
       start,
@@ -964,6 +990,7 @@ function assembleTextParts(parts: readonly ParsedTextPartRaw[], carriers: readon
     canonicalText: canonicalParts.join(''),
     parts: Object.freeze(parsedParts),
     segments: Object.freeze(segments),
+    carriers: Object.freeze(mappedCarriers),
     canonicalRegions: Object.freeze(canonicalRegions),
     extractionRevision: parseSha256Digest(`sha256:${hash.digest('hex')}`)
   };
@@ -1395,8 +1422,15 @@ function collectXmlAttributeCarriers(
       if (unicodeCodePointLength(value) > maximumRelationshipTargetCodePoints) formatCorrupt();
       const structural = isClosedStructuralCarrierAttribute(part, element.name, name, value);
       if (structural) continue;
+      const raw = element.attributeRegions[name];
+      if (raw === undefined) formatCorrupt();
       carriers.push(Object.freeze({
         value,
+        part,
+        rawStart: raw.rawStart,
+        rawEnd: raw.rawEnd,
+        encoding: 'ATTRIBUTE',
+        quote: raw.quote,
         location: Object.freeze({
           schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part, element: element.name,
           elementOrdinal: ordinal, carrier: 'ATTRIBUTE', attribute: name
@@ -1432,6 +1466,10 @@ function collectXmlTextCarriers(
     if (unicodeCodePointLength(value) > maximumRelationshipTargetCodePoints) formatCorrupt();
     if (value.length > 0) carriers.push(Object.freeze({
       value,
+      part,
+      rawStart: opening.openingEnd,
+      rawEnd: element.openingStart,
+      encoding: 'TEXT',
       location: Object.freeze({
         schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part, element: element.name,
         elementOrdinal: ordinals.get(element.name) ?? 1, carrier: 'TEXT'
@@ -1651,7 +1689,7 @@ function partSort(left: TextPartDescriptor, right: TextPartDescriptor): number {
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
-function externalHyperlinkCarrier(sourcePart: string, element: XmlElement): XmlCarrierValue {
+function externalHyperlinkCarrier(sourcePart: string, relationshipPart: string, element: XmlElement): XmlCarrierValue {
   const id = element.attributes.Id ?? '';
   const target = element.attributes.Target ?? '';
   if (
@@ -1674,8 +1712,15 @@ function externalHyperlinkCarrier(sourcePart: string, element: XmlElement): XmlC
   } catch {
     featureUnsupported('external_relationship');
   }
+  const raw = element.attributeRegions.Target;
+  if (raw === undefined) formatCorrupt();
   return Object.freeze({
     value: target,
+    part: relationshipPart,
+    rawStart: raw.rawStart,
+    rawEnd: raw.rawEnd,
+    encoding: 'ATTRIBUTE',
+    quote: raw.quote,
     location: Object.freeze({ schemaVersion: '2.0.0', kind: 'DOCX_RELATIONSHIP', sourcePart, relationshipId: id, field: 'TARGET' })
   });
 }
@@ -1932,7 +1977,7 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
     for (const element of relationships) {
       if (element.closing || element.name === 'Relationships') continue;
       if (element.attributes.TargetMode === 'External') {
-        const carrier = externalHyperlinkCarrier('word/document.xml', element);
+        const carrier = externalHyperlinkCarrier('word/document.xml', 'word/_rels/document.xml.rels', element);
         const id = element.attributes.Id ?? '';
         if (relationshipIds.has(id)) formatCorrupt();
         relationshipIds.add(id);
@@ -1974,7 +2019,7 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
     const ids = new Set<string>();
     for (const element of relationships) {
       if (element.closing || element.name === 'Relationships') continue;
-      const carrier = externalHyperlinkCarrier(sourcePart, element);
+      const carrier = externalHyperlinkCarrier(sourcePart, entry.name, element);
       const id = element.attributes.Id ?? '';
       if (ids.has(id)) formatCorrupt();
       ids.add(id);
@@ -2157,7 +2202,12 @@ export async function readDocxArtifact(
   return artifact;
 }
 
-function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, segments: readonly SegmentRegion[]): Map<TextNodeRegion, TypedLabelAction[]> {
+interface DocxPlanAssignments {
+  readonly nodes: ReadonlyMap<TextNodeRegion, readonly TypedLabelAction[]>;
+  readonly carriers: ReadonlyMap<MappedXmlCarrierValue, readonly TypedLabelAction[]>;
+}
+
+function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, parsedPackage: ParsedDocxPackage): DocxPlanAssignments {
   try {
     assertTypedLabelPlanIntegrity(plan);
   } catch {
@@ -2192,23 +2242,34 @@ function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, segments: readon
       throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'The redaction plan contains overlapping actions.', retryable: false, correlationId: 'cor_docx_adapter' });
     }
   }
-  const assignments = new Map<TextNodeRegion, TypedLabelAction[]>();
-  let segmentIndex = 0;
+  const nodeAssignments = new Map<TextNodeRegion, TypedLabelAction[]>();
+  const carrierAssignments = new Map<MappedXmlCarrierValue, TypedLabelAction[]>();
+  const writableRegions = [
+    ...parsedPackage.segments.map((segment) => ({ kind: 'SEGMENT' as const, start: segment.canonicalStart, end: segment.canonicalEnd, segment })),
+    ...parsedPackage.carriers.map((carrier) => ({ kind: 'CARRIER' as const, start: carrier.canonicalStart, end: carrier.canonicalEnd, carrier }))
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+  let regionIndex = 0;
   for (const action of sorted) {
-    let segment = segments[segmentIndex];
-    while (segment !== undefined && action.start >= segment.canonicalEnd) segment = segments[++segmentIndex];
-    if (segment === undefined || action.start < segment.canonicalStart || action.end > segment.canonicalEnd) {
+    let region = writableRegions[regionIndex];
+    while (region !== undefined && action.start >= region.end) region = writableRegions[++regionIndex];
+    if (region === undefined || action.start < region.start || action.end > region.end) {
       throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'A redaction action crosses a DOCX structural boundary.', retryable: false, correlationId: 'cor_docx_adapter' });
     }
-    for (const node of segment.nodes) {
+    if (region.kind === 'CARRIER') {
+      const assigned = carrierAssignments.get(region.carrier) ?? [];
+      assigned.push(action);
+      carrierAssignments.set(region.carrier, assigned);
+      continue;
+    }
+    for (const node of region.segment.nodes) {
       if (action.start < node.canonicalEnd && action.end > node.canonicalStart) {
-        const assigned = assignments.get(node) ?? [];
+        const assigned = nodeAssignments.get(node) ?? [];
         assigned.push(action);
-        assignments.set(node, assigned);
+        nodeAssignments.set(node, assigned);
       }
     }
   }
-  return assignments;
+  return { nodes: nodeAssignments, carriers: carrierAssignments };
 }
 
 function codePointToUtf16(value: string, target: number): number {
@@ -2240,33 +2301,78 @@ function transformNode(node: TextNodeRegion, actions: readonly TypedLabelAction[
   return transformed;
 }
 
+function transformCarrier(carrier: MappedXmlCarrierValue, actions: readonly TypedLabelAction[]): string {
+  const parts: string[] = [];
+  let cursor = carrier.canonicalStart;
+  for (const action of actions) {
+    if (action.start > cursor) {
+      parts.push(carrier.value.slice(
+        codePointToUtf16(carrier.value, cursor - carrier.canonicalStart),
+        codePointToUtf16(carrier.value, action.start - carrier.canonicalStart)
+      ));
+    }
+    parts.push(action.replacement);
+    cursor = action.end;
+  }
+  if (cursor < carrier.canonicalEnd) {
+    parts.push(carrier.value.slice(codePointToUtf16(carrier.value, cursor - carrier.canonicalStart)));
+  }
+  return parts.join('');
+}
+
 function encodeXmlText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function encodeXmlAttribute(value: string, quote: '"' | "'"): string {
+  const encoded = encodeXmlText(value);
+  return quote === '"' ? encoded.replaceAll('"', '&quot;') : encoded.replaceAll("'", '&apos;');
 }
 
 function applyDocxPlan(source: DocxArtifact, plan: TypedLabelPlan): Buffer {
   const state = docxArtifactStates.get(source);
   if (state === undefined) throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'The DOCX extraction state is unavailable.', retryable: false, correlationId: 'cor_docx_adapter' });
-  const assignments = assertPlan(plan, source, state.package.segments);
-  const rewritten = new Map<string, Buffer>();
+  const assignments = assertPlan(plan, source, state.package);
+  const rewritesByPart = new Map<string, Array<{ readonly rawStart: number; readonly rawEnd: number; readonly value: string }>>();
   for (const part of state.package.parts) {
-    const nodes = part.segments.flatMap((segment) => segment.nodes)
-      .filter((node) => assignments.has(node))
-      .sort((left, right) => left.rawStart - right.rawStart);
-    if (nodes.length === 0) continue;
+    for (const node of part.segments.flatMap((segment) => segment.nodes).filter((candidate) => assignments.nodes.has(candidate))) {
+      const rewrites = rewritesByPart.get(part.name) ?? [];
+      rewrites.push({ rawStart: node.rawStart, rawEnd: node.rawEnd, value: encodeXmlText(transformNode(node, assignments.nodes.get(node) ?? [])) });
+      rewritesByPart.set(part.name, rewrites);
+    }
+  }
+  for (const carrier of state.package.carriers) {
+    const actions = assignments.carriers.get(carrier);
+    if (actions === undefined) continue;
+    const transformed = transformCarrier(carrier, actions);
+    const value = carrier.encoding === 'ATTRIBUTE'
+      ? encodeXmlAttribute(transformed, carrier.quote ?? '"')
+      : encodeXmlText(transformed);
+    const rewrites = rewritesByPart.get(carrier.part) ?? [];
+    rewrites.push({ rawStart: carrier.rawStart, rawEnd: carrier.rawEnd, value });
+    rewritesByPart.set(carrier.part, rewrites);
+  }
+  const rewritten = new Map<string, Buffer>();
+  for (const entry of state.entries) {
+    const rewrites = rewritesByPart.get(entry.name)?.sort((left, right) => left.rawStart - right.rawStart || left.rawEnd - right.rawEnd);
+    if (rewrites === undefined || rewrites.length === 0) continue;
+    const xml = decodeUtf8Xml(entry.contents);
     const output: string[] = [];
     let cursor = 0;
-    for (const node of nodes) {
-      output.push(part.xml.slice(cursor, node.rawStart), encodeXmlText(transformNode(node, assignments.get(node) ?? [])));
-      cursor = node.rawEnd;
+    for (const rewrite of rewrites) {
+      if (rewrite.rawStart < cursor || rewrite.rawEnd < rewrite.rawStart || rewrite.rawEnd > xml.length) formatCorrupt();
+      output.push(xml.slice(cursor, rewrite.rawStart), rewrite.value);
+      cursor = rewrite.rawEnd;
     }
-    output.push(part.xml.slice(cursor));
-    rewritten.set(part.name, Buffer.from(output.join(''), 'utf8'));
+    output.push(xml.slice(cursor));
+    rewritten.set(entry.name, Buffer.from(output.join(''), 'utf8'));
   }
   const outputEntries = state.entries.map((entry) => rewritten.has(entry.name)
     ? Object.freeze({ ...entry, contents: rewritten.get(entry.name) ?? entry.contents })
     : entry);
-  return writeZip(outputEntries);
+  const output = writeZip(outputEntries);
+  validatePackage(parseZip(output));
+  return output;
 }
 
 function createReceipt(plan: TypedLabelPlan, staged: Pick<StagedTextArtifact, 'digest' | 'byteLength'>): WriterReceipt {
@@ -2328,11 +2434,10 @@ function qualifiedCarrierValues(artifact: DocxArtifact): readonly (readonly [str
 }
 
 /**
- * Reconciles the current paragraph-only internal writer against a private
+ * Reconciles the current native paragraph/carrier writer against a private
  * staged DOCX. It deliberately returns `independentlyVerified: false` and
  * cannot be used as the application's `docx-redact-v1` attestation. In
- * particular, carrier-targeted actions still fail closed at the writer
- * boundary and independent leakage/fidelity verification remains open.
+ * Independent leakage/fidelity verification remains open.
  */
 export async function reconcileDocxStageFoundation(
   source: DocxArtifact,
@@ -2358,11 +2463,12 @@ export async function reconcileDocxStageFoundation(
     || staged.receipt.appliedActionIds.some((id, index) => id !== plan.actions[index]?.id)
   ) docxVerificationIncomplete('receipt_binding_mismatch');
 
-  const assignments = assertPlan(plan, source, sourceState.package.segments);
+  const assignments = assertPlan(plan, source, sourceState.package);
   const changedParts = new Set<string>();
   for (const part of sourceState.package.parts) {
-    if (part.segments.some((segment) => segment.nodes.some((node) => assignments.has(node)))) changedParts.add(part.name);
+    if (part.segments.some((segment) => segment.nodes.some((node) => assignments.nodes.has(node)))) changedParts.add(part.name);
   }
+  for (const carrier of sourceState.package.carriers) if (assignments.carriers.has(carrier)) changedParts.add(carrier.part);
 
   let stagedBytes: Buffer;
   try {
@@ -2402,9 +2508,10 @@ export async function reconcileDocxStageFoundation(
   const outputCarriers = qualifiedCarrierValues(reopened);
   if (
     sourceCarriers.length !== outputCarriers.length
-    || sourceCarriers.some(([identity, value], index) => {
+    || sourceState.package.carriers.some((carrier, index) => {
       const candidate = outputCarriers[index];
-      return candidate?.[0] !== identity || candidate[1] !== value;
+      const expectedValue = transformCarrier(carrier, assignments.carriers.get(carrier) ?? []);
+      return candidate?.[0] !== sourceCarriers[index]?.[0] || candidate?.[1] !== expectedValue;
     })
   ) docxVerificationIncomplete('qualified_carrier_mismatch');
 
@@ -2428,7 +2535,7 @@ export async function reconcileDocxStageFoundation(
   for (const action of plan.actions) {
     const sourceValue = unicodeSlice(source.text, action.start, action.end);
     const first = source.text.indexOf(sourceValue);
-    const unique = sourceValue.length > 0 && first >= 0 && source.text.indexOf(sourceValue, first + sourceValue.length) < 0;
+    const unique = sourceValue.length > 0 && first >= 0 && source.text.indexOf(sourceValue, first + 1) < 0;
     if (!unique) continue;
     uniqueSourceCanaryCount += 1;
     if (sourceValue === action.replacement || reopened.text.includes(sourceValue)) residualCount += 1;

@@ -12,6 +12,11 @@ import {
   docxExtractionVerificationCapabilityDescriptor
 } from '@local-pii/adapter-docx';
 import {
+  defaultMaximumPdfInputBytes,
+  pdfAdapterCapabilityDescriptor,
+  pdfExtractionVerificationCapabilityDescriptor
+} from '@local-pii/adapter-pdf';
+import {
   defaultMaximumJsonInputBytes,
   jsonAdapterCapabilityDescriptor
 } from '@local-pii/adapter-json';
@@ -70,6 +75,15 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
     verificationProfiles: [...docxAdapterCapabilityDescriptor.verificationProfiles],
     qualification: 'EXPERIMENTAL'
   } as unknown as CapabilityManifest['formats'][number];
+  const pdfFormat = {
+    ...pdfAdapterCapabilityDescriptor,
+    mediaTypes: [...pdfAdapterCapabilityDescriptor.mediaTypes],
+    extensions: [...pdfAdapterCapabilityDescriptor.extensions],
+    operations: [...pdfAdapterCapabilityDescriptor.operations],
+    features: pdfAdapterCapabilityDescriptor.features.map((feature) => ({ ...feature })),
+    verificationProfiles: [...pdfAdapterCapabilityDescriptor.verificationProfiles],
+    qualification: 'EXPERIMENTAL'
+  } as unknown as CapabilityManifest['formats'][number];
 
   const verifier = {
     ...textVerificationCapabilityDescriptor,
@@ -82,10 +96,10 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
     id: 'local-rules-files',
-    version: '0.6.0',
+    version: '0.7.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
-    formats: [textFormat, jsonFormat, csvFormat, docxFormat],
+    formats: [textFormat, jsonFormat, csvFormat, docxFormat, pdfFormat],
     detectors,
     transformations: [{
       ...typedLabelTransformationCapabilityDescriptor,
@@ -100,10 +114,23 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
         checks: [...docxExtractionVerificationCapabilityDescriptor.checks],
         availability: 'AVAILABLE',
         qualification: 'EXPERIMENTAL'
+      } as unknown as CapabilityManifest['verificationProfiles'][number],
+      {
+        ...pdfExtractionVerificationCapabilityDescriptor,
+        formats: [...pdfExtractionVerificationCapabilityDescriptor.formats],
+        checks: [...pdfExtractionVerificationCapabilityDescriptor.checks],
+        availability: 'AVAILABLE',
+        qualification: 'EXPERIMENTAL'
       } as unknown as CapabilityManifest['verificationProfiles'][number]
     ],
     limits: {
-      maximumInputBytes: Math.max(defaultMaximumInputBytes, defaultMaximumJsonInputBytes, defaultMaximumCsvInputBytes, defaultMaximumDocxInputBytes),
+      maximumInputBytes: Math.max(
+        defaultMaximumInputBytes,
+        defaultMaximumJsonInputBytes,
+        defaultMaximumCsvInputBytes,
+        defaultMaximumDocxInputBytes,
+        defaultMaximumPdfInputBytes
+      ),
       maximumCanonicalCodePoints: defaultDetectorLimits.maximumCodePoints,
       maximumDetections: defaultDetectorLimits.maximumDetections
     }

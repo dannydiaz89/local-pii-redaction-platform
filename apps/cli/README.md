@@ -34,6 +34,8 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
   header behavior, while transformations remain inside their originating cells.
 - Selects the strict DOCX adapter for `.docx` inspection and rules-only scanning. DOCX redaction,
   verification, and Ollama are rejected before staging or provider access.
+- Selects the strict synthetic-only PDF adapter for `.pdf` inspection. PDF scanning, redaction,
+  verification, preview, OCR, and Ollama are rejected before processing or provider access.
 
 Reusable application composition lives in `@local-pii/profile-local`; this package is the terminal
 adapter and must not become a second copy of the core processing workflow.
