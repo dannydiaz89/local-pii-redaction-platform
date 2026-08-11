@@ -2,11 +2,13 @@ import {
   createTextProcessingApplication,
   type BoundTextVerificationRequest,
   type CapabilityOperation,
-  type CapabilityRequirement
+  type CapabilityRequirement,
+  type TextDetectionPort
 } from '@local-pii/core';
 import {
   createCompositeTextDetector,
   detectDeterministic,
+  detectDeterministicWithStructure,
   deterministicDetectorBundleVersion,
   deterministicDetectorCapabilities
 } from '@local-pii/detectors';
@@ -114,6 +116,20 @@ const rulesDetector = {
     const evidence = detectDeterministic(text, extractionRevision);
     signal?.throwIfAborted();
     return Promise.resolve(evidence);
+  },
+  detectStructured(
+    request: Parameters<NonNullable<TextDetectionPort['detectStructured']>>[0],
+    signal?: AbortSignal
+  ) {
+    signal?.throwIfAborted();
+    const evidence = detectDeterministicWithStructure(
+      request.text,
+      request.extractionRevision,
+      request.regions,
+      request.structure
+    );
+    signal?.throwIfAborted();
+    return Promise.resolve(evidence);
   }
 };
 
@@ -150,7 +166,7 @@ const verifier = {
 
 function application(
   manifest: ReturnType<typeof createCurrentCapabilityManifest>,
-  detector: typeof rulesDetector
+  detector: TextDetectionPort
 ) {
   return createTextProcessingApplication({
     capabilityProvider: {

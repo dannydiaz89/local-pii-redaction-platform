@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/cli/redact-report/3.0.0",
+  "title": "Policy-bound CLI redaction report v3",
+  "description": "Privacy-minimized verified redaction result bound to an external policy digest.",
+  "schemaVersion": "3.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "outcome", "input", "output", "policy", "plan", "writerReceipt", "verification"],
+  "properties": {
+    "schemaVersion": { "const": "3.0.0" },
+    "operation": { "const": "REDACT" },
+    "outcome": { "const": "VERIFIED" },
+    "input": { "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/input" },
+    "output": { "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/output" },
+    "policy": { "$ref": "https://local-pii.dev/schemas/cli/scan-report/2.0.0#/$defs/policySummary" },
+    "plan": { "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/plan" },
+    "writerReceipt": { "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/writerReceipt" },
+    "verification": { "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/verification" }
+  },
+  "examples": [{
+    "schemaVersion": "3.0.0", "operation": "REDACT", "outcome": "VERIFIED",
+    "input": { "byteLength": 3, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "output": { "byteLength": 3, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "policy": { "id": "structured-development", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW", "example": false },
+    "plan": {
+      "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extractionRevision": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "resolutionDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "detectorBundleVersion": "0.2.0",
+      "writer": { "id": "json-adapter", "version": "0.1.0" },
+      "strategy": "TYPED_LABEL", "strategyVersion": "0.1.0", "actionCount": 0, "byEntity": {}
+    },
+    "writerReceipt": {
+      "receiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "planDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "writer": { "id": "json-adapter", "version": "0.1.0" },
+      "expectedActionCount": 0, "appliedActionCount": 0
+    },
+    "verification": {
+      "schemaVersion": "2.0.0",
+      "input": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 3 },
+      "output": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "byteLength": 3, "mediaType": "application/json", "extractionRevision": "sha256:7777777777777777777777777777777777777777777777777777777777777777" },
+      "plan": { "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V", "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+      "policy": { "id": "structured-development", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW" },
+      "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "writerReceiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "profile": { "id": "text-rescan-v1", "version": "0.1.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
+      "verifier": { "id": "text-verifier", "version": "0.1.0", "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414" },
+      "detectorBundle": { "id": "deterministic-text", "version": "0.2.0", "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515" },
+      "writer": { "id": "json-adapter", "version": "0.1.0", "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616" },
+      "application": { "id": "local-pii-cli", "version": "0.1.0", "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717" },
+      "outcome": "PASS",
+      "checks": ["UTF8_REOPEN", "DETERMINISTIC_RESCAN", "SPAN_RESOLUTION", "ACTION_RECONCILIATION"],
+      "reconciliation": { "expectedActionCount": 0, "appliedActionCount": 0, "missingActionCount": 0, "unexpectedActionCount": 0, "duplicateActionCount": 0 },
+      "findings": [], "startedAt": "2026-08-10T07:00:00Z", "completedAt": "2026-08-10T07:00:01Z",
+      "reportDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  }]
+}

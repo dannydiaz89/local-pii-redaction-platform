@@ -1820,6 +1820,291 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/redact-report/3.0.0",
+    "title": "Policy-bound CLI redaction report v3",
+    "description": "Privacy-minimized verified redaction result bound to an external policy digest.",
+    "schemaVersion": "3.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "input",
+      "output",
+      "policy",
+      "plan",
+      "writerReceipt",
+      "verification"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "3.0.0"
+      },
+      "operation": {
+        "const": "REDACT"
+      },
+      "outcome": {
+        "const": "VERIFIED"
+      },
+      "input": {
+        "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/input"
+      },
+      "output": {
+        "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/output"
+      },
+      "policy": {
+        "$ref": "https://local-pii.dev/schemas/cli/scan-report/2.0.0#/$defs/policySummary"
+      },
+      "plan": {
+        "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/plan"
+      },
+      "writerReceipt": {
+        "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/writerReceipt"
+      },
+      "verification": {
+        "$ref": "https://local-pii.dev/schemas/cli/redact-report/2.0.0#/properties/verification"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "3.0.0",
+        "operation": "REDACT",
+        "outcome": "VERIFIED",
+        "input": {
+          "byteLength": 3,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "output": {
+          "byteLength": 3,
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "policy": {
+          "id": "structured-development",
+          "version": "0.1.0",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "riskTier": "LOW",
+          "example": false
+        },
+        "plan": {
+          "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+          "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "inputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "extractionRevision": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+          "resolutionDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "policyDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "detectorBundleVersion": "0.2.0",
+          "writer": {
+            "id": "json-adapter",
+            "version": "0.1.0"
+          },
+          "strategy": "TYPED_LABEL",
+          "strategyVersion": "0.1.0",
+          "actionCount": 0,
+          "byEntity": {}
+        },
+        "writerReceipt": {
+          "receiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+          "planDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "writer": {
+            "id": "json-adapter",
+            "version": "0.1.0"
+          },
+          "expectedActionCount": 0,
+          "appliedActionCount": 0
+        },
+        "verification": {
+          "schemaVersion": "2.0.0",
+          "input": {
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 3
+          },
+          "output": {
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "byteLength": 3,
+            "mediaType": "application/json",
+            "extractionRevision": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "plan": {
+            "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "policy": {
+            "id": "structured-development",
+            "version": "0.1.0",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "riskTier": "LOW"
+          },
+          "capabilityDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "writerReceiptDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+          "profile": {
+            "id": "text-rescan-v1",
+            "version": "0.1.0",
+            "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313"
+          },
+          "verifier": {
+            "id": "text-verifier",
+            "version": "0.1.0",
+            "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+          },
+          "detectorBundle": {
+            "id": "deterministic-text",
+            "version": "0.2.0",
+            "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515"
+          },
+          "writer": {
+            "id": "json-adapter",
+            "version": "0.1.0",
+            "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616"
+          },
+          "application": {
+            "id": "local-pii-cli",
+            "version": "0.1.0",
+            "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+          },
+          "outcome": "PASS",
+          "checks": [
+            "UTF8_REOPEN",
+            "DETERMINISTIC_RESCAN",
+            "SPAN_RESOLUTION",
+            "ACTION_RECONCILIATION"
+          ],
+          "reconciliation": {
+            "expectedActionCount": 0,
+            "appliedActionCount": 0,
+            "missingActionCount": 0,
+            "unexpectedActionCount": 0,
+            "duplicateActionCount": 0
+          },
+          "findings": [],
+          "startedAt": "2026-08-10T07:00:00Z",
+          "completedAt": "2026-08-10T07:00:01Z",
+          "reportDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/scan-report/2.0.0",
+    "title": "Policy-bound CLI scan report v2",
+    "description": "Privacy-minimized scan result bound to an external policy digest without disclosing selectors or paths.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "input",
+      "policy",
+      "detectorBundleVersion",
+      "counts",
+      "detections",
+      "conflicts"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "operation": {
+        "const": "SCAN"
+      },
+      "outcome": {
+        "enum": [
+          "SUCCEEDED",
+          "NEEDS_REVIEW"
+        ]
+      },
+      "input": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/artifactSummary"
+      },
+      "policy": {
+        "$ref": "#/$defs/policySummary"
+      },
+      "detectorBundleVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "counts": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/counts"
+      },
+      "detections": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/detections"
+      },
+      "conflicts": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/conflicts"
+      }
+    },
+    "$defs": {
+      "policySummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "riskTier",
+          "example"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "digest": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          },
+          "riskTier": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ]
+          },
+          "example": {
+            "const": false
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "operation": "SCAN",
+        "outcome": "SUCCEEDED",
+        "input": {
+          "displayName": "synthetic.json",
+          "mediaType": "application/json",
+          "byteLength": 3,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "policy": {
+          "id": "structured-development",
+          "version": "0.1.0",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "riskTier": "LOW",
+          "example": false
+        },
+        "detectorBundleVersion": "0.2.0",
+        "counts": {
+          "detections": 0,
+          "conflicts": 0,
+          "byEntity": {}
+        },
+        "detections": [],
+        "conflicts": []
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0",
     "title": "CLI stage recovery report",
     "description": "Privacy-safe bounded counts from an explicit text staging inventory or cleanup.",
@@ -3109,8 +3394,50 @@ export const schemaCatalog = [
       },
       "location": {
         "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0"
+      },
+      "selector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "csvHeader"
+        ],
+        "properties": {
+          "csvHeader": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
       }
     },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "selector": true
+          },
+          "required": [
+            "selector"
+          ]
+        },
+        "then": {
+          "properties": {
+            "location": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "CSV_CELL"
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
     "examples": [
       {
         "schemaVersion": "1.0.0",
@@ -4933,6 +5260,359 @@ export const schemaCatalog = [
             "example": true
           }
         ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/policy/redaction-policy/2.0.0",
+    "title": "Structured redaction policy",
+    "description": "Declarative fail-closed transformation, verification, and exact structured-location policy with no executable content.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "version",
+      "riskTier",
+      "defaults",
+      "entities",
+      "verification",
+      "limits"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      },
+      "version": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+      },
+      "riskTier": {
+        "enum": [
+          "LOW",
+          "MODERATE",
+          "HIGH"
+        ]
+      },
+      "defaults": {
+        "$ref": "#/$defs/entityRule"
+      },
+      "entities": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 24,
+        "propertyNames": {
+          "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/entityRule"
+        }
+      },
+      "verification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "blockOnWarnings"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "blockOnWarnings": {
+            "type": "boolean"
+          }
+        }
+      },
+      "limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maximumInputBytes"
+        ],
+        "properties": {
+          "maximumInputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1073741824
+          }
+        }
+      },
+      "structure": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "json": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "defaultMode",
+              "rules"
+            ],
+            "properties": {
+              "defaultMode": {
+                "const": "FREE_TEXT"
+              },
+              "rules": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "$ref": "#/$defs/jsonRule"
+                }
+              }
+            }
+          },
+          "csv": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "delimiter",
+              "header",
+              "defaultMode",
+              "columns"
+            ],
+            "properties": {
+              "delimiter": {
+                "enum": [
+                  "AUTO",
+                  "COMMA",
+                  "TAB",
+                  "SEMICOLON"
+                ]
+              },
+              "header": {
+                "enum": [
+                  "NONE",
+                  "PRESENT"
+                ]
+              },
+              "defaultMode": {
+                "const": "FREE_TEXT"
+              },
+              "columns": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "$ref": "#/$defs/csvColumnRule"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "$defs": {
+      "entityRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "minimumConfidence",
+          "uncertainBehavior"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "REDACT",
+              "TYPED_LABEL",
+              "MASK",
+              "PSEUDONYM",
+              "HASHED_LABEL",
+              "KEEP",
+              "REQUIRE_REVIEW",
+              "BLOCK"
+            ]
+          },
+          "minimumConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "reviewBelow": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "uncertainBehavior": {
+            "enum": [
+              "REQUIRE_REVIEW",
+              "BLOCK",
+              "KEEP"
+            ]
+          },
+          "residualBehavior": {
+            "enum": [
+              "BLOCK",
+              "WARN"
+            ]
+          },
+          "requiredDetectors": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "requiredDetectorKinds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "REGEX",
+                "CHECKSUM",
+                "STRUCTURED",
+                "DICTIONARY",
+                "MODEL"
+              ]
+            }
+          }
+        }
+      },
+      "jsonRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "pointer",
+          "mode",
+          "entityType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "pointer": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^(?:/(?:[^~]|~[01])*)*$"
+          },
+          "mode": {
+            "const": "STRUCTURED"
+          },
+          "entityType": {
+            "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+          }
+        }
+      },
+      "csvColumnRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "selector",
+          "mode",
+          "entityType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "selector": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "index"
+                ],
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "header"
+                ],
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            ]
+          },
+          "mode": {
+            "const": "STRUCTURED"
+          },
+          "entityType": {
+            "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+          }
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "id": "structured-development",
+        "version": "0.1.0",
+        "riskTier": "LOW",
+        "defaults": {
+          "action": "TYPED_LABEL",
+          "minimumConfidence": 0.8,
+          "uncertainBehavior": "REQUIRE_REVIEW"
+        },
+        "entities": {
+          "EMAIL": {
+            "action": "TYPED_LABEL",
+            "minimumConfidence": 0.95,
+            "uncertainBehavior": "REQUIRE_REVIEW"
+          }
+        },
+        "verification": {
+          "profile": "text-rescan-v1",
+          "blockOnWarnings": true
+        },
+        "limits": {
+          "maximumInputBytes": 104857600
+        },
+        "structure": {
+          "json": {
+            "defaultMode": "FREE_TEXT",
+            "rules": [
+              {
+                "id": "email-value",
+                "pointer": "/email",
+                "mode": "STRUCTURED",
+                "entityType": "EMAIL"
+              }
+            ]
+          },
+          "csv": {
+            "delimiter": "COMMA",
+            "header": "PRESENT",
+            "defaultMode": "FREE_TEXT",
+            "columns": [
+              {
+                "id": "email-column",
+                "selector": {
+                  "header": "email"
+                },
+                "mode": "STRUCTURED",
+                "entityType": "EMAIL"
+              }
+            ]
+          }
+        }
       }
     ]
   },

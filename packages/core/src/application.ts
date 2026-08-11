@@ -16,7 +16,11 @@ import {
 } from '@local-pii/contracts';
 import { compileTypedLabelPlan } from '@local-pii/redaction';
 import { resolveEvidence } from '@local-pii/span-resolution';
-import { compileCapabilityRequirement, evaluateAcceptedSpan, evaluateReviewedEntity } from '@local-pii/policy';
+import {
+  compileCapabilityRequirement,
+  evaluateAcceptedSpan,
+  evaluateReviewedEntity
+} from '@local-pii/policy';
 
 import { assertCapabilityManifest, assertCapabilities, digestCapabilityManifest } from './preflight.js';
 import type {
@@ -161,7 +165,7 @@ function validatedRegions(
     if (region === null || typeof region !== 'object' || Array.isArray(region)) return sourceMapInvalid(requestCorrelationId);
     const candidate = region as Readonly<Record<string, unknown>>;
     if (
-      Object.keys(candidate).length !== 6
+      (Object.keys(candidate).length !== 6 && Object.keys(candidate).length !== 7)
       || candidate.schemaVersion !== '1.0.0'
       || candidate.offsetUnit !== 'UNICODE_CODE_POINT'
       || candidate.role !== 'VALUE'
@@ -172,6 +176,20 @@ function validatedRegions(
       || (candidate.end as number) > textLength
       || !isNativeLocationV1(candidate.location)
     ) return sourceMapInvalid(requestCorrelationId);
+    if (candidate.selector !== undefined) {
+      const selector = candidate.selector;
+      if (
+        candidate.location.kind !== 'CSV_CELL'
+        ||
+        selector === null
+        || typeof selector !== 'object'
+        || Array.isArray(selector)
+        || Object.keys(selector).length !== 1
+        || typeof (selector as Readonly<Record<string, unknown>>).csvHeader !== 'string'
+        || ((selector as Readonly<Record<string, unknown>>).csvHeader as string).length === 0
+        || ((selector as Readonly<Record<string, unknown>>).csvHeader as string).length > 256
+      ) return sourceMapInvalid(requestCorrelationId);
+    }
     const identity = nativeLocationIdentity(candidate.location);
     if (locations.has(identity)) return sourceMapInvalid(requestCorrelationId);
     locations.add(identity);
@@ -232,11 +250,41 @@ async function scanArtifact(
   requestCorrelationId: CorrelationId
 ): Promise<TextScanResult> {
   const artifact = await command.session.input(command.signal);
-  const detected = await dependencies.detector.detect(
-    artifact.text,
-    artifact.extractionRevision,
-    command.signal
-  );
+  const policy = 'policy' in command ? command.policy : undefined;
+  const structure = policy?.structure;
+  const hasStructuredRules = (structure?.json.rules.length ?? 0) > 0
+    || (structure?.csv.columns.length ?? 0) > 0;
+  if (hasStructuredRules && artifact.regions === undefined) {
+    throw new SafeError({
+      code: 'POLICY_UNSATISFIABLE',
+      message: 'The structured policy cannot be applied to this artifact.',
+      retryable: false,
+      correlationId: requestCorrelationId
+    });
+  }
+  let detected: readonly DetectionEvidence[];
+  if (hasStructuredRules) {
+    if (dependencies.detector.detectStructured === undefined || structure === undefined) {
+      throw new SafeError({
+        code: 'POLICY_UNSATISFIABLE',
+        message: 'The configured detector cannot apply structured policy rules.',
+        retryable: false,
+        correlationId: requestCorrelationId
+      });
+    }
+    detected = await dependencies.detector.detectStructured({
+      text: artifact.text,
+      extractionRevision: artifact.extractionRevision,
+      regions: artifact.regions as readonly CanonicalRegionV1[],
+      structure
+    }, command.signal);
+  } else {
+    detected = await dependencies.detector.detect(
+      artifact.text,
+      artifact.extractionRevision,
+      command.signal
+    );
+  }
   const evidence = bindNativeLocations(
     detected,
     artifact.regions,

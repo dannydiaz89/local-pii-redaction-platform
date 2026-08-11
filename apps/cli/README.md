@@ -10,11 +10,14 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
 - Converts canonical application results and safe errors into stable human or JSON output and
   documented exit codes.
 - Owns CLI argument validation, process-signal handling, and command-specific policy binding.
+- Loads an optional bounded, strict JSON `--policy-file` for scan/redact. Version 2 policies support
+  exact JSON Pointer and CSV index/header classification; selectors and file paths are omitted from
+  reports. There are no YAML, include, environment, executable, or network policy sources.
 - Keeps Ollama opt-in, loopback-only, experimental, and scan-only.
 - Selects the native JSON adapter for `.json`; keys remain outside detection and only string values
   may be transformed.
-- Selects the native CSV adapter for `.csv`; all cells are scanned and transformations remain
-  inside their originating cells.
+- Selects the native CSV adapter for `.csv`; an explicit v2 policy may select its delimiter and
+  header behavior, while transformations remain inside their originating cells.
 - Selects the strict DOCX adapter for `.docx` inspection and rules-only scanning. DOCX redaction,
   verification, and Ollama are rejected before staging or provider access.
 

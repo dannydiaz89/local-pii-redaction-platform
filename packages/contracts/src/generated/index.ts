@@ -7,6 +7,8 @@ export * as CapabilitiesCapabilityManifestContract from './capabilities-capabili
 export * as CliCliReportContract from './cli-cli-report.js';
 export * as CliPolicyReportContract from './cli-policy-report.js';
 export * as CliRedactReportV2Contract from './cli-redact-report-v2.js';
+export * as CliRedactReportV3Contract from './cli-redact-report-v3.js';
+export * as CliScanReportV2Contract from './cli-scan-report-v2.js';
 export * as CliStageRecoveryReportContract from './cli-stage-recovery-report.js';
 export * as CommonEntityTypeContract from './common-entity-type.js';
 export * as CommonErrorsV2Contract from './common-errors-v2.js';
@@ -36,6 +38,7 @@ export * as JobsReviewDecisionRequestContract from './jobs-review-decision-reque
 export * as JobsReviewSetContract from './jobs-review-set.js';
 export * as ModelsModelManifestContract from './models-model-manifest.js';
 export * as PolicyPolicyCatalogContract from './policy-policy-catalog.js';
+export * as PolicyRedactionPolicyV2Contract from './policy-redaction-policy-v2.js';
 export * as PolicyRedactionPolicyContract from './policy-redaction-policy.js';
 export * as RedactionRedactionPlanV2Contract from './redaction-redaction-plan-v2.js';
 export * as RedactionRedactionPlanContract from './redaction-redaction-plan.js';

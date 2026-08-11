@@ -13,8 +13,23 @@
     "end": { "type": "integer", "minimum": 0, "maximum": 10000000 },
     "offsetUnit": { "const": "UNICODE_CODE_POINT" },
     "role": { "const": "VALUE" },
-    "location": { "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0" }
+    "location": { "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0" },
+    "selector": {
+      "type": "object", "additionalProperties": false, "required": ["csvHeader"],
+      "properties": { "csvHeader": { "type": "string", "minLength": 1, "maxLength": 256 } }
+    }
   },
+  "allOf": [{
+    "if": { "properties": { "selector": true }, "required": ["selector"] },
+    "then": {
+      "properties": {
+        "location": {
+          "type": "object", "additionalProperties": true, "required": ["kind"],
+          "properties": { "kind": { "const": "CSV_CELL" } }
+        }
+      }
+    }
+  }],
   "examples": [{
     "schemaVersion": "1.0.0",
     "start": 8,

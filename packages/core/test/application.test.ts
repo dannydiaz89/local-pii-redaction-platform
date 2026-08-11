@@ -36,6 +36,28 @@ import { applyTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction';
 
 const context = { correlationId: 'cor_core_application_001' };
 const policy = compilePolicy(developmentLabelsPolicy);
+const structuredPolicy = compilePolicy({
+  schemaVersion: '2.0.0',
+  id: 'structured-development',
+  version: '0.1.0',
+  riskTier: 'LOW',
+  defaults: {
+    action: 'TYPED_LABEL', minimumConfidence: 0.8, uncertainBehavior: 'REQUIRE_REVIEW'
+  },
+  entities: {
+    EMAIL: {
+      action: 'TYPED_LABEL', minimumConfidence: 0.8, uncertainBehavior: 'REQUIRE_REVIEW'
+    }
+  },
+  verification: { profile: 'text-rescan-v1', blockOnWarnings: true },
+  limits: { maximumInputBytes: 1_048_576 },
+  structure: {
+    json: {
+      defaultMode: 'FREE_TEXT',
+      rules: [{ id: 'email-value', pointer: '/email', mode: 'STRUCTURED', entityType: 'EMAIL' }]
+    }
+  }
+});
 const digest = (value: string): Sha256Digest => parseSha256Digest(`sha256:${createHash('sha256').update(value).digest('hex')}`);
 const revision = (value: string): Sha256Digest => digest(`canonical:${value}`);
 
@@ -258,6 +280,53 @@ describe('TextProcessingApplication', () => {
     }, context)).rejects.toMatchObject({
       code: 'SOURCE_MAP_INVALID',
       message: 'The structured source map is invalid.',
+      correlationId: context.correlationId
+    });
+  });
+
+  it('fails before detection when a structured policy has no adapter-owned regions', async () => {
+    let detectorCalls = 0;
+    const app = createTextProcessingApplication(dependencies({
+      detector: {
+        detectorBundleVersion: 'test-detector',
+        detect: () => { detectorCalls += 1; return Promise.resolve([]); },
+        detectStructured: () => { detectorCalls += 1; return Promise.resolve([]); }
+      }
+    }));
+    await expect(app.scan({
+      session: { input: () => Promise.resolve(artifact('plain://input', 'not-an-address')) },
+      requirement: { ...requirement, operation: 'SCAN' },
+      policy: structuredPolicy
+    }, context)).rejects.toMatchObject({
+      code: 'POLICY_UNSATISFIABLE',
+      correlationId: context.correlationId
+    });
+    expect(detectorCalls).toBe(0);
+  });
+
+  it('rejects CSV header selector metadata attached to a non-CSV region', async () => {
+    const sourceText = 'ada@example.test';
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '1.0.0' as const,
+        start: 0,
+        end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location: {
+          schemaVersion: '1.0.0' as const,
+          kind: 'JSON_POINTER' as const,
+          pointer: '/email'
+        },
+        selector: { csvHeader: 'email' }
+      }]
+    };
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({
+      code: 'SOURCE_MAP_INVALID',
       correlationId: context.correlationId
     });
   });

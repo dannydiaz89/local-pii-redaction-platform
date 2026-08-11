@@ -39,8 +39,10 @@ export const csvAdapterCapabilityDescriptor = {
     { id: 'double-quote-escaping', status: 'SUPPORTED' },
     { id: 'byte-preserving-untouched-tokens', status: 'SUPPORTED' },
     { id: 'uniform-row-width', status: 'SUPPORTED' },
+    { id: 'explicit-delimiter-selection', status: 'SUPPORTED' },
+    { id: 'explicit-header-exclusion', status: 'SUPPORTED' },
+    { id: 'exact-column-policy', status: 'SUPPORTED' },
     { id: 'spreadsheet-formula-semantics', status: 'BLOCKED' },
-    { id: 'header-and-column-policy', status: 'BLOCKED' },
     { id: 'streaming', status: 'BLOCKED' },
     { id: 'symbolic-links', status: 'BLOCKED' }
   ],
@@ -49,6 +51,34 @@ export const csvAdapterCapabilityDescriptor = {
 } as const;
 
 type CsvDelimiter = ',' | '\t' | ';';
+export type CsvDelimiterSelection = 'AUTO' | 'COMMA' | 'TAB' | 'SEMICOLON';
+export type CsvHeaderMode = 'NONE' | 'PRESENT';
+export interface CsvExtractionOptions {
+  readonly delimiter: CsvDelimiterSelection;
+  readonly header: CsvHeaderMode;
+}
+export const defaultCsvExtractionOptions: CsvExtractionOptions = Object.freeze({
+  delimiter: 'AUTO',
+  header: 'NONE'
+});
+const supportedDelimiterSelections: ReadonlySet<unknown> = new Set(['AUTO', 'COMMA', 'TAB', 'SEMICOLON']);
+const supportedHeaderModes: ReadonlySet<unknown> = new Set(['NONE', 'PRESENT']);
+
+function validatedExtractionOptions(value: unknown): CsvExtractionOptions {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('CSV extraction options are invalid.');
+  }
+  const options = value as Readonly<Record<string, unknown>>;
+  if (
+    Object.keys(options).length !== 2
+    || !supportedDelimiterSelections.has(options.delimiter)
+    || !supportedHeaderModes.has(options.header)
+  ) throw new TypeError('CSV extraction options are invalid.');
+  return Object.freeze({
+    delimiter: options.delimiter as CsvDelimiterSelection,
+    header: options.header as CsvHeaderMode
+  });
+}
 type WriterReceipt = RedactionWriterReceiptContract.WriterReceipt;
 
 interface CsvCellRegion {
@@ -82,6 +112,7 @@ interface ParsedCsv {
   readonly columnCount: number;
   readonly canonicalText: string;
   readonly regions: readonly CsvCellRegion[];
+  readonly headerValues: readonly string[];
   readonly extractionRevision: Sha256Digest;
 }
 
@@ -104,7 +135,7 @@ function formatCorrupt(): never {
   });
 }
 
-function parseWithDelimiter(source: string, delimiter: CsvDelimiter): ParsedCsv {
+function parseWithDelimiter(source: string, delimiter: CsvDelimiter, header: CsvHeaderMode): ParsedCsv {
   const preliminary: Array<Omit<CsvCellRegion, 'canonicalStart' | 'canonicalEnd'>> = [];
   let index = 0;
   let row = 0;
@@ -183,11 +214,27 @@ function parseWithDelimiter(source: string, delimiter: CsvDelimiter): ParsedCsv 
     formatCorrupt();
   }
 
+  const headerValues = header === 'PRESENT'
+    ? preliminary.filter(({ row }) => row === 0).map(({ value }) => value)
+    : [];
+  if (header === 'PRESENT' && new Set(headerValues).size !== headerValues.length) formatCorrupt();
+  const included = header === 'PRESENT' ? preliminary.filter(({ row }) => row > 0) : preliminary;
   let canonicalLength = 0;
   const canonicalParts: string[] = [];
   const regions: CsvCellRegion[] = [];
-  const hash = createHash('sha256').update('local-pii:csv-extraction:v1\u0000', 'utf8').update(delimiter, 'utf8');
+  const hash = createHash('sha256')
+    .update('local-pii:csv-extraction:v2\u0000', 'utf8')
+    .update(delimiter, 'utf8')
+    .update('\u0000', 'utf8')
+    .update(header, 'utf8');
   for (const cell of preliminary) {
+    hash
+      .update(`C:${String(cell.row)}:${String(cell.column)}:`, 'utf8')
+      .update(String(Buffer.byteLength(cell.value, 'utf8')), 'utf8')
+      .update(':', 'utf8')
+      .update(cell.value, 'utf8');
+  }
+  for (const cell of included) {
     if (regions.length > 0) {
       canonicalParts.push(csvBoundary);
       canonicalLength += unicodeCodePointLength(csvBoundary);
@@ -198,11 +245,6 @@ function parseWithDelimiter(source: string, delimiter: CsvDelimiter): ParsedCsv 
     canonicalParts.push(cell.value);
     const region = { ...cell, canonicalStart, canonicalEnd: canonicalLength };
     regions.push(region);
-    hash
-      .update(`${String(cell.row)}:${String(cell.column)}:`, 'utf8')
-      .update(String(Buffer.byteLength(cell.value, 'utf8')), 'utf8')
-      .update(':', 'utf8')
-      .update(cell.value, 'utf8');
   }
   return {
     delimiter,
@@ -210,17 +252,25 @@ function parseWithDelimiter(source: string, delimiter: CsvDelimiter): ParsedCsv 
     columnCount: expectedColumns ?? 1,
     canonicalText: canonicalParts.join(''),
     regions: Object.freeze(regions.map((region) => Object.freeze(region))),
+    headerValues: Object.freeze([...headerValues]),
     extractionRevision: parseSha256Digest(`sha256:${hash.digest('hex')}`)
   };
 }
 
-function parseCsv(source: string): ParsedCsv {
+function selectedDelimiter(selection: Exclude<CsvDelimiterSelection, 'AUTO'>): CsvDelimiter {
+  if (selection === 'COMMA') return ',';
+  if (selection === 'TAB') return '\t';
+  return ';';
+}
+
+function parseCsv(source: string, options: CsvExtractionOptions): ParsedCsv {
+  if (options.delimiter !== 'AUTO') return parseWithDelimiter(source, selectedDelimiter(options.delimiter), options.header);
   let commaFallback: ParsedCsv | undefined;
   let evidenced: ParsedCsv | undefined;
   let ambiguous = false;
   for (const delimiter of supportedDelimiters) {
     try {
-      const candidate = parseWithDelimiter(source, delimiter);
+      const candidate = parseWithDelimiter(source, delimiter, options.header);
       if (candidate.delimiterCount > 0 && candidate.columnCount > 1) {
         if (evidenced !== undefined) {
           ambiguous = true;
@@ -243,26 +293,37 @@ function parseCsv(source: string): ParsedCsv {
 export async function readCsvArtifact(
   inputPath: string,
   maximumBytes = defaultMaximumCsvInputBytes,
+  options: CsvExtractionOptions = defaultCsvExtractionOptions,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ): Promise<CsvArtifact> {
+  const selectedOptions = validatedExtractionOptions(options);
   if (extname(inputPath).toLowerCase() !== '.csv') {
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'This adapter supports CSV files only.', retryable: false, correlationId: 'cor_csv_adapter' });
   }
   const source = await readLocalUtf8Artifact(inputPath, maximumBytes, fileSystem);
-  const parsed = parseCsv(source.text);
-  const regions = Object.freeze(parsed.regions.map((region): CanonicalRegionV1 => Object.freeze({
-    schemaVersion: '1.0.0',
-    start: region.canonicalStart,
-    end: region.canonicalEnd,
-    offsetUnit: 'UNICODE_CODE_POINT',
-    role: 'VALUE',
-    location: Object.freeze({
+  const parsed = parseCsv(source.text, selectedOptions);
+  const regions = Object.freeze(parsed.regions.map((region): CanonicalRegionV1 => {
+    const headerValue = parsed.headerValues[region.column];
+    return Object.freeze({
       schemaVersion: '1.0.0',
-      kind: 'CSV_CELL',
-      row: region.row + 1,
-      column: region.column + 1
-    })
-  })));
+      start: region.canonicalStart,
+      end: region.canonicalEnd,
+      offsetUnit: 'UNICODE_CODE_POINT',
+      role: 'VALUE',
+      location: Object.freeze({
+        schemaVersion: '1.0.0',
+        kind: 'CSV_CELL',
+        row: region.row + 1,
+        column: region.column + 1
+      }),
+      ...(selectedOptions.header === 'PRESENT'
+        && headerValue !== undefined
+        && headerValue.length > 0
+        && unicodeCodePointLength(headerValue) <= 256
+        ? { selector: Object.freeze({ csvHeader: headerValue }) }
+        : {})
+    });
+  }));
   const artifact: CsvArtifact = Object.freeze({
     ...source,
     mediaType: 'text/csv',
@@ -407,15 +468,17 @@ export function createLocalCsvArtifactSession(
   inputPath: string,
   outputPath?: string,
   maximumInputBytes = defaultMaximumCsvInputBytes,
+  options: CsvExtractionOptions = defaultCsvExtractionOptions,
   fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
 ) {
   if (!Number.isSafeInteger(maximumInputBytes) || maximumInputBytes < 0 || maximumInputBytes > defaultMaximumCsvInputBytes) {
     throw new TypeError('Maximum CSV input bytes must be within the adapter limit.');
   }
+  const selectedOptions = validatedExtractionOptions(options);
   let sourcePromise: Promise<CsvArtifact> | undefined;
   const input = async (signal?: AbortSignal): Promise<CsvArtifact> => {
     signal?.throwIfAborted();
-    sourcePromise ??= readCsvArtifact(inputPath, maximumInputBytes, fileSystem);
+    sourcePromise ??= readCsvArtifact(inputPath, maximumInputBytes, selectedOptions, fileSystem);
     const source = await sourcePromise;
     signal?.throwIfAborted();
     return source;
@@ -443,7 +506,7 @@ export function createLocalCsvArtifactSession(
     },
     async reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<CsvArtifact> {
       signal?.throwIfAborted();
-      const reopened = await readCsvArtifact(staged.path, defaultMaximumCsvInputBytes, fileSystem);
+      const reopened = await readCsvArtifact(staged.path, defaultMaximumCsvInputBytes, selectedOptions, fileSystem);
       signal?.throwIfAborted();
       if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
         throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged CSV artifact changed before it could be reopened.', retryable: false, correlationId: 'cor_csv_adapter' });

@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { EventEmitter } from 'node:events';
@@ -368,7 +368,8 @@ describe('CLI TXT vertical slice', () => {
       'ssn-structure',
       'payment-card-luhn',
       'ip-parser',
-      'secret-assignment'
+      'secret-assignment',
+      'structured-policy'
     ]);
     expect(stream.stderr).toHaveLength(0);
 
@@ -675,7 +676,7 @@ describe('CLI TXT vertical slice', () => {
     expect(report.plan.id).toMatch(/^plan_[0-9A-HJKMNP-TV-Z]{26}$/u);
     expect(report.plan.resolutionDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(report.plan.capabilityDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
-    expect(report.plan.detectorBundleVersion).toBe('0.1.0');
+    expect(report.plan.detectorBundleVersion).toBe('0.2.0');
     expect(report.plan.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
     expect(report.plan.strategyVersion).toBe('0.1.0');
     expect(report.writerReceipt).toMatchObject({
@@ -696,7 +697,7 @@ describe('CLI TXT vertical slice', () => {
       writerReceiptDigest: report.writerReceipt.receiptDigest,
       profile: { id: 'text-rescan-v1', version: '0.1.0' },
       verifier: { id: 'text-verifier', version: '0.1.0' },
-      detectorBundle: { id: 'deterministic-text', version: '0.1.0' },
+      detectorBundle: { id: 'deterministic-text', version: '0.2.0' },
       writer: { id: 'text-adapter', version: '0.1.0' },
       application: { id: 'local-pii-cli', version: '0.1.0' },
       outcome: 'PASS',
@@ -928,6 +929,144 @@ describe('CLI TXT vertical slice', () => {
       expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it('loads one bounded v2 policy file for exact JSON Pointer and CSV header classification', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-structured-policy-cli-'));
+    directories.push(root);
+    const policyPath = join(root, 'structured-policy.json');
+    const policy = {
+      schemaVersion: '2.0.0',
+      id: 'structured-development',
+      version: '0.1.0',
+      riskTier: 'LOW',
+      defaults: { action: 'TYPED_LABEL', minimumConfidence: 0.8, uncertainBehavior: 'REQUIRE_REVIEW' },
+      entities: {
+        EMAIL: { action: 'TYPED_LABEL', minimumConfidence: 0.8, uncertainBehavior: 'REQUIRE_REVIEW' },
+        SSN: { action: 'TYPED_LABEL', minimumConfidence: 0.8, uncertainBehavior: 'REQUIRE_REVIEW' }
+      },
+      verification: { profile: 'text-rescan-v1', blockOnWarnings: true },
+      limits: { maximumInputBytes: 104_857_600 },
+      structure: {
+        json: {
+          defaultMode: 'FREE_TEXT',
+          rules: [{ id: 'json-email', pointer: '/email', mode: 'STRUCTURED', entityType: 'EMAIL' }]
+        },
+        csv: {
+          delimiter: 'SEMICOLON',
+          header: 'PRESENT',
+          defaultMode: 'FREE_TEXT',
+          columns: [{ id: 'csv-identifier', selector: { header: 'identifier' }, mode: 'STRUCTURED', entityType: 'SSN' }]
+        }
+      }
+    };
+    await writeFile(policyPath, JSON.stringify(policy));
+
+    const jsonInput = join(root, 'records.json');
+    const jsonOutput = join(root, 'records.redacted.json');
+    await writeFile(jsonInput, '{"email":"not-an-address","free":"beta@example.test"}\n');
+    const jsonScan = capture();
+    expect(await executeCli(['scan', jsonInput, '--policy-file', policyPath, '--json'], jsonScan.io), jsonScan.stderr.join('')).toBe(0);
+    expect(JSON.parse(jsonScan.stdout.join(''))).toMatchObject({
+      schemaVersion: '2.0.0',
+      policy: { id: 'structured-development', example: false },
+      counts: { detections: 2, byEntity: { EMAIL: 2 } }
+    });
+    const jsonRedact = capture();
+    expect(await executeCli([
+      'redact', jsonInput, '--output', jsonOutput, '--policy-file', policyPath, '--json'
+    ], jsonRedact.io), jsonRedact.stderr.join('')).toBe(0);
+    expect(JSON.parse(jsonRedact.stdout.join(''))).toMatchObject({ schemaVersion: '3.0.0' });
+    expect(await readFile(jsonOutput, 'utf8')).toBe('{"email":"[EMAIL_1]","free":"[EMAIL_2]"}\n');
+
+    const csvInput = join(root, 'records.csv');
+    const csvOutput = join(root, 'records.redacted.csv');
+    await writeFile(csvInput, 'name;identifier\nAlice;not-an-address\n');
+    const csvScan = capture();
+    expect(await executeCli(['scan', csvInput, '--policy-file', policyPath, '--json'], csvScan.io), csvScan.stderr.join('')).toBe(0);
+    expect(JSON.parse(csvScan.stdout.join(''))).toMatchObject({ counts: { detections: 1, byEntity: { SSN: 1 } } });
+    const csvRedact = capture();
+    expect(await executeCli([
+      'redact', csvInput, '--output', csvOutput, '--policy-file', policyPath, '--json'
+    ], csvRedact.io), csvRedact.stderr.join('')).toBe(0);
+    expect(await readFile(csvOutput, 'utf8')).toBe('name;identifier\nAlice;[SSN_1]\n');
+
+    for (const output of [jsonScan.stdout.join(''), jsonRedact.stdout.join(''), csvScan.stdout.join(''), csvRedact.stdout.join('')]) {
+      expect(output).not.toContain('not-an-address');
+      expect(output).not.toContain('identifier');
+      expect(output).not.toContain(policyPath);
+    }
+  });
+
+  it('rejects invalid, oversized, conflicting, or inapplicable external policy-file arguments safely', async () => {
+    const { root, input, output } = await fixture();
+    const jsonInput = join(root, 'source.json');
+    const malformed = join(root, 'malformed-policy.json');
+    const oversized = join(root, 'oversized-policy.json');
+    const unavailable = join(root, 'unavailable-policy.json');
+    await writeFile(jsonInput, '{}\n');
+    await writeFile(malformed, '{"schemaVersion":"2.0.0","planted":"alpha@example.test"}');
+    await writeFile(oversized, 'x'.repeat(256 * 1024 + 1));
+    await writeFile(unavailable, JSON.stringify({
+      schemaVersion: '1.0.0',
+      id: 'unavailable-detector',
+      version: '0.1.0',
+      riskTier: 'LOW',
+      defaults: {
+        action: 'TYPED_LABEL',
+        minimumConfidence: 0.8,
+        uncertainBehavior: 'REQUIRE_REVIEW',
+        requiredDetectors: ['unavailable-detector']
+      },
+      entities: {
+        EMAIL: {
+          action: 'TYPED_LABEL',
+          minimumConfidence: 0.8,
+          uncertainBehavior: 'REQUIRE_REVIEW'
+        }
+      },
+      verification: { profile: 'text-rescan-v1', blockOnWarnings: true },
+      limits: { maximumInputBytes: 104_857_600 }
+    }));
+
+    for (const argv of [
+      ['scan', jsonInput, '--policy-file', malformed, '--json'],
+      ['scan', jsonInput, '--policy-file', oversized, '--json']
+    ]) {
+      const stream = capture();
+      expect(await executeCli(argv, stream.io), argv.join(' ')).toBe(3);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+      expect(stream.stderr.join('')).not.toContain('alpha@example.test');
+      expect(stream.stderr.join('')).not.toContain(root);
+    }
+
+    if (process.platform !== 'win32') {
+      const linked = join(root, 'linked-policy.json');
+      await symlink(unavailable, linked);
+      const stream = capture();
+      expect(await executeCli(['scan', jsonInput, '--policy-file', linked, '--json'], stream.io)).toBe(3);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+      expect(stream.stderr.join('')).not.toContain(root);
+    }
+
+    const unsupported = capture();
+    expect(await executeCli([
+      'scan', join(root, 'missing.json'), '--policy-file', unavailable, '--json'
+    ], unsupported.io)).toBe(3);
+    expect(JSON.parse(unsupported.stderr.join(''))).toMatchObject({
+      error: { code: 'POLICY_UNSATISFIABLE', correlationId: 'cor_cli_scan' }
+    });
+
+    for (const argv of [
+      ['redact', input, '--output', output, '--policy', 'development-labels', '--policy-file', malformed],
+      ['verify', input, '--policy-file', malformed],
+      ['scan', input, '--policy-file', malformed],
+      ['scan', input, '--policy-file', malformed, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental']
+    ]) {
+      const stream = capture();
+      expect(await executeCli([...argv, '--json'], stream.io), argv.join(' ')).toBe(2);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID', correlationId: 'cor_cli_usage' } });
     }
   });
 

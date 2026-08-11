@@ -259,32 +259,54 @@ tokens remain byte-identical. A changed string token is emitted with standard JS
 private same-directory stage is reparsed as JSON and its extracted values are rescanned before the
 existing no-clobber publication boundary commits it. JSON support is currently CLI-only and
 rules-only; the browser/API continue to advertise and accept TXT/Markdown until their structured
-preview and review mapping is implemented. JSON Lines, streaming, key transformation, path-aware
-policy rules, and structured-path evidence in public reports remain open.
+preview and review mapping is implemented. A v2 external policy can classify an exact RFC 6901
+JSON Pointer as one configured entity type while all other values retain free-text detection.
+JSON Lines, streaming, key transformation, wildcard selectors, and structured-path evidence in
+public reports remain open.
 JSON redaction requires the selected output path to retain a `.json` extension.
 
 The rules-only CLI also supports bounded UTF-8 `.csv` documents through
 [`@local-pii/adapter-csv`](./packages/adapter-csv). The adapter detects comma, tab, or semicolon
 delimiters only when the result is unambiguous, supports standard doubled-quote escaping and quoted
-newlines, and requires a uniform row width. It extracts decoded cells in row-major order and binds
-their row/column coordinates into the private extraction revision. Every cell—including the first
-row—is currently scanned; the adapter does not guess whether a row is a header. Redaction actions
-must remain inside one cell. Untouched field tokens, delimiters, quotes, and line endings stay
-byte-identical; changed fields retain their quoted form and are escaped when required. The private
-stage is reparsed as CSV and its cells are rescanned before no-clobber publication. CSV support is
-currently CLI-only and rules-only. Explicit dialect/header configuration, structured/free-text
-column policies, public cell-location evidence, and streaming/million-row qualification remain
-open. Formula-like cells are treated as untrusted text: the CLI never evaluates them, but unchanged
-formula tokens are not neutralized for spreadsheet software. CSV redaction requires the selected
-output path to retain a `.csv` extension.
+newlines, and requires a uniform row width. A v2 policy can instead select the delimiter explicitly,
+declare the first logical row as a byte-preserved, unscanned header, and classify exact one-based
+columns or exact header names as configured entity types. Without that explicit declaration every
+cell—including the first row—is scanned; the adapter never guesses whether a row is a header.
+Redaction actions must remain inside one cell. Untouched field tokens, delimiters, quotes, and line
+endings stay byte-identical; changed fields retain their quoted form and are escaped when required.
+The private stage is reparsed as CSV and its cells are rescanned before no-clobber publication. CSV
+support is currently CLI-only and rules-only. Wildcard/ignore selectors, public cell-location
+evidence, API/browser support, and streaming/million-row qualification remain open. Formula-like
+cells are treated as untrusted text: the CLI never evaluates them, but unchanged formula tokens are
+not neutralized for spreadsheet software. CSV redaction requires the selected output path to retain
+a `.csv` extension.
 
 JSON values, CSV cells, and DOCX paragraphs now expose a versioned typed source map internally:
 RFC 6901 JSON pointers, one-based logical CSV row/column coordinates, or an allow-listed DOCX part
 and one-based paragraph. Core validates that every structured detection belongs to exactly one
 declared region, and span resolution binds those native locations into its digest. These locations
 are deliberately omitted from ordinary CLI/API reports because paths and headers can themselves be
-sensitive. Path/cell-aware policy selection and native targets carried directly in a future plan
-contract remain open; this source-map foundation is the durable seam for that work.
+sensitive. Exact path/cell policy selection now uses this source-map seam. Carrying native targets
+directly in a future plan contract and cross-checking them at the writer boundary remain future
+hardening.
+
+Exact structured selection is supplied through one bounded JSON policy file (maximum 256 KiB):
+
+```sh
+pnpm --silent pii-redact scan ./records.json --policy-file ./policy.json --json
+pnpm --silent pii-redact redact ./records.csv \
+  --policy-file ./policy.json --output ./records.redacted.csv --json
+```
+
+The CLI accepts policy schema v1 or v2 and rejects symlinks, malformed JSON, unknown fields,
+duplicate/conflicting selectors, header-name selectors without an explicit `PRESENT` header mode,
+and files over the bound. `--policy-file` is mutually exclusive with bundled `--policy` selection
+and with experimental Ollama. There is no YAML, include, environment-variable, executable, or
+network-backed policy loading. Structured classification confidence `1` means the source region was
+selected exactly by trusted configuration; it does not independently prove the semantic label is
+correct. Paths, pointers, header names, and policy file locations stay out of ordinary reports.
+External-policy scans use the append-only scan-report v2 contract and external-policy redactions use
+redact-report v3; existing scan v1 and bundled-policy redaction v2 reports remain unchanged.
 
 The rules-only CLI has an experimental strict `.docx` inspect/scan surface through
 [`@local-pii/adapter-docx`](./packages/adapter-docx). It accepts only bounded, non-encrypted OOXML

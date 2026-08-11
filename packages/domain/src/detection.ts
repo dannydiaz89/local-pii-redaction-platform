@@ -55,6 +55,8 @@ export interface CanonicalRegionV1 {
   readonly offsetUnit: 'UNICODE_CODE_POINT';
   readonly role: 'VALUE';
   readonly location: NativeLocationV1;
+  /** Adapter-private selector metadata; never serialize it in ordinary reports. */
+  readonly selector?: Readonly<{ readonly csvHeader: string }>;
 }
 
 export function isNativeLocationV1(value: unknown): value is NativeLocationV1 {

@@ -4,6 +4,7 @@ import {
   isCapabilityManifestSemanticallyValid,
   validateContract,
   type CapabilitiesCapabilityManifestContract,
+  type PolicyRedactionPolicyV2Contract,
   type PolicyRedactionPolicyContract
 } from '@local-pii/contracts';
 import {
@@ -15,10 +16,14 @@ import {
   type Sha256Digest
 } from '@local-pii/domain';
 
-const policySchemaId = 'https://local-pii.dev/schemas/policy/redaction-policy/1.0.0';
+const policySchemaIds = {
+  '1.0.0': 'https://local-pii.dev/schemas/policy/redaction-policy/1.0.0',
+  '2.0.0': 'https://local-pii.dev/schemas/policy/redaction-policy/2.0.0'
+} as const;
 const capabilitySchemaId = 'https://local-pii.dev/schemas/capabilities/capability-manifest/1.0.0';
 
-export type RedactionPolicy = PolicyRedactionPolicyContract.RedactionPolicy;
+export type RedactionPolicy = PolicyRedactionPolicyContract.RedactionPolicy
+  | PolicyRedactionPolicyV2Contract.StructuredRedactionPolicy;
 export type PolicyAction = PolicyRedactionPolicyContract.EntityRule['action'];
 export type DetectorKind = NonNullable<PolicyRedactionPolicyContract.EntityRule['requiredDetectorKinds']>[number];
 export type TransformationAction = CapabilitiesCapabilityManifestContract.TransformationCapability['action'];
@@ -62,7 +67,7 @@ export interface EffectivePolicyRequirements {
 }
 
 export interface EffectivePolicy {
-  readonly schemaVersion: '1.0.0';
+  readonly schemaVersion: '1.0.0' | '2.0.0';
   readonly id: string;
   readonly version: string;
   readonly digest: Sha256Digest;
@@ -71,6 +76,34 @@ export interface EffectivePolicy {
   readonly requirements: EffectivePolicyRequirements;
   readonly verification: Readonly<{ profile: string; blockOnWarnings: boolean }>;
   readonly limits: Readonly<{ maximumInputBytes: number }>;
+  readonly structure: EffectiveStructurePolicy;
+}
+
+export interface EffectiveStructuredRule {
+  readonly id: string;
+  readonly mode: 'STRUCTURED';
+  readonly entityType: EntityType;
+}
+
+export interface EffectiveJsonStructuredRule extends EffectiveStructuredRule {
+  readonly pointer: string;
+}
+
+export interface EffectiveCsvStructuredRule extends EffectiveStructuredRule {
+  readonly selector: Readonly<{ readonly index: number } | { readonly header: string }>;
+}
+
+export interface EffectiveStructurePolicy {
+  readonly json: Readonly<{
+    readonly defaultMode: 'FREE_TEXT';
+    readonly rules: readonly EffectiveJsonStructuredRule[];
+  }>;
+  readonly csv: Readonly<{
+    readonly delimiter: 'AUTO' | 'COMMA' | 'TAB' | 'SEMICOLON';
+    readonly header: 'NONE' | 'PRESENT';
+    readonly defaultMode: 'FREE_TEXT';
+    readonly columns: readonly EffectiveCsvStructuredRule[];
+  }>;
 }
 
 /** Structurally compatible with the core capability requirement without importing core. */
@@ -207,7 +240,9 @@ function sortedUnique<Value extends string>(values: readonly Value[]): readonly 
   return Object.freeze([...new Set(values)].sort());
 }
 
-function copyRule(rule: PolicyRedactionPolicyContract.EntityRule): PolicyRedactionPolicyContract.EntityRule {
+type PolicyEntityRule = PolicyRedactionPolicyContract.EntityRule | PolicyRedactionPolicyV2Contract.EntityRule;
+
+function copyRule(rule: PolicyEntityRule): PolicyRedactionPolicyContract.EntityRule {
   return {
     action: rule.action,
     minimumConfidence: rule.minimumConfidence,
@@ -219,10 +254,64 @@ function copyRule(rule: PolicyRedactionPolicyContract.EntityRule): PolicyRedacti
   };
 }
 
+function validateStructureSemantics(policy: PolicyRedactionPolicyV2Contract.StructuredRedactionPolicy): void {
+  const ids = new Set<string>();
+  const pointers = new Set<string>();
+  for (const rule of policy.structure?.json?.rules ?? []) {
+    if (ids.has(rule.id) || pointers.has(rule.pointer)) {
+      throw new PolicyValidationError('POLICY_SEMANTIC_INVALID');
+    }
+    ids.add(rule.id);
+    pointers.add(rule.pointer);
+  }
+  const selectors = new Set<string>();
+  for (const rule of policy.structure?.csv?.columns ?? []) {
+    const selector = 'index' in rule.selector
+      ? `INDEX\u0000${String(rule.selector.index)}`
+      : `HEADER\u0000${rule.selector.header}`;
+    if (
+      ids.has(rule.id)
+      || selectors.has(selector)
+      || ('header' in rule.selector && policy.structure?.csv?.header !== 'PRESENT')
+    ) throw new PolicyValidationError('POLICY_SEMANTIC_INVALID');
+    ids.add(rule.id);
+    selectors.add(selector);
+  }
+}
+
+function copyStructure(
+  source: PolicyRedactionPolicyV2Contract.StructuredRedactionPolicy['structure']
+): PolicyRedactionPolicyV2Contract.StructuredRedactionPolicy['structure'] {
+  if (source === undefined) return undefined;
+  return {
+    ...(source.json === undefined ? {} : {
+      json: {
+        defaultMode: source.json.defaultMode,
+        rules: source.json.rules.map((rule) => ({ ...rule }))
+      }
+    }),
+    ...(source.csv === undefined ? {} : {
+      csv: {
+        delimiter: source.csv.delimiter,
+        header: source.csv.header,
+        defaultMode: source.csv.defaultMode,
+        columns: source.csv.columns.map((rule) => ({
+          ...rule,
+          selector: { ...rule.selector }
+        }))
+      }
+    })
+  };
+}
+
 /** Validates a closed-schema policy and returns a detached immutable value. */
 export function validatePolicy(value: unknown): Readonly<RedactionPolicy> {
   assertPlainJson(value);
-  if (!validateContract(policySchemaId, value).valid) {
+  const schemaVersion = (value as Readonly<{ readonly schemaVersion?: unknown }>).schemaVersion;
+  if (
+    (schemaVersion !== '1.0.0' && schemaVersion !== '2.0.0')
+    || !validateContract(policySchemaIds[schemaVersion], value).valid
+  ) {
     throw new PolicyValidationError('POLICY_SCHEMA_INVALID');
   }
   const source = value as RedactionPolicy;
@@ -241,6 +330,7 @@ export function validatePolicy(value: unknown): Readonly<RedactionPolicy> {
     Object.entries(source.entities).sort(([left], [right]) => left.localeCompare(right))
       .map(([entityType, rule]) => [entityType, copyRule(rule)])
   );
+  if (source.schemaVersion === '2.0.0') validateStructureSemantics(source);
   return deepFreeze({
     schemaVersion: source.schemaVersion,
     id: source.id,
@@ -249,13 +339,14 @@ export function validatePolicy(value: unknown): Readonly<RedactionPolicy> {
     defaults: copyRule(source.defaults),
     entities,
     verification: { ...source.verification },
-    limits: { ...source.limits }
-  });
+    limits: { ...source.limits },
+    ...(source.schemaVersion === '2.0.0' ? { structure: copyStructure(source.structure) } : {})
+  } as RedactionPolicy);
 }
 
 function effectiveRule(
   entityType: EntityType,
-  source: PolicyRedactionPolicyContract.EntityRule,
+  source: PolicyEntityRule,
   riskTier: RedactionPolicy['riskTier']
 ): EffectiveEntityRule {
   if (source.reviewBelow !== undefined && source.reviewBelow < source.minimumConfidence) {
@@ -276,13 +367,19 @@ function effectiveRule(
 /** Compiles every entity to a deterministic immutable rule and binds the exact source digest. */
 export function compilePolicy(value: unknown): EffectivePolicy {
   const policy = validatePolicy(value);
+  const policyStructure = policy.schemaVersion === '2.0.0' ? policy.structure : undefined;
+  const requiresStructuredDetector = (policyStructure?.json?.rules.length ?? 0) > 0
+    || (policyStructure?.csv?.columns.length ?? 0) > 0;
   const entities = Object.freeze(entityTypes.map((entityType) => {
     const override = policy.entities[entityType];
     const merged = override === undefined ? policy.defaults : { ...policy.defaults, ...override };
     return effectiveRule(entityType, merged, policy.riskTier);
   }));
   const detectorIds = sortedUnique(entities.flatMap((rule) => rule.requiredDetectors));
-  const detectorKinds = sortedUnique(entities.flatMap((rule) => rule.requiredDetectorKinds));
+  const detectorKinds = sortedUnique([
+    ...entities.flatMap((rule) => rule.requiredDetectorKinds),
+    ...(requiresStructuredDetector ? ['STRUCTURED' as const] : [])
+  ]);
   const requiredTransformations = sortedUnique(
     entities.map((rule) => rule.action)
       .filter((action): action is TransformationAction => transformationActions.has(action))
@@ -294,6 +391,21 @@ export function compilePolicy(value: unknown): EffectivePolicy {
     verificationProfile: policy.verification.profile,
     maximumInputBytes: policy.limits.maximumInputBytes
   });
+  const structure = deepFreeze({
+    json: {
+      defaultMode: 'FREE_TEXT' as const,
+      rules: (policyStructure?.json?.rules ?? []).map((rule) => ({ ...rule }))
+    },
+    csv: {
+      delimiter: policyStructure?.csv?.delimiter ?? 'AUTO',
+      header: policyStructure?.csv?.header ?? 'NONE',
+      defaultMode: 'FREE_TEXT' as const,
+      columns: (policyStructure?.csv?.columns ?? []).map((rule) => ({
+        ...rule,
+        selector: { ...rule.selector }
+      }))
+    }
+  });
   return deepFreeze({
     schemaVersion: policy.schemaVersion,
     id: policy.id,
@@ -303,7 +415,8 @@ export function compilePolicy(value: unknown): EffectivePolicy {
     entities,
     requirements,
     verification: { ...policy.verification },
-    limits: { ...policy.limits }
+    limits: { ...policy.limits },
+    structure
   });
 }
 

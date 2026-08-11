@@ -12,7 +12,8 @@ import {
   createLocalCsvArtifactSession,
   csvWriterDescriptor,
   readCsvArtifact,
-  type CsvArtifact
+  type CsvArtifact,
+  type CsvExtractionOptions
 } from '../src/index.js';
 
 const roots: string[] = [];
@@ -173,6 +174,54 @@ describe('CSV adapter', () => {
     }
   });
 
+  it('uses explicit dialect and header configuration without scanning or rewriting the header row', async () => {
+    const raw = 'name;email\nAlice;alpha@example.test\n';
+    const path = await csvFile(raw);
+    const artifact = await readCsvArtifact(path, undefined, { delimiter: 'SEMICOLON', header: 'PRESENT' });
+
+    expect(artifact.text).toBe(['Alice', 'alpha@example.test'].join('\n\u0000\n'));
+    expect(artifact.regions).toEqual([
+      expect.objectContaining({
+        location: { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 1 },
+        selector: { csvHeader: 'name' }
+      }),
+      expect.objectContaining({
+        location: { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 2 },
+        selector: { csvHeader: 'email' }
+      })
+    ]);
+
+    const output = join(roots.at(-1) ?? '', 'document.redacted.csv');
+    const session = createLocalCsvArtifactSession(
+      path,
+      output,
+      undefined,
+      { delimiter: 'SEMICOLON', header: 'PRESENT' }
+    );
+    const source = await session.input();
+    const start = codePointOffsetOf(source.text, 'alpha@example.test');
+    const staged = await session.stage(planFor(source, [{ start, end: start + 18 }]));
+    expect(await readFile(staged.reference, 'utf8')).toBe('name;email\nAlice;[EMAIL_1]\n');
+    expect((await session.reopen(staged)).text).toBe(['Alice', '[EMAIL_1]'].join('\n\u0000\n'));
+    await session.discard(staged);
+  });
+
+  it('lets an explicit delimiter resolve an otherwise ambiguous dialect and rejects duplicate headers', async () => {
+    const ambiguous = await csvFile('a,b;c\n1,2;3\n');
+    await expect(readCsvArtifact(ambiguous)).rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
+    await expect(readCsvArtifact(ambiguous, undefined, { delimiter: 'COMMA', header: 'NONE' }))
+      .resolves.toMatchObject({ text: ['a', 'b;c', '1', '2;3'].join('\n\u0000\n') });
+
+    const duplicateHeaders = await csvFile('email,email\na@b.test,b@c.test\n');
+    await expect(readCsvArtifact(duplicateHeaders, undefined, { delimiter: 'COMMA', header: 'PRESENT' }))
+      .rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
+
+    const emptyHeader = await csvFile(',email\nvalue,a@b.test\n');
+    const artifact = await readCsvArtifact(emptyHeader, undefined, { delimiter: 'COMMA', header: 'PRESENT' });
+    expect(artifact.regions[0]).not.toHaveProperty('selector');
+    expect(artifact.regions[1]).toMatchObject({ selector: { csvHeader: 'email' } });
+  });
+
   it.each([
     ['unterminated quote', 'a,b\n1,"private-canary\n'],
     ['text after quote', 'a,b\n1,"x"tail\n'],
@@ -254,8 +303,19 @@ describe('CSV adapter', () => {
     await writeFile(wrong, 'a,b\n');
     await expect(readCsvArtifact(wrong)).rejects.toMatchObject({ code: 'FORMAT_UNSUPPORTED' });
     expect(() => createLocalCsvArtifactSession(wrong, undefined, Number.POSITIVE_INFINITY)).toThrow(TypeError);
+    expect(() => createLocalCsvArtifactSession(
+      wrong,
+      undefined,
+      undefined,
+      { delimiter: 'COMMA', header: 'NONE', extra: true } as CsvExtractionOptions
+    )).toThrow(TypeError);
 
     const input = await csvFile('a,b\n');
+    const mutable = { delimiter: 'COMMA', header: 'NONE' } as CsvExtractionOptions;
+    const bound = createLocalCsvArtifactSession(input, undefined, undefined, mutable);
+    (mutable as { delimiter: string }).delimiter = 'SEMICOLON';
+    await expect(bound.input()).resolves.toMatchObject({ text: ['a', 'b'].join('\n\u0000\n') });
+
     const session = createLocalCsvArtifactSession(input, join(roots.at(-1) ?? '', 'document.txt'));
     const source = await session.input();
     await expect(session.stage(planFor(source, []))).rejects.toMatchObject({ code: 'FORMAT_UNSUPPORTED' });

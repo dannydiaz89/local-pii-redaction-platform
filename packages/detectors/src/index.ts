@@ -7,6 +7,7 @@ import {
   entityTypes,
   parseDetectionId,
   unicodeCodePointLength,
+  type CanonicalRegionV1,
   type DetectionEvidence,
   type DetectionId,
   type DetectorSource,
@@ -15,7 +16,7 @@ import {
   type UnicodeSpan
 } from '@local-pii/domain';
 
-export const deterministicDetectorBundleVersion = '0.1.0';
+export const deterministicDetectorBundleVersion = '0.2.0';
 
 const detectorIds = {
   email: 'email-pattern',
@@ -23,7 +24,8 @@ const detectorIds = {
   ssn: 'ssn-structure',
   paymentCard: 'payment-card-luhn',
   ip: 'ip-parser',
-  secret: 'secret-assignment'
+  secret: 'secret-assignment',
+  structured: 'structured-policy'
 } as const;
 
 export const deterministicDetectorCapabilities = [
@@ -32,13 +34,31 @@ export const deterministicDetectorCapabilities = [
   { id: detectorIds.ssn, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['SSN'], languages: ['en-US'] },
   { id: detectorIds.paymentCard, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['CREDIT_CARD'], languages: ['und'] },
   { id: detectorIds.ip, version: deterministicDetectorBundleVersion, kinds: ['CHECKSUM'], entityTypes: ['IP_ADDRESS'], languages: ['und'] },
-  { id: detectorIds.secret, version: deterministicDetectorBundleVersion, kinds: ['REGEX'], entityTypes: ['API_KEY', 'ACCESS_TOKEN', 'PASSWORD'], languages: ['und'] }
+  { id: detectorIds.secret, version: deterministicDetectorBundleVersion, kinds: ['REGEX'], entityTypes: ['API_KEY', 'ACCESS_TOKEN', 'PASSWORD'], languages: ['und'] },
+  { id: detectorIds.structured, version: deterministicDetectorBundleVersion, kinds: ['STRUCTURED'], entityTypes, languages: ['und'] }
 ] as const;
 
 export interface DetectorLimits {
   readonly maximumCodePoints: number;
   readonly maximumDetections: number;
   readonly maximumCandidateLength: number;
+}
+
+export interface StructuredDetectionRule {
+  readonly id: string;
+  readonly mode: 'STRUCTURED';
+  readonly entityType: EntityType;
+}
+
+export interface StructuredDetectionPolicy {
+  readonly json: Readonly<{
+    readonly rules: readonly (StructuredDetectionRule & { readonly pointer: string })[];
+  }>;
+  readonly csv: Readonly<{
+    readonly columns: readonly (StructuredDetectionRule & {
+      readonly selector: Readonly<{ readonly index: number } | { readonly header: string }>;
+    })[];
+  }>;
 }
 
 export const defaultDetectorLimits: DetectorLimits = {
@@ -274,6 +294,116 @@ export function detectDeterministic(
       detector: { id: candidate.detectorId, version: deterministicDetectorBundleVersion, ruleId: candidate.ruleId }
     } satisfies DetectionEvidence;
   }).sort((left, right) => left.span.start - right.span.start || right.span.end - left.span.end || left.entityType.localeCompare(right.entityType));
+}
+
+function structuredRuleSelector(
+  structure: StructuredDetectionPolicy,
+  correlationId: string
+): (region: CanonicalRegionV1) => StructuredDetectionRule | undefined {
+  const invalid = (): never => {
+    throw new SafeError({
+      code: 'POLICY_UNSATISFIABLE',
+      message: 'The structured policy selects one region more than once.',
+      retryable: false,
+      correlationId
+    });
+  };
+  const json = new Map<string, StructuredDetectionRule>();
+  const csvIndex = new Map<number, StructuredDetectionRule>();
+  const csvHeader = new Map<string, StructuredDetectionRule>();
+  for (const rule of structure.json.rules) {
+    if (json.has(rule.pointer)) invalid();
+    json.set(rule.pointer, rule);
+  }
+  for (const rule of structure.csv.columns) {
+    if ('index' in rule.selector) {
+      if (csvIndex.has(rule.selector.index)) invalid();
+      csvIndex.set(rule.selector.index, rule);
+    } else {
+      if (csvHeader.has(rule.selector.header)) invalid();
+      csvHeader.set(rule.selector.header, rule);
+    }
+  }
+  return (region) => {
+    const location = region.location;
+    if (location.kind === 'JSON_POINTER') return json.get(location.pointer);
+    if (location.kind !== 'CSV_CELL') return undefined;
+    const byIndex = csvIndex.get(location.column);
+    const byHeader = region.selector === undefined ? undefined : csvHeader.get(region.selector.csvHeader);
+    if (byIndex !== undefined && byHeader !== undefined) return invalid();
+    return byIndex ?? byHeader;
+  };
+}
+
+function overlapsStructuredRegion(
+  configured: readonly Readonly<{ readonly region: CanonicalRegionV1; readonly rule: StructuredDetectionRule }>[],
+  start: number,
+  end: number
+): boolean {
+  let low = 0;
+  let high = configured.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = configured[middle];
+    if (candidate === undefined) return false;
+    if (candidate.region.end <= start) low = middle + 1;
+    else if (candidate.region.start >= end) high = middle - 1;
+    else return true;
+  }
+  return false;
+}
+
+/** Applies free-text rules only outside exact structured-policy regions. */
+export function detectDeterministicWithStructure(
+  text: string,
+  extractionRevision: Sha256Digest,
+  regions: readonly CanonicalRegionV1[],
+  structure: StructuredDetectionPolicy,
+  limits: DetectorLimits = defaultDetectorLimits,
+  correlationId = 'cor_local_detection'
+): readonly DetectionEvidence[] {
+  const selectRule = structuredRuleSelector(structure, correlationId);
+  const configured = regions.flatMap((region) => {
+    const rule = selectRule(region);
+    return rule === undefined ? [] : [{ region, rule }];
+  }).sort((left, right) => left.region.start - right.region.start || left.region.end - right.region.end);
+  const deterministic = detectDeterministic(text, extractionRevision, limits, correlationId)
+    .filter((item) => !overlapsStructuredRegion(configured, item.span.start, item.span.end));
+  const structured: DetectionEvidence[] = [];
+  for (const { region, rule } of configured) {
+    if (region.start === region.end) continue;
+    if (region.end - region.start > limits.maximumCandidateLength) {
+      throw new SafeError({
+        code: 'DETECTION_LIMIT_EXCEEDED',
+        message: 'A structured region exceeds the configured span-length limit.',
+        retryable: false,
+        correlationId
+      });
+    }
+    if (deterministic.length + structured.length >= limits.maximumDetections) {
+      throw new SafeError({
+        code: 'DETECTION_LIMIT_EXCEEDED',
+        message: 'Detection count exceeds the configured safety limit.',
+        retryable: false,
+        correlationId
+      });
+    }
+    structured.push({
+      id: stableUuid([extractionRevision, 'structured-policy', rule.id, rule.entityType, region.start, region.end]),
+      entityType: rule.entityType,
+      span: {
+        start: region.start,
+        end: region.end,
+        offsetUnit: 'UNICODE_CODE_POINT',
+        extractionRevision
+      },
+      confidence: 1,
+      source: 'STRUCTURED',
+      detector: { id: detectorIds.structured, version: deterministicDetectorBundleVersion, ruleId: rule.id },
+      nativeLocations: [region.location]
+    });
+  }
+  return [...deterministic, ...structured].sort(compareEvidence);
 }
 
 const compositionVersionPrefix = 'composite-v1-';

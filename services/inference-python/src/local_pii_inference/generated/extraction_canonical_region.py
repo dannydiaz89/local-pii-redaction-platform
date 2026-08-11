@@ -51,6 +51,13 @@ class NativeStructuredLocation(
     ) = Field(..., description='A versioned value-free native location owned by a structured format adapter.', title='Native structured location')
 
 
+class Selector(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    csvHeader: constr(min_length=1, max_length=256, strict=True)
+
+
 class CanonicalStructuredRegion(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -65,3 +72,4 @@ class CanonicalStructuredRegion(BaseModel):
         description='A versioned value-free native location owned by a structured format adapter.',
         title='Native structured location',
     )
+    selector: Selector | None = None

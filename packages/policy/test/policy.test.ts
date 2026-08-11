@@ -90,10 +90,75 @@ describe('policy validation and compilation', () => {
     expect(Object.keys(bundledPolicies)).toEqual(['development-labels', 'high-risk-disclosure']);
   });
 
+  it('retains the v1 digest while normalizing an absent structured policy to free text', () => {
+    const effective = compilePolicy(developmentLabelsPolicy);
+    expect(effective.digest).toBe('sha256:83bc5a796eab8185caed15cc23e29ee5995a842292f2973a086ae73f2b893af8');
+    expect(effective.structure).toEqual({
+      json: { defaultMode: 'FREE_TEXT', rules: [] },
+      csv: { delimiter: 'AUTO', header: 'NONE', defaultMode: 'FREE_TEXT', columns: [] }
+    });
+  });
+
+  it('validates and compiles exact structured JSON and CSV selectors', () => {
+    const effective = compilePolicy({
+      ...developmentLabelsPolicy,
+      schemaVersion: '2.0.0',
+      id: 'structured-development',
+      structure: {
+        json: {
+          defaultMode: 'FREE_TEXT',
+          rules: [{ id: 'json-email', pointer: '/contact/email', mode: 'STRUCTURED', entityType: 'EMAIL' }]
+        },
+        csv: {
+          delimiter: 'SEMICOLON',
+          header: 'PRESENT',
+          defaultMode: 'FREE_TEXT',
+          columns: [
+            { id: 'csv-email', selector: { header: 'email' }, mode: 'STRUCTURED', entityType: 'EMAIL' },
+            { id: 'csv-ssn', selector: { index: 3 }, mode: 'STRUCTURED', entityType: 'SSN' }
+          ]
+        }
+      }
+    });
+
+    expect(effective.schemaVersion).toBe('2.0.0');
+    expect(effective.structure.csv).toMatchObject({ delimiter: 'SEMICOLON', header: 'PRESENT' });
+    expect(effective.structure.json.rules[0]).toMatchObject({ pointer: '/contact/email', entityType: 'EMAIL' });
+    expect(effective.requirements.detectorKinds).toContain('STRUCTURED');
+    expect(Object.isFrozen(effective.structure.csv.columns)).toBe(true);
+  });
+
+  it('rejects duplicate selectors, duplicate rule IDs, and header selectors without a declared header', () => {
+    const base = {
+      ...developmentLabelsPolicy,
+      schemaVersion: '2.0.0' as const,
+      id: 'structured-development'
+    };
+    for (const structure of [
+      {
+        json: { defaultMode: 'FREE_TEXT', rules: [
+          { id: 'same-id', pointer: '/first', mode: 'STRUCTURED', entityType: 'EMAIL' },
+          { id: 'same-id', pointer: '/second', mode: 'STRUCTURED', entityType: 'PHONE' }
+        ] }
+      },
+      {
+        csv: { delimiter: 'AUTO', header: 'NONE', defaultMode: 'FREE_TEXT', columns: [
+          { id: 'header-rule', selector: { header: 'email' }, mode: 'STRUCTURED', entityType: 'EMAIL' }
+        ] }
+      },
+      {
+        csv: { delimiter: 'AUTO', header: 'PRESENT', defaultMode: 'FREE_TEXT', columns: [
+          { id: 'first-rule', selector: { index: 2 }, mode: 'STRUCTURED', entityType: 'EMAIL' },
+          { id: 'second-rule', selector: { index: 2 }, mode: 'STRUCTURED', entityType: 'PHONE' }
+        ] }
+      }
+    ]) expectPolicyError(() => compilePolicy({ ...base, structure }), 'POLICY_SEMANTIC_INVALID');
+  });
+
   it('rejects unknown fields and unsupported schema versions', () => {
     for (const value of [
       { ...developmentLabelsPolicy, execute: 'process.env.SECRET' },
-      { ...developmentLabelsPolicy, schemaVersion: '2.0.0' }
+      { ...developmentLabelsPolicy, schemaVersion: '3.0.0' }
     ]) {
       expectPolicyError(() => validatePolicy(value), 'POLICY_SCHEMA_INVALID');
     }

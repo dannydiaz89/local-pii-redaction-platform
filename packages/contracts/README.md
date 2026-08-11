@@ -15,6 +15,10 @@ Canonical, language-neutral data contracts for every process and package boundar
   decision replay without changing the immutable detector evidence contracts.
 - Retains detection v1 and adds detection v2 plus canonical-region/native-location schemas for
   typed JSON pointer, CSV cell, and narrow DOCX paragraph provenance.
+- Retains redaction-policy v1 and adds redaction-policy v2 for exact JSON Pointer classification,
+  explicit CSV delimiter/header behavior, and exact CSV index/header classification.
+- Adds policy-bound CLI scan-report v2 and redaction-report v3 contracts without loosening the
+  existing scan v1 or bundled-policy redaction v2 report schemas.
 - Defines v4 reviewed-redaction admission and v2 redaction-plan contracts that bind an exact scan,
   append-only review revision/digest, effective value-free decisions, policy, and writer provenance.
 

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/cli/scan-report/2.0.0",
+  "title": "Policy-bound CLI scan report v2",
+  "description": "Privacy-minimized scan result bound to an external policy digest without disclosing selectors or paths.",
+  "schemaVersion": "2.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "outcome", "input", "policy", "detectorBundleVersion", "counts", "detections", "conflicts"],
+  "properties": {
+    "schemaVersion": { "const": "2.0.0" },
+    "operation": { "const": "SCAN" },
+    "outcome": { "enum": ["SUCCEEDED", "NEEDS_REVIEW"] },
+    "input": { "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/artifactSummary" },
+    "policy": { "$ref": "#/$defs/policySummary" },
+    "detectorBundleVersion": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "counts": { "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/counts" },
+    "detections": { "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/detections" },
+    "conflicts": { "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/properties/conflicts" }
+  },
+  "$defs": {
+    "policySummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "digest", "riskTier", "example"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
+        "version": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver" },
+        "digest": { "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest" },
+        "riskTier": { "enum": ["LOW", "MODERATE", "HIGH"] },
+        "example": { "const": false }
+      }
+    }
+  },
+  "examples": [{
+    "schemaVersion": "2.0.0", "operation": "SCAN", "outcome": "SUCCEEDED",
+    "input": { "displayName": "synthetic.json", "mediaType": "application/json", "byteLength": 3, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "policy": { "id": "structured-development", "version": "0.1.0", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "riskTier": "LOW", "example": false },
+    "detectorBundleVersion": "0.2.0",
+    "counts": { "detections": 0, "conflicts": 0, "byEntity": {} },
+    "detections": [], "conflicts": []
+  }]
+}

@@ -14,6 +14,7 @@ import {
   createCompositeTextDetector,
   defaultDetectorLimits,
   detectDeterministic,
+  detectDeterministicWithStructure,
   type ContextualTextDetectionProvider
 } from '../src/index.js';
 
@@ -37,6 +38,91 @@ function modelEvidence(
 }
 
 describe('deterministic detectors', () => {
+  it('classifies exact structured regions while keeping free-text rules scoped to other regions', () => {
+    const first = 'alpha@example.test';
+    const second = 'beta@example.test';
+    const boundary = '\n\u0000\n';
+    const text = `${first}${boundary}${second}`;
+    const regions = [
+      {
+        schemaVersion: '1.0.0' as const,
+        start: 0,
+        end: first.length,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location: { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/phone' }
+      },
+      {
+        schemaVersion: '1.0.0' as const,
+        start: first.length + boundary.length,
+        end: text.length,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location: { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/email' }
+      }
+    ];
+    const evidence = detectDeterministicWithStructure(text, revision, regions, {
+      json: { rules: [{ id: 'phone-field', pointer: '/phone', mode: 'STRUCTURED', entityType: 'PHONE' }] },
+      csv: { columns: [] }
+    });
+
+    expect(evidence.map(({ entityType, source, span }) => ({ entityType, source, start: span.start, end: span.end })))
+      .toEqual([
+        { entityType: 'PHONE', source: 'STRUCTURED', start: 0, end: first.length },
+        { entityType: 'EMAIL', source: 'REGEX', start: first.length + boundary.length, end: text.length }
+      ]);
+  });
+
+  it('fails closed when CSV index and header selectors resolve to the same cell', () => {
+    const value = 'alpha@example.test';
+    expect(() => detectDeterministicWithStructure(value, revision, [{
+      schemaVersion: '1.0.0',
+      start: 0,
+      end: value.length,
+      offsetUnit: 'UNICODE_CODE_POINT',
+      role: 'VALUE',
+      location: { schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 2 },
+      selector: { csvHeader: 'email' }
+    }], {
+      json: { rules: [] },
+      csv: { columns: [
+        { id: 'by-index', selector: { index: 2 }, mode: 'STRUCTURED', entityType: 'EMAIL' },
+        { id: 'by-header', selector: { header: 'email' }, mode: 'STRUCTURED', entityType: 'EMAIL' }
+      ] }
+    })).toThrowError('The structured policy selects one region more than once.');
+  });
+
+  it('enforces the combined detection bound while producing structured regions', () => {
+    const text = 'x\n\u0000\ny\n\u0000\nz';
+    const regions = [0, 4, 8].map((start, index) => ({
+      schemaVersion: '1.0.0' as const,
+      start,
+      end: start + 1,
+      offsetUnit: 'UNICODE_CODE_POINT' as const,
+      role: 'VALUE' as const,
+      location: {
+        schemaVersion: '1.0.0' as const,
+        kind: 'CSV_CELL' as const,
+        row: index + 1,
+        column: 1
+      }
+    }));
+    const structure = {
+      json: { rules: [] },
+      csv: {
+        columns: [{ id: 'first-column', selector: { index: 1 }, mode: 'STRUCTURED' as const, entityType: 'ACCOUNT_ID' as const }]
+      }
+    };
+    expect(detectDeterministicWithStructure(text, revision, regions, structure, {
+      ...defaultDetectorLimits,
+      maximumDetections: 3
+    })).toHaveLength(3);
+    expect(() => detectDeterministicWithStructure(text, revision, regions, structure, {
+      ...defaultDetectorLimits,
+      maximumDetections: 2
+    })).toThrowError('Detection count exceeds the configured safety limit.');
+  });
+
   it('finds the approved initial entity set with Unicode code-point offsets', () => {
     const text = [
       '😀 Email alpha@example.test',

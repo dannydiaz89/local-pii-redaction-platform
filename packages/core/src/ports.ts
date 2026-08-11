@@ -110,6 +110,15 @@ export interface TextDetectionPort {
     extractionRevision: Sha256Digest,
     signal?: AbortSignal
   ): Promise<readonly DetectionEvidence[]>;
+  detectStructured?(
+    request: Readonly<{
+      text: string;
+      extractionRevision: Sha256Digest;
+      regions: readonly CanonicalRegionV1[];
+      structure: EffectivePolicy['structure'];
+    }>,
+    signal?: AbortSignal
+  ): Promise<readonly DetectionEvidence[]>;
 }
 
 export interface TextVerificationFinding {
@@ -184,6 +193,8 @@ export interface TextProcessingApplicationDependencies {
 export interface TextCommand {
   readonly session: TextInputSession;
   readonly requirement: CapabilityRequirement;
+  /** Optional structured selection policy for a scan; absent means free-text defaults. */
+  readonly policy?: EffectivePolicy;
   readonly signal?: AbortSignal;
 }
 

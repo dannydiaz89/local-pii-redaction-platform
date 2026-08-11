@@ -11,7 +11,8 @@ import {
 import {
   cleanupStaleTextStages,
   createLocalTextArtifactSession,
-  inventoryTextStages
+  inventoryTextStages,
+  readLocalUtf8Artifact
 } from '@local-pii/adapter-text';
 import { assertContract } from '@local-pii/contracts';
 import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
@@ -54,6 +55,7 @@ interface ParsedArguments {
   readonly input: string | undefined;
   readonly policyName: string | undefined;
   readonly selectedPolicy: keyof typeof bundledPolicies | undefined;
+  readonly policyFile: string | undefined;
   readonly output: string | undefined;
   readonly engine: 'rules' | 'ollama';
   readonly engineSpecified: boolean;
@@ -71,8 +73,8 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure>] [--json]
+  pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
   pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
@@ -85,7 +87,9 @@ Experimental Ollama options:
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
+const cliScanReportV2SchemaId = 'https://local-pii.dev/schemas/cli/scan-report/2.0.0';
 const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/2.0.0';
+const cliRedactReportV3SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/3.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const stageRecoveryReportSchemaId = 'https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
@@ -96,6 +100,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   const positional: string[] = [];
   let output: string | undefined;
   let selectedPolicy: keyof typeof bundledPolicies | undefined;
+  let policyFile: string | undefined;
   let engine: 'rules' | 'ollama' = 'rules';
   let engineSpecified = false;
   let model: string | undefined;
@@ -121,12 +126,16 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (value === '--allow-experimental') allowExperimental = true;
     else if (value === '--apply') apply = true;
     else if (value === '--policy') {
-      if (selectedPolicy !== undefined) throw new Error('duplicate policy');
+      if (selectedPolicy !== undefined || policyFile !== undefined) throw new Error('duplicate policy');
       const selected = valueAfter(index, '--policy');
       if (selected !== 'development-labels' && selected !== 'high-risk-disclosure') {
         throw new Error('unknown policy');
       }
       selectedPolicy = selected;
+      index += 1;
+    } else if (value === '--policy-file') {
+      if (selectedPolicy !== undefined || policyFile !== undefined) throw new Error('duplicate policy');
+      policyFile = valueAfter(index, '--policy-file');
       index += 1;
     }
     else if (value === '--output' || value === '-o') {
@@ -161,6 +170,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     input: positional[1],
     policyName: positional[2],
     selectedPolicy,
+    policyFile,
     output,
     engine,
     engineSpecified,
@@ -177,11 +187,16 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
 function writeResult(io: CliIo, json: boolean, value: object, human: string): void {
   const operation = (value as Readonly<{ readonly operation?: unknown }>).operation;
-  assertContract(operation === 'REDACT'
-    ? cliRedactReportV2SchemaId
-    : operation === 'STAGE_RECOVERY'
-      ? stageRecoveryReportSchemaId
-      : cliReportSchemaId, value);
+  const schemaVersion = (value as Readonly<{ readonly schemaVersion?: unknown }>).schemaVersion;
+  let schemaId = cliReportSchemaId;
+  if (operation === 'REDACT') {
+    schemaId = schemaVersion === '3.0.0' ? cliRedactReportV3SchemaId : cliRedactReportV2SchemaId;
+  } else if (operation === 'SCAN' && schemaVersion === '2.0.0') {
+    schemaId = cliScanReportV2SchemaId;
+  } else if (operation === 'STAGE_RECOVERY') {
+    schemaId = stageRecoveryReportSchemaId;
+  }
+  assertContract(schemaId, value);
   io.stdout(json ? `${JSON.stringify(value, null, 2)}\n` : `${human}\n`);
 }
 
@@ -191,13 +206,13 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
   return counts;
 }
 
-function policySummary(policy: EffectivePolicy) {
+function policySummary(policy: EffectivePolicy, example = true) {
   return {
     id: policy.id,
     version: policy.version,
     digest: policy.digest,
     riskTier: policy.riskTier,
-    example: true as const
+    example
   };
 }
 
@@ -207,8 +222,30 @@ function compiledBundledPolicies(): readonly EffectivePolicy[] {
   );
 }
 
+const maximumPolicyFileBytes = 256 * 1024;
+
+async function loadPolicyFile(path: string, signal?: AbortSignal): Promise<EffectivePolicy> {
+  try {
+    signal?.throwIfAborted();
+    const artifact = await readLocalUtf8Artifact(resolve(path), maximumPolicyFileBytes);
+    signal?.throwIfAborted();
+    const value: unknown = JSON.parse(artifact.text);
+    const policy = compilePolicy(value);
+    signal?.throwIfAborted();
+    return policy;
+  } catch (error: unknown) {
+    if (signal?.aborted === true) throw error;
+    throw new SafeError({
+      code: 'SCHEMA_INVALID',
+      message: 'The external policy file is invalid or unavailable.',
+      retryable: false,
+      correlationId: 'cor_cli_policy_file'
+    });
+  }
+}
+
 function runPolicyList(json: boolean, io: CliIo): number {
-  const policies = compiledBundledPolicies().map(policySummary);
+  const policies = compiledBundledPolicies().map((policy) => policySummary(policy));
   const report = { schemaVersion: '1.0.0', operation: 'POLICY_LIST', policies };
   assertContract(policyReportSchemaId, report);
   io.stdout(json
@@ -291,10 +328,18 @@ function localFormat(input: string): LocalFormat {
   return 'text';
 }
 
-function localSession(input: string, output?: string, maximumInputBytes?: number) {
+function localSession(
+  input: string,
+  output?: string,
+  maximumInputBytes?: number,
+  policy?: EffectivePolicy
+) {
   const format = localFormat(input);
   if (format === 'json') return createLocalJsonArtifactSession(input, output, maximumInputBytes);
-  if (format === 'csv') return createLocalCsvArtifactSession(input, output, maximumInputBytes);
+  if (format === 'csv') return createLocalCsvArtifactSession(input, output, maximumInputBytes, {
+    delimiter: policy?.structure.csv.delimiter ?? 'AUTO',
+    header: policy?.structure.csv.header ?? 'NONE'
+  });
   if (format === 'docx') return createLocalDocxArtifactSession(
     input,
     output,
@@ -321,24 +366,45 @@ function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'R
   return textCapabilityRequirement(operation, engine);
 }
 
+function scanCapabilityRequirement(
+  input: string,
+  engine: 'rules' | 'ollama',
+  policy: EffectivePolicy | undefined
+) {
+  const requirement = capabilityRequirement(input, 'SCAN', engine);
+  if (policy === undefined) return requirement;
+  return {
+    ...requirement,
+    detectorIds: [...new Set([...requirement.detectorIds, ...policy.requirements.detectorIds])],
+    detectorKinds: [...new Set([...requirement.detectorKinds, ...policy.requirements.detectorKinds])],
+    maximumInputBytes: policy.requirements.maximumInputBytes,
+    minimumQualification: policy.riskTier === 'HIGH' ? 'QUALIFIED' as const : requirement.minimumQualification
+  };
+}
+
 async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal?: AbortSignal): Promise<number> {
-  const requirement = capabilityRequirement(input, 'SCAN', parsed.engine);
+  const policy = parsed.policyFile === undefined
+    ? undefined
+    : await loadPolicyFile(parsed.policyFile, signal);
+  const requirement = scanCapabilityRequirement(input, parsed.engine, policy);
   const selected = await selectedApplication(parsed, signal);
   const maximumInputBytes = parsed.engine === 'ollama'
     ? ollamaExperimentalDefaultLimits.maximumInputBytes
-    : undefined;
+    : policy?.limits.maximumInputBytes;
   const result = await selected.scan({
-    session: localSession(input, undefined, maximumInputBytes),
+    session: localSession(input, undefined, maximumInputBytes, policy),
     requirement,
+    ...(policy === undefined ? {} : { policy }),
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_scan' });
   const { artifact, resolution } = result;
   const report = {
-    schemaVersion: '1.0.0',
+    schemaVersion: policy === undefined ? '1.0.0' : '2.0.0',
     operation: 'SCAN',
     outcome: result.outcome,
     input: { displayName: artifact.displayName, mediaType: artifact.mediaType, byteLength: artifact.byteLength, digest: artifact.digest },
     detectorBundleVersion: result.detectorBundleVersion,
+    ...(policy === undefined ? {} : { policy: policySummary(policy, false) }),
     counts: { detections: resolution.spans.length, conflicts: resolution.conflicts.length, byEntity: entityCounts(resolution.spans.map((span) => span.entityType)) },
     detections: resolution.spans.map((span) => ({ id: span.id, entityType: span.entityType, start: span.start, end: span.end, confidence: span.confidence, evidenceIds: span.evidenceIds })),
     conflicts: resolution.conflicts
@@ -375,6 +441,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
     const commonOptionsValid = !parsed.engineSpecified
       && parsed.output === undefined
       && parsed.selectedPolicy === undefined
+      && parsed.policyFile === undefined
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
@@ -392,6 +459,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.policyName === undefined
       && parsed.output !== undefined
       && parsed.selectedPolicy === undefined
+      && parsed.policyFile === undefined
       && !parsed.engineSpecified
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
@@ -401,10 +469,16 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && !parsed.license;
   }
   if (!validEngineSelection(parsed)) return false;
+  if (parsed.policyFile !== undefined && parsed.engine !== 'rules') return false;
+  if (
+    parsed.policyFile !== undefined
+    && (parsed.input === undefined || !['json', 'csv'].includes(localFormat(parsed.input)))
+  ) return false;
   if (parsed.apply) return false;
   if (parsed.command === 'redact' && parsed.output === undefined) return false;
   if (parsed.output !== undefined && parsed.command !== 'redact') return false;
   if (parsed.selectedPolicy !== undefined && parsed.command !== 'redact') return false;
+  if (parsed.policyFile !== undefined && parsed.command !== 'scan' && parsed.command !== 'redact') return false;
   if (parsed.policyName !== undefined) return false;
   return true;
 }
@@ -447,20 +521,23 @@ async function runRedact(
   input: string,
   output: string | undefined,
   policyName: keyof typeof bundledPolicies | undefined,
+  policyFile: string | undefined,
   json: boolean,
   io: CliIo,
   signal?: AbortSignal
 ): Promise<number> {
-  const policy = compilePolicy(bundledPolicies[policyName ?? 'development-labels']);
+  const policy = policyFile === undefined
+    ? compilePolicy(bundledPolicies[policyName ?? 'development-labels'])
+    : await loadPolicyFile(policyFile, signal);
   const result = await localFileApplication.redact({
-    session: localSession(input, output, policy.limits.maximumInputBytes),
+    session: localSession(input, output, policy.limits.maximumInputBytes, policy),
     requirement: capabilityRequirement(input, 'REDACT'),
     policy,
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_redact' });
   const report = {
-    schemaVersion: '2.0.0', operation: 'REDACT', outcome: 'VERIFIED',
-    policy: policySummary(policy),
+    schemaVersion: policyFile === undefined ? '2.0.0' : '3.0.0', operation: 'REDACT', outcome: 'VERIFIED',
+    policy: policySummary(policy, policyFile === undefined),
     input: { digest: result.input.digest, byteLength: result.input.byteLength },
     output: { digest: result.published.digest, byteLength: result.published.byteLength },
     plan: {
@@ -645,7 +722,15 @@ export async function executeCli(
     }
     if (parsed.command === 'scan') return await runScan(parsed.input, parsed, io, signal);
     if (parsed.command === 'redact') {
-      return await runRedact(parsed.input, parsed.output, parsed.selectedPolicy, parsed.json, io, signal);
+      return await runRedact(
+        parsed.input,
+        parsed.output,
+        parsed.selectedPolicy,
+        parsed.policyFile,
+        parsed.json,
+        io,
+        signal
+      );
     }
     if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io, signal);
     return await runInspect(parsed.input, parsed.json, io, signal);

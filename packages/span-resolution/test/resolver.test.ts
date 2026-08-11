@@ -41,7 +41,7 @@ describe('span resolution', () => {
     })), revision, unicodeCodePointLength(text));
     const changedDetector = resolveEvidence(evidence.map((item) => ({
       ...item,
-      detector: { ...item.detector, version: '0.2.0' }
+      detector: { ...item.detector, version: '9.9.9' }
     })), revision, unicodeCodePointLength(text));
 
     expect(changedConfidence.digest).not.toBe(original.digest);
