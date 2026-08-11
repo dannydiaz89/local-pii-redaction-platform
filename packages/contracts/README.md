@@ -19,6 +19,8 @@ Canonical, language-neutral data contracts for every process and package boundar
   explicit CSV delimiter/header behavior, and exact CSV index/header classification.
 - Adds policy-bound CLI scan-report v2 and redaction-report v3 contracts without loosening the
   existing scan v1 or bundled-policy redaction v2 report schemas.
+- Retains batch-scan-report v1 and adds append-only v2 so an explicit `REQUIRE_COMPLETE` or
+  `ALLOW_PARTIAL` completion policy is machine-visible without breaking existing report consumers.
 - Defines v4 reviewed-redaction admission and v2 redaction-plan contracts that bind an exact scan,
   append-only review revision/digest, effective value-free decisions, policy, and writer provenance.
 

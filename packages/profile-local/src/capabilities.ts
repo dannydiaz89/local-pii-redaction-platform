@@ -82,7 +82,7 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
     id: 'local-rules-files',
-    version: '0.5.0',
+    version: '0.6.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
     formats: [textFormat, jsonFormat, csvFormat, docxFormat],

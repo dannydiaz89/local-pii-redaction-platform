@@ -2,7 +2,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 
 import { schemaCatalog } from './generated/schema-catalog.js';
 import { isCanonicalUuid, isRfc3339DateTime } from './formats.js';
-import { batchScanReportSchemaId, batchScanReportSemanticErrors } from './batch-scan-report.js';
+import { batchScanReportSchemaIds, batchScanReportSemanticErrors } from './batch-scan-report.js';
 
 export interface ContractValidationResult {
   readonly valid: boolean;
@@ -29,7 +29,7 @@ export function validateContract(schemaId: string, value: unknown): ContractVali
 
   const valid = validator(value);
   const schemaErrors = validator.errors ?? [];
-  if (!valid || schemaId !== batchScanReportSchemaId) return { valid, errors: schemaErrors };
+  if (!valid || !batchScanReportSchemaIds.has(schemaId)) return { valid, errors: schemaErrors };
   const semanticErrors = batchScanReportSemanticErrors(
     value as Parameters<typeof batchScanReportSemanticErrors>[0]
   );

@@ -91,6 +91,18 @@ pnpm --silent pii-redact cleanup-stages \
   --output ./test-output/sample.redacted.txt --json
 ```
 
+Batch automation that explicitly accepts a mixed result can add `--allow-partial`. Its JSON outcome
+remains `PARTIAL` with aggregate failure-code counts even when the command returns zero. The option
+never converts an all-failed batch or a completed result requiring review into success. The
+canonical report records `completionPolicy` as `REQUIRE_COMPLETE` or `ALLOW_PARTIAL` so downstream
+consumers do not have to infer the invocation policy from an exit status:
+
+```sh
+pnpm --silent pii-redact batch scan ./sample-data/input --allow-partial --json \
+  > ./test-output/batch.scan-report.json
+node -e 'const fs = require("node:fs"); const report = JSON.parse(fs.readFileSync("./test-output/batch.scan-report.json", "utf8")); console.log(report.completionPolicy, report.outcome, report.manifest.failedFileCount)'
+```
+
 The tracked `test-output/` directory is a local workspace for generated artifacts and JSON reports;
 everything inside it except its `.gitignore` is ignored by Git. Delete or rename an existing output
 before rerunning a command because the CLI intentionally never overwrites output files.
@@ -321,7 +333,10 @@ header/footer references, and ordinary note IDs must form a closed graph. It rej
 external or embedded relationships, metadata, comments, drawings/`AlternateContent`, text boxes,
 fields, revisions, hidden text, custom XML, unknown parts, and unsafe or inconsistent ZIP structures
 instead of silently skipping them. Privacy-safe unsupported errors expose only a closed reason
-category. Its `docx-extract-v1` evidence attests bounded ZIP structure, the feature allowlist, and
+category. One exact standard Office theme profile and an exact empty web-settings profile are
+accepted as validated passive structure; settings, fonts, custom XML, styles, numbering, and
+document properties remain blocked. XML input and internal replacement strings must satisfy the
+XML 1.0 character repertoire. Its `docx-extract-v1` evidence attests bounded ZIP structure, the feature allowlist, and
 native paragraph mapping only. DOCX redaction and
 standalone verification are not exposed: native leakage verification, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
@@ -379,7 +394,8 @@ The current CLI does not yet expose model-bundle import or arbitrary runtime tax
 returns the canonical `OPERATION_CANCELLED` error without publishing an unverified output. Signal
 exit codes are `130` for `SIGINT` and `143` for `SIGTERM`.
 
-Other exit codes are `0` for success, `2` for usage, `3` for processing or incomplete recovery,
+Other exit codes are `0` for complete success or an explicitly accepted conflict-free partial batch,
+`2` for usage, `3` for processing or incomplete recovery,
 `4` for failed verification, `5` for unresolved scan conflicts or policy review, and `6` for
 output collisions.
 
@@ -395,8 +411,11 @@ output collisions.
   with an 8,192-code-unit relative-path limit and a 100-million-state-step traversal budget. Its
   canonical manifest contains aggregate counts and fixed error-code counts only: no paths,
   filenames, patterns, content digests, native locations, or values. Per-file safe failures produce
-  a nonzero partial/failed manifest. Recursive redaction, output mapping, resume, and Ollama batch
-  processing remain unavailable. Complete mediation of a hostile process concurrently replacing
+  a nonzero partial/failed manifest by default. Explicit `--allow-partial` changes only a mixed,
+  conflict-free partial result to exit success; the manifest remains `PARTIAL`, and an all-failed
+  manifest remains nonzero. The report always records the selected completion policy. Recursive
+  redaction, output mapping, resume, and Ollama batch processing
+  remain unavailable. Complete mediation of a hostile process concurrently replacing
   parent-directory entries requires a future dirfd/openat-style traversal boundary.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.

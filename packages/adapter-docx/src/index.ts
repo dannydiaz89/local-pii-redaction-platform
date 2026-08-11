@@ -16,12 +16,12 @@ import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from 
 import { SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.2.0';
+export const docxAdapterVersion = '0.3.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:5efee6da6c683e2e587d043ddb6689f4e639159a4be794a62e7321636c53dbcd')
+  digest: parseSha256Digest('sha256:3970e0046133d3605f4caa257e9d0b5fcf5d322715637d06f13d1d1ac1c83617')
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',
@@ -35,6 +35,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'visible-document-paragraphs-and-tables', status: 'SUPPORTED' },
     { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
     { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
+    { id: 'strict-passive-theme-and-empty-web-settings-parts', status: 'SUPPORTED' },
     { id: 'fragmented-run-source-map', status: 'SUPPORTED' },
     { id: 'unicode-code-point-offsets', status: 'SUPPORTED' },
     { id: 'native-reopen', status: 'SUPPORTED' },
@@ -358,6 +359,18 @@ interface XmlElement {
   readonly selfClosing: boolean;
 }
 
+function isXml10CodePoint(codePoint: number): boolean {
+  return codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd
+    || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+    || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+    || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+}
+
+function isXml10String(value: string): boolean {
+  for (const character of value) if (!isXml10CodePoint(character.codePointAt(0) ?? 0)) return false;
+  return true;
+}
+
 function decodeXml(value: string): string {
   if (/&(?!(?:amp|lt|gt|quot|apos|#x[0-9A-Fa-f]+|#[0-9]+);)/u.test(value)) formatCorrupt();
   return value.replace(/&(?:amp|lt|gt|quot|apos|#x[0-9A-Fa-f]+|#[0-9]+);/gu, (entity) => {
@@ -369,7 +382,7 @@ function decodeXml(value: string): string {
     const codePoint = entity.startsWith('&#x')
       ? Number.parseInt(entity.slice(3, -1), 16)
       : Number.parseInt(entity.slice(2, -1), 10);
-    if (!Number.isSafeInteger(codePoint) || codePoint <= 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) formatCorrupt();
+    if (!Number.isSafeInteger(codePoint) || !isXml10CodePoint(codePoint)) formatCorrupt();
     return String.fromCodePoint(codePoint);
   });
 }
@@ -402,7 +415,7 @@ function parseAttributes(source: string): Readonly<Record<string, string>> {
 }
 
 function scanXml(xml: string): readonly XmlElement[] {
-  if (xml.includes('\u0000') || /<!DOCTYPE|<!ENTITY|<!\[CDATA\[/iu.test(xml)) formatCorrupt();
+  if (!isXml10String(xml) || /<!DOCTYPE|<!ENTITY|<!\[CDATA\[/iu.test(xml)) formatCorrupt();
   const elements: XmlElement[] = [];
   const stack: string[] = [];
   let cursor = 0;
@@ -753,7 +766,7 @@ function assembleTextParts(parts: readonly ParsedTextPartRaw[]): ParsedDocxPacka
   const parsedParts: ParsedTextPart[] = [];
   const segments: SegmentRegion[] = [];
   let canonicalLength = 0;
-  const hash = createHash('sha256').update('local-pii:docx-extraction:v2\u0000', 'utf8');
+  const hash = createHash('sha256').update('local-pii:docx-extraction:v3\u0000', 'utf8');
   for (const part of parts) {
     const partSegments: SegmentRegion[] = [];
     hash.update(`PART:${part.descriptor.name}\u0000`, 'utf8');
@@ -801,12 +814,198 @@ function elementsByName(xml: string, expectedRoot: string): readonly XmlElement[
   return elements;
 }
 
+interface PassiveElementRule {
+  readonly parents: readonly (string | undefined)[];
+  readonly attributes: readonly string[];
+  readonly requiredAttributes?: readonly string[];
+}
+
+interface PassivePartProfile {
+  readonly root: string;
+  readonly namespaces: Readonly<Record<string, string>>;
+  readonly elements: Readonly<Record<string, PassiveElementRule>>;
+  readonly maximumCounts?: Readonly<Record<string, number>>;
+  readonly requiredCounts?: Readonly<Record<string, number>>;
+}
+
+const wordPassiveNamespaces = Object.freeze({
+  mc: 'http://schemas.openxmlformats.org/markup-compatibility/2006',
+  m: 'http://schemas.openxmlformats.org/officeDocument/2006/math',
+  r: officeRelationshipNamespace,
+  sl: 'http://schemas.openxmlformats.org/schemaLibrary/2006/main',
+  o: 'urn:schemas-microsoft-com:office:office',
+  v: 'urn:schemas-microsoft-com:vml',
+  w10: 'urn:schemas-microsoft-com:office:word',
+  w: wordNamespace,
+  w14: 'http://schemas.microsoft.com/office/word/2010/wordml',
+  w15: 'http://schemas.microsoft.com/office/word/2012/wordml',
+  w16cex: 'http://schemas.microsoft.com/office/word/2018/wordml/cex',
+  w16cid: 'http://schemas.microsoft.com/office/word/2016/wordml/cid',
+  w16: 'http://schemas.microsoft.com/office/word/2018/wordml',
+  w16sdtdh: 'http://schemas.microsoft.com/office/word/2020/wordml/sdtdatahash',
+  w16sdtfl: 'http://schemas.microsoft.com/office/word/2024/wordml/sdtformatlock',
+  w16se: 'http://schemas.microsoft.com/office/word/2015/wordml/symex',
+  w16du: 'http://schemas.microsoft.com/office/word/2023/wordml/word16du'
+});
+
+const wordCompatibilityNamespaces = Object.freeze(Object.fromEntries(
+  ['mc', 'r', 'w', 'w14', 'w15', 'w16cex', 'w16cid', 'w16', 'w16sdtdh', 'w16sdtfl', 'w16se', 'w16du']
+    .map((prefix) => [prefix, wordPassiveNamespaces[prefix as keyof typeof wordPassiveNamespaces]])
+));
+
+const themeElements: Readonly<Record<string, PassiveElementRule>> = Object.freeze({
+  'a:theme': { parents: [undefined], attributes: ['name'] },
+  'a:themeElements': { parents: ['a:theme'], attributes: [] },
+  'a:clrScheme': { parents: ['a:themeElements'], attributes: ['name'] },
+  ...Object.fromEntries(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'].map((name) => [`a:${name}`, { parents: ['a:clrScheme'], attributes: [] }])),
+  'a:srgbClr': { parents: ['a:dk1', 'a:lt1', 'a:dk2', 'a:lt2', 'a:accent1', 'a:accent2', 'a:accent3', 'a:accent4', 'a:accent5', 'a:accent6', 'a:hlink', 'a:folHlink'], attributes: ['val'] },
+  'a:fontScheme': { parents: ['a:themeElements'], attributes: ['name'] },
+  'a:majorFont': { parents: ['a:fontScheme'], attributes: [] },
+  'a:minorFont': { parents: ['a:fontScheme'], attributes: [] },
+  'a:latin': { parents: ['a:majorFont', 'a:minorFont'], attributes: ['typeface', 'panose'] },
+  'a:ea': { parents: ['a:majorFont', 'a:minorFont'], attributes: ['typeface'] },
+  'a:cs': { parents: ['a:majorFont', 'a:minorFont'], attributes: ['typeface'] },
+  'a:fmtScheme': { parents: ['a:themeElements'], attributes: [] },
+  'a:fillStyleLst': { parents: ['a:fmtScheme'], attributes: [] },
+  'a:bgFillStyleLst': { parents: ['a:fmtScheme'], attributes: [] },
+  'a:solidFill': { parents: ['a:fillStyleLst', 'a:bgFillStyleLst'], attributes: [] },
+  'a:gradFill': { parents: ['a:fillStyleLst', 'a:bgFillStyleLst'], attributes: [] },
+  'a:gsLst': { parents: ['a:gradFill'], attributes: [] },
+  'a:gs': { parents: ['a:gsLst'], attributes: ['pos'] },
+  'a:schemeClr': { parents: ['a:gs', 'a:solidFill'], attributes: ['val'] },
+  'a:tint': { parents: ['a:schemeClr'], attributes: ['val'] },
+  'a:shade': { parents: ['a:schemeClr'], attributes: ['val'] },
+  'a:lumMod': { parents: ['a:schemeClr'], attributes: ['val'] },
+  'a:lin': { parents: ['a:gradFill'], attributes: ['ang', 'scaled'] },
+  'a:tileRect': { parents: ['a:gradFill'], attributes: [] },
+  'a:lnStyleLst': { parents: ['a:fmtScheme'], attributes: [] },
+  'a:ln': { parents: ['a:lnStyleLst'], attributes: ['w', 'cap', 'cmpd', 'algn'] },
+  'a:prstDash': { parents: ['a:ln'], attributes: ['val'] },
+  'a:miter': { parents: ['a:ln'], attributes: ['lim'] },
+  'a:effectStyleLst': { parents: ['a:fmtScheme'], attributes: [] },
+  'a:effectStyle': { parents: ['a:effectStyleLst'], attributes: [] },
+  'a:effectLst': { parents: ['a:effectStyle'], attributes: [] },
+  'a:objectDefaults': { parents: ['a:theme'], attributes: [] },
+  'a:extraClrSchemeLst': { parents: ['a:theme'], attributes: [] }
+});
+
+const themeRequiredCounts = Object.freeze({
+  'a:theme': 1, 'a:themeElements': 1, 'a:clrScheme': 1,
+  'a:dk1': 1, 'a:lt1': 1, 'a:dk2': 1, 'a:lt2': 1,
+  'a:accent1': 1, 'a:accent2': 1, 'a:accent3': 1, 'a:accent4': 1, 'a:accent5': 1, 'a:accent6': 1,
+  'a:hlink': 1, 'a:folHlink': 1, 'a:srgbClr': 12,
+  'a:fontScheme': 1, 'a:majorFont': 1, 'a:minorFont': 1, 'a:latin': 2, 'a:ea': 2, 'a:cs': 2,
+  'a:fmtScheme': 1, 'a:fillStyleLst': 1, 'a:bgFillStyleLst': 1, 'a:solidFill': 3,
+  'a:gradFill': 3, 'a:gsLst': 3, 'a:gs': 9, 'a:schemeClr': 12, 'a:tint': 7,
+  'a:shade': 5, 'a:lumMod': 8, 'a:lin': 3, 'a:tileRect': 3,
+  'a:lnStyleLst': 1, 'a:ln': 3, 'a:prstDash': 3, 'a:miter': 3,
+  'a:effectStyleLst': 1, 'a:effectStyle': 3, 'a:effectLst': 3,
+  'a:objectDefaults': 1, 'a:extraClrSchemeLst': 1
+});
+
+const passivePartProfiles: Readonly<Record<string, PassivePartProfile>> = Object.freeze({
+  'word/webSettings.xml': {
+    root: 'w:webSettings', namespaces: wordCompatibilityNamespaces,
+    elements: { 'w:webSettings': { parents: [undefined], attributes: ['mc:Ignorable'] } },
+    requiredCounts: { 'w:webSettings': 1 }, maximumCounts: { 'w:webSettings': 1 }
+  },
+  'word/theme/theme1.xml': {
+    root: 'a:theme', namespaces: { a: 'http://schemas.openxmlformats.org/drawingml/2006/main' }, elements: themeElements,
+    requiredCounts: themeRequiredCounts, maximumCounts: themeRequiredCounts
+  },
+});
+
+const safeThemeNames = new Set(['Office', 'Office Theme']);
+const safeTypefaceNames = new Set([
+  '', 'Arial', 'Arial Black', 'Aptos', 'Aptos Display', 'Aptos Narrow', 'Calibri', 'Calibri Light',
+  'Cambria', 'Courier New', 'Georgia', 'MS Mincho', 'Symbol', 'Tahoma', 'Times New Roman',
+  'Trebuchet MS', 'Verdana', 'Wingdings'
+]);
+const safeSchemeColors = new Set(['accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'bg1', 'bg2', 'dk1', 'dk2', 'folHlink', 'hlink', 'lt1', 'lt2', 'phClr', 'tx1', 'tx2']);
+
+function passiveAttributeValueAllowed(part: string, element: string, name: string, value: string, namespaces: ReadonlyMap<string, string>): boolean {
+  if (name === 'mc:Ignorable') {
+    const tokens = value.split(' ');
+    return tokens.length > 0 && new Set(tokens).size === tokens.length
+      && tokens.every((token) => token.length > 0 && token !== 'mc' && token !== 'r' && token !== 'w' && namespaces.has(token));
+  }
+  if (part !== 'word/theme/theme1.xml') return false;
+  if (name === 'name') return safeThemeNames.has(value);
+  if (name === 'typeface') return safeTypefaceNames.has(value);
+  if (name === 'panose') return /^[0-9A-Fa-f]{20}$/u.test(value);
+  if (name === 'val') {
+    if (element === 'a:srgbClr') return /^[0-9A-Fa-f]{6}$/u.test(value);
+    if (element === 'a:schemeClr') return safeSchemeColors.has(value);
+    if (element === 'a:prstDash') return ['solid', 'dash', 'dot', 'dashDot', 'lgDash', 'lgDashDot', 'lgDashDotDot', 'sysDash', 'sysDot'].includes(value);
+    return /^(?:0|[1-9][0-9]{0,5})$/u.test(value);
+  }
+  if (name === 'scaled') return value === '0' || value === '1' || value === 'false' || value === 'true';
+  if (name === 'cap') return value === 'flat' || value === 'rnd' || value === 'sq';
+  if (name === 'cmpd') return ['sng', 'dbl', 'thickThin', 'thinThick', 'tri'].includes(value);
+  if (name === 'algn') return value === 'ctr' || value === 'in';
+  return /^(?:0|[1-9][0-9]{0,8})$/u.test(value);
+}
+
+function validatePassivePart(entry: ZipEntry, profile: PassivePartProfile): void {
+  const elements = scanXml(decodeUtf8Xml(entry.contents));
+  const root = elements.find((element) => !element.closing);
+  if (root?.name !== profile.root) formatCorrupt();
+  const declaredNamespaces = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const element of elements) {
+    const rule = profile.elements[element.name];
+    if (rule === undefined || (!element.closing && !rule.parents.includes(element.parent))) featureUnsupported('metadata_part');
+    if (element.closing) continue;
+    counts.set(element.name, (counts.get(element.name) ?? 0) + 1);
+    const ordinaryAttributes: string[] = [];
+    for (const [name, value] of Object.entries(element.attributes)) {
+      if (name === 'xmlns' || name.startsWith('xmlns:')) {
+        if (element !== root) featureUnsupported('metadata_part');
+        const prefix = name === 'xmlns' ? '' : name.slice('xmlns:'.length);
+        if (profile.namespaces[prefix] !== value || declaredNamespaces.has(prefix)) featureUnsupported('metadata_part');
+        declaredNamespaces.set(prefix, value);
+      } else {
+        ordinaryAttributes.push(name);
+        if (!rule.attributes.includes(name) || unicodeCodePointLength(value) > 512) featureUnsupported('metadata_part');
+      }
+    }
+    const required = rule.requiredAttributes ?? rule.attributes;
+    if (required.some((name) => !ordinaryAttributes.includes(name))) featureUnsupported('metadata_part');
+  }
+  for (const [prefix, uri] of Object.entries(profile.namespaces)) {
+    if (declaredNamespaces.get(prefix) !== uri) featureUnsupported('metadata_part');
+  }
+  for (const element of elements) {
+    if (element.closing) continue;
+    for (const [name, value] of Object.entries(element.attributes)) {
+      if (name !== 'xmlns' && !name.startsWith('xmlns:') && !passiveAttributeValueAllowed(entry.name, element.name, name, value, declaredNamespaces)) {
+        featureUnsupported('metadata_part');
+      }
+    }
+  }
+  for (const [name, count] of Object.entries(profile.requiredCounts ?? {})) if (counts.get(name) !== count) featureUnsupported('metadata_part');
+  for (const [name, count] of counts) if (count > (profile.maximumCounts?.[name] ?? 1)) featureUnsupported('metadata_part');
+  if (entry.name === 'word/theme/theme1.xml') {
+    const children = (parent: string) => elements.filter((element) => !element.closing && element.parent === parent).map((element) => element.name);
+    if (children('a:theme').join('\u0000') !== ['a:themeElements', 'a:objectDefaults', 'a:extraClrSchemeLst'].join('\u0000')) featureUnsupported('metadata_part');
+    if (children('a:themeElements').join('\u0000') !== ['a:clrScheme', 'a:fontScheme', 'a:fmtScheme'].join('\u0000')) featureUnsupported('metadata_part');
+    if (children('a:clrScheme').join('\u0000') !== ['a:dk1', 'a:lt1', 'a:dk2', 'a:lt2', 'a:accent1', 'a:accent2', 'a:accent3', 'a:accent4', 'a:accent5', 'a:accent6', 'a:hlink', 'a:folHlink'].join('\u0000')) featureUnsupported('metadata_part');
+    if (children('a:fontScheme').join('\u0000') !== ['a:majorFont', 'a:minorFont'].join('\u0000')) featureUnsupported('metadata_part');
+    if (children('a:fmtScheme').join('\u0000') !== ['a:fillStyleLst', 'a:lnStyleLst', 'a:effectStyleLst', 'a:bgFillStyleLst'].join('\u0000')) featureUnsupported('metadata_part');
+  }
+}
+
 const supportedPartPattern = /^word\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml$/u;
 const relationshipKinds: Readonly<Record<string, { readonly root: TextPartDescriptor['root']; readonly contentType: string; readonly target: RegExp }>> = Object.freeze({
   header: { root: 'w:hdr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml', target: /^header[1-9][0-9]{0,5}\.xml$/u },
   footer: { root: 'w:ftr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml', target: /^footer[1-9][0-9]{0,5}\.xml$/u },
   footnotes: { root: 'w:footnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml', target: /^footnotes\.xml$/u },
   endnotes: { root: 'w:endnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml', target: /^endnotes\.xml$/u }
+});
+
+const passiveRelationshipKinds: Readonly<Record<string, { readonly target: string; readonly part: string; readonly contentType: string }>> = Object.freeze({
+  theme: { target: 'theme/theme1.xml', part: 'word/theme/theme1.xml', contentType: 'application/vnd.openxmlformats-officedocument.theme+xml' },
+  webSettings: { target: 'webSettings.xml', part: 'word/webSettings.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml' },
 });
 
 function unsupportedEntryReason(name: string): UnsupportedFeatureReason {
@@ -830,7 +1029,9 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
   const byName = new Map(entries.map((entry) => [entry.name, entry]));
   const fixed = new Set(['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/_rels/document.xml.rels']);
   for (const entry of entries) {
-    if (!fixed.has(entry.name) && !supportedPartPattern.test(entry.name)) featureUnsupported(unsupportedEntryReason(entry.name));
+    if (!fixed.has(entry.name) && !supportedPartPattern.test(entry.name) && passivePartProfiles[entry.name] === undefined) {
+      featureUnsupported(unsupportedEntryReason(entry.name));
+    }
   }
   const contentTypesEntry = byName.get('[Content_Types].xml');
   const rootRelsEntry = byName.get('_rels/.rels');
@@ -858,7 +1059,11 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
       const partName = element.attributes.PartName;
       if (Object.keys(element.attributes).length !== 2 || partName === undefined || !partName.startsWith('/') || declaredTypes.has(partName.slice(1))) formatCorrupt();
       const normalized = partName.slice(1);
-      if (normalized !== 'word/document.xml' && !supportedPartPattern.test(normalized)) featureUnsupported(unsupportedEntryReason(normalized));
+      if (
+        normalized !== 'word/document.xml'
+        && !supportedPartPattern.test(normalized)
+        && passivePartProfiles[normalized] === undefined
+      ) featureUnsupported(unsupportedEntryReason(normalized));
       declaredTypes.set(normalized, contentType);
     }
   }
@@ -883,6 +1088,7 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
   if (!officeDocumentFound) formatCorrupt();
 
   const relatedParts = new Map<string, { readonly id: string; readonly kind: string }>();
+  const relatedPassiveParts = new Map<string, { readonly id: string; readonly kind: string }>();
   const relationshipIds = new Set<string>();
   const documentRels = byName.get('word/_rels/document.xml.rels');
   if (documentRels !== undefined) {
@@ -899,11 +1105,19 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
       const type = element.attributes.Type;
       const target = element.attributes.Target;
       const kind = type?.startsWith(officeRelationshipPrefix) === true ? type.slice(officeRelationshipPrefix.length) : undefined;
-      if (kind === undefined || relationshipKinds[kind] === undefined || target === undefined || !relationshipKinds[kind].target.test(target)) featureUnsupported('unknown_feature');
-      const part = `word/${target}`;
-      if (!byName.has(part) || relatedParts.has(part) || relationshipIds.has(element.attributes.Id ?? '')) formatCorrupt();
+      if (kind === undefined || target === undefined) featureUnsupported('unknown_feature');
+      const textRelationship = relationshipKinds[kind];
+      const passiveRelationship = passiveRelationshipKinds[kind];
+      if (textRelationship === undefined && passiveRelationship === undefined) featureUnsupported(unsupportedEntryReason(`word/${target}`));
+      const part = passiveRelationship?.part ?? `word/${target}`;
+      if (
+        !byName.has(part)
+        || relationshipIds.has(element.attributes.Id ?? '')
+        || (textRelationship !== undefined && (!textRelationship.target.test(target) || relatedParts.has(part)))
+        || (passiveRelationship !== undefined && (passiveRelationship.target !== target || relatedPassiveParts.has(part)))
+      ) formatCorrupt();
       relationshipIds.add(element.attributes.Id ?? '');
-      relatedParts.set(part, { id: element.attributes.Id ?? '', kind });
+      (textRelationship === undefined ? relatedPassiveParts : relatedParts).set(part, { id: element.attributes.Id ?? '', kind });
     }
   }
   for (const part of byName.keys()) {
@@ -913,7 +1127,23 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
     const expected = relationshipKinds[relationship.kind]?.contentType;
     if (declaredTypes.get(part) !== expected) formatCorrupt();
   }
-  for (const part of declaredTypes.keys()) if (part !== 'word/document.xml' && !relatedParts.has(part)) formatCorrupt();
+  for (const [part, relationship] of relatedPassiveParts) {
+    const expected = passiveRelationshipKinds[relationship.kind]?.contentType;
+    if (expected !== 'application/xml' && declaredTypes.get(part) !== expected) formatCorrupt();
+  }
+  for (const part of declaredTypes.keys()) {
+    if (
+      part !== 'word/document.xml'
+      && !relatedParts.has(part)
+      && !relatedPassiveParts.has(part)
+    ) formatCorrupt();
+  }
+
+  for (const [part, profile] of Object.entries(passivePartProfiles)) {
+    const entry = byName.get(part);
+    if (entry !== undefined) validatePassivePart(entry, profile);
+  }
+  for (const part of Object.keys(passivePartProfiles)) if (byName.has(part) !== relatedPassiveParts.has(part)) formatCorrupt();
 
   const descriptors: TextPartDescriptor[] = [{ name: 'word/document.xml', root: 'w:document' }];
   for (const [part, relationship] of relatedParts) {
@@ -1076,6 +1306,7 @@ function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, segments: readon
       || !Number.isSafeInteger(action.start) || !Number.isSafeInteger(action.end)
       || action.start < 0 || action.start >= action.end || action.end > sourceLength
       || typeof action.replacement !== 'string' || unicodeCodePointLength(action.replacement) > 500
+      || !isXml10String(action.replacement)
     ) throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'The redaction plan actions are invalid.', retryable: false, correlationId: 'cor_docx_adapter' });
     ids.add(action.id);
   }

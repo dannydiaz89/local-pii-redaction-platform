@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
-  batchScanReportSchemaId,
+  batchScanReportSchemaIds,
   batchScanReportSemanticErrors
 } from '../packages/contracts/src/batch-scan-report.js';
 import { isCanonicalUuid, isRfc3339DateTime } from '../packages/contracts/src/formats.js';
@@ -65,7 +65,7 @@ for (const testCase of manifest.cases) {
   if (validate === undefined) throw new Error(`Unknown corpus schema: ${testCase.schemaId}`);
   const value = loadJson(resolve(corpusRoot, testCase.file));
   const schemaValid = validate(value) === true;
-  const semanticValid = testCase.schemaId !== batchScanReportSchemaId
+  const semanticValid = !batchScanReportSchemaIds.has(testCase.schemaId)
     || !schemaValid
     || batchScanReportSemanticErrors(
       value as Parameters<typeof batchScanReportSemanticErrors>[0]

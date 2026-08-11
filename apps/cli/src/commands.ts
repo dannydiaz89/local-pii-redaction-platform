@@ -73,6 +73,7 @@ interface ParsedArguments {
   readonly batchTimeoutMs: number | undefined;
   readonly includes: readonly string[];
   readonly excludes: readonly string[];
+  readonly allowPartial: boolean;
   readonly allowExperimental: boolean;
   readonly apply: boolean;
   readonly json: boolean;
@@ -84,7 +85,7 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--batch-timeout-ms <1000-300000>] [--json]
+  pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
@@ -103,6 +104,7 @@ const cliScanReportV2SchemaId = 'https://local-pii.dev/schemas/cli/scan-report/2
 const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/2.0.0';
 const cliRedactReportV3SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/3.0.0';
 const cliBatchScanReportSchemaId = 'https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0';
+const cliBatchScanReportV2SchemaId = 'https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const stageRecoveryReportSchemaId = 'https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
@@ -122,6 +124,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let batchTimeoutMs: number | undefined;
   const includes: string[] = [];
   const excludes: string[] = [];
+  let allowPartial = false;
   let allowExperimental = false;
   let apply = false;
   let json = false;
@@ -137,6 +140,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (value === '--') continue;
     if (value === '--version') positional.push(value);
     else if (value === '--json') json = true;
+    else if (value === '--allow-partial') allowPartial = true;
     else if (value === '--help' || value === '-h') help = true;
     else if (value === '--license') license = true;
     else if (value === '--allow-experimental') allowExperimental = true;
@@ -211,6 +215,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     batchTimeoutMs,
     includes: Object.freeze(includes),
     excludes: Object.freeze(excludes),
+    allowPartial,
     allowExperimental,
     apply,
     json,
@@ -228,7 +233,7 @@ function writeResult(io: CliIo, json: boolean, value: object, human: string): vo
   } else if (operation === 'SCAN' && schemaVersion === '2.0.0') {
     schemaId = cliScanReportV2SchemaId;
   } else if (operation === 'BATCH_SCAN') {
-    schemaId = cliBatchScanReportSchemaId;
+    schemaId = schemaVersion === '2.0.0' ? cliBatchScanReportV2SchemaId : cliBatchScanReportSchemaId;
   } else if (operation === 'STAGE_RECOVERY') {
     schemaId = stageRecoveryReportSchemaId;
   }
@@ -530,9 +535,10 @@ async function runBatchScan(
       ? conflictCount === 0 ? 'SUCCEEDED' : 'NEEDS_REVIEW'
       : processedFileCount === 0 && traversal.files.length > 0 ? 'FAILED' : 'PARTIAL';
     const report = {
-      schemaVersion: '1.0.0',
+      schemaVersion: '2.0.0',
       operation: 'BATCH_SCAN',
       outcome,
+      completionPolicy: parsed.allowPartial ? 'ALLOW_PARTIAL' : 'REQUIRE_COMPLETE',
       detectorBundleVersion: deterministicDetectorBundleVersion,
       manifest: {
         complete: failedFileCount === 0,
@@ -569,7 +575,9 @@ async function runBatchScan(
       `Detections: ${String(detectionCount)}`,
       `Conflicts: ${String(conflictCount)}`
     ].join('\n'));
-    return failedFileCount > 0 ? 3 : conflictCount === 0 ? 0 : 5;
+    if (failedFileCount === 0) return conflictCount === 0 ? 0 : 5;
+    if (outcome === 'PARTIAL' && parsed.allowPartial) return conflictCount === 0 ? 0 : 5;
+    return 3;
   } catch (error: unknown) {
     if (timeoutController.signal.aborted) {
       throw new SafeError({
@@ -620,6 +628,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.batchTimeoutMs === undefined
       && parsed.includes.length === 0
       && parsed.excludes.length === 0
+      && !parsed.allowPartial
       && !parsed.allowExperimental
       && !parsed.apply
       && !parsed.help
@@ -642,6 +651,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.batchTimeoutMs === undefined
       && parsed.includes.length === 0
       && parsed.excludes.length === 0
+      && !parsed.allowPartial
       && !parsed.allowExperimental
       && !parsed.help
       && !parsed.license;
@@ -662,6 +672,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && !parsed.license;
   }
   if (parsed.batchTimeoutMs !== undefined || parsed.includes.length > 0 || parsed.excludes.length > 0) return false;
+  if (parsed.allowPartial) return false;
   if (!validEngineSelection(parsed)) return false;
   if (parsed.policyFile !== undefined && parsed.engine !== 'rules') return false;
   if (

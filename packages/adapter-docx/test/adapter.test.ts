@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { deflateRawSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseSha256Digest, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
-import { compileTypedLabelPlan } from '@local-pii/redaction';
+import { assertTypedLabelPlanIntegrity, compileTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction';
 
 import {
   createLocalDocxArtifactSession,
@@ -23,6 +24,8 @@ const officeRelationshipPrefix = 'http://schemas.openxmlformats.org/officeDocume
 const contentTypesNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const mediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const officeRelationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const drawingNamespace = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const markupCompatibilityNamespace = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
 const supportedPartContentTypes = {
   header: 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml',
   footer: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml',
@@ -159,6 +162,62 @@ function supportedPackageParts(document: string, parts: readonly SupportedTextPa
   ];
 }
 
+const compatibilityNamespaces = {
+  mc: markupCompatibilityNamespace,
+  r: officeRelationshipNamespace,
+  w: wordNamespace,
+  w14: 'http://schemas.microsoft.com/office/word/2010/wordml',
+  w15: 'http://schemas.microsoft.com/office/word/2012/wordml',
+  w16cex: 'http://schemas.microsoft.com/office/word/2018/wordml/cex',
+  w16cid: 'http://schemas.microsoft.com/office/word/2016/wordml/cid',
+  w16: 'http://schemas.microsoft.com/office/word/2018/wordml',
+  w16sdtdh: 'http://schemas.microsoft.com/office/word/2020/wordml/sdtdatahash',
+  w16sdtfl: 'http://schemas.microsoft.com/office/word/2024/wordml/sdtformatlock',
+  w16se: 'http://schemas.microsoft.com/office/word/2015/wordml/symex',
+  w16du: 'http://schemas.microsoft.com/office/word/2023/wordml/word16du'
+} as const;
+
+function passivePackageParts(document: string, theme: string, webSettings: string): SyntheticZipEntry[] {
+  const namespaceAttributes = Object.entries(compatibilityNamespaces).map(([prefix, uri]) => `xmlns:${prefix}="${uri}"`).join(' ');
+  if (!webSettings.includes(namespaceAttributes)) throw new Error('Synthetic web settings namespace inventory is incomplete.');
+  return [
+    {
+      name: '[Content_Types].xml',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/><Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/word/webSettings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"/></Types>`
+    },
+    {
+      name: '_rels/.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>`
+    },
+    { name: 'word/document.xml', contents: document },
+    {
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}theme" Target="theme/theme1.xml"/><Relationship Id="rId3" Type="${officeRelationshipPrefix}webSettings" Target="webSettings.xml"/></Relationships>`
+    },
+    { name: 'word/theme/theme1.xml', contents: theme },
+    { name: 'word/webSettings.xml', contents: webSettings }
+  ];
+}
+
+function passiveWebSettings(): string {
+  const namespaces = Object.entries(compatibilityNamespaces).map(([prefix, uri]) => `xmlns:${prefix}="${uri}"`).join(' ');
+  const ignorable = Object.keys(compatibilityNamespaces).filter((prefix) => !['mc', 'r', 'w'].includes(prefix)).join(' ');
+  return `<?xml version="1.0" encoding="UTF-8"?><w:webSettings ${namespaces} mc:Ignorable="${ignorable}"/>`;
+}
+
+function passiveTheme(): string {
+  const colors = ['000000', 'FFFFFF', '1F497D', 'EEECE1', '4F81BD', 'C0504D', '9BBB59', '8064A2', '4BACC6', 'F79646', '0000FF', '800080'];
+  const colorNames = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
+  const colorScheme = colorNames.map((name, index) => `<a:${name}><a:srgbClr val="${colors[index] ?? '000000'}"/></a:${name}>`).join('');
+  const scheme = (index: number) => `<a:schemeClr val="accent${String((index % 6) + 1)}">${index < 7 ? '<a:tint val="50000"/>' : ''}${index < 5 ? '<a:shade val="50000"/>' : ''}${index < 8 ? '<a:lumMod val="75000"/>' : ''}</a:schemeClr>`;
+  const gradients = Array.from({ length: 3 }, (_, gradient) => `<a:gradFill><a:gsLst>${Array.from({ length: 3 }, (_unused, stop) => `<a:gs pos="${String(stop * 50_000)}">${scheme(gradient * 3 + stop)}</a:gs>`).join('')}</a:gsLst><a:lin ang="5400000" scaled="1"/><a:tileRect/></a:gradFill>`);
+  const fillStyles = `<a:fillStyleLst><a:solidFill>${scheme(9)}</a:solidFill>${gradients[0] ?? ''}${gradients[1] ?? ''}</a:fillStyleLst>`;
+  const backgroundFills = `<a:bgFillStyleLst><a:solidFill>${scheme(10)}</a:solidFill><a:solidFill>${scheme(11)}</a:solidFill>${gradients[2] ?? ''}</a:bgFillStyleLst>`;
+  const lines = `<a:lnStyleLst>${Array.from({ length: 3 }, (_unused, index) => `<a:ln w="${String(6350 + index)}" cap="flat" cmpd="sng" algn="ctr"><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln>`).join('')}</a:lnStyleLst>`;
+  const effects = `<a:effectStyleLst>${'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)}</a:effectStyleLst>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><a:theme xmlns:a="${drawingNamespace}" name="Office Theme"><a:themeElements><a:clrScheme name="Office">${colorScheme}</a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Calibri" panose="020F0502020204030204"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Calibri" panose="020F0502020204030204"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme>${fillStyles}${lines}${effects}${backgroundFills}</a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
+}
+
 async function writeSyntheticDocx(entries: readonly SyntheticZipEntry[]): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'local-pii-docx-'));
   roots.push(root);
@@ -200,6 +259,48 @@ function planFor(
     policy: { id: 'development-labels', version: '0.1.0', digest: parseSha256Digest(`sha256:${'3'.repeat(64)}`), riskTier: 'LOW' },
     writer: docxWriterDescriptor
   });
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Readonly<Record<string, unknown>>)[key])}`).join(',')}}`;
+}
+
+function stableIdentifier(prefix: 'plan' | 'act', value: unknown): string {
+  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const bytes = createHash('sha256').update(canonicalJson(value)).digest().subarray(0, 16);
+  let numeric = BigInt(`0x${bytes.toString('hex')}`);
+  let encoded = '';
+  for (let index = 0; index < 26; index += 1) {
+    encoded = `${alphabet.charAt(Number(numeric & 31n))}${encoded}`;
+    numeric >>= 5n;
+  }
+  return `${prefix}_${encoded}`;
+}
+
+function withReplacement(plan: TypedLabelPlan, replacement: string): TypedLabelPlan {
+  if (plan.schemaVersion !== '1.0.0') throw new Error('Synthetic DOCX plan must use v1.');
+  const original = plan.actions[0];
+  if (original === undefined) throw new Error('Synthetic DOCX plan requires one action.');
+  const { id: _oldActionId, ...oldActionWithoutId } = original;
+  void _oldActionId;
+  const actionWithoutId = { ...oldActionWithoutId, replacement };
+  const action = {
+    ...actionWithoutId,
+    id: stableIdentifier('act', {
+      resolutionDigest: plan.resolutionDigest,
+      policyDigest: plan.policy.digest,
+      action: actionWithoutId
+    })
+  };
+  const { digest: _oldDigest, id: _oldPlanId, ...oldPlanWithoutIdentity } = plan;
+  void _oldDigest;
+  void _oldPlanId;
+  const planWithoutIdentity = { ...oldPlanWithoutIdentity, actions: [action] };
+  const id = stableIdentifier('plan', planWithoutIdentity);
+  const digest = parseSha256Digest(`sha256:${createHash('sha256').update(canonicalJson({ id, ...planWithoutIdentity })).digest('hex')}`);
+  return Object.freeze({ ...planWithoutIdentity, id, digest });
 }
 
 function codePointOffsetOf(text: string, value: string): number {
@@ -274,6 +375,64 @@ describe('DOCX adapter', () => {
       'word/document.xml', 'word/header1.xml', 'word/header2.xml', 'word/footer1.xml', 'word/footnotes.xml', 'word/endnotes.xml'
     ]);
     expect(second.extractionRevision).toBe(first.extractionRevision);
+  });
+
+  it('accepts exact passive Office theme and empty web-settings profiles without adding canonical text', async () => {
+    const document = documentXml('<w:p><w:r><w:t>safe-visible-text</w:t></w:r></w:p>');
+    const path = await writeSyntheticDocx(passivePackageParts(document, passiveTheme(), passiveWebSettings()));
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.text).toBe('safe-visible-text');
+    expect(artifact.regions).toHaveLength(1);
+  });
+
+  it.each([
+    ['attribute canary', (theme: string) => theme.replace('name="Office Theme"', 'name="private-canary"')],
+    ['missing required element', (theme: string) => theme.replace('<a:extraClrSchemeLst/>', '')],
+    ['wrong top-level order', (theme: string) => theme.replace('<a:objectDefaults/><a:extraClrSchemeLst/>', '<a:extraClrSchemeLst/><a:objectDefaults/>')],
+    ['namespace prefix rebinding', (theme: string) => theme.replace(drawingNamespace, 'urn:private-canary')]
+  ])('rejects a passive theme with %s using a privacy-safe error', async (_name, mutate) => {
+    const document = documentXml('<w:p><w:r><w:t>safe</w:t></w:r></w:p>');
+    const path = await writeSyntheticDocx(passivePackageParts(document, mutate(passiveTheme()), passiveWebSettings()));
+    try {
+      await readDocxArtifact(path);
+      throw new Error('Expected passive theme rejection.');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'metadata_part' } });
+      expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toContain('private-canary');
+    }
+  });
+
+  it.each([
+    ['orphan theme part', 'FORMAT_CORRUPT', (entries: SyntheticZipEntry[]) => entries.map((entry) => entry.name === 'word/_rels/document.xml.rels' ? { ...entry, contents: String(entry.contents).replace(/<Relationship Id="rId2"[^>]+\/>/u, '') } : entry)],
+    ['wrong theme relationship type', 'FORMAT_UNSUPPORTED', (entries: SyntheticZipEntry[]) => entries.map((entry) => entry.name === 'word/_rels/document.xml.rels' ? { ...entry, contents: String(entry.contents).replace(`${officeRelationshipPrefix}theme`, `${officeRelationshipPrefix}styles`) } : entry)],
+    ['wrong theme content type', 'FORMAT_CORRUPT', (entries: SyntheticZipEntry[]) => entries.map((entry) => entry.name === '[Content_Types].xml' ? { ...entry, contents: String(entry.contents).replace('application/vnd.openxmlformats-officedocument.theme+xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml') } : entry)]
+  ])('rejects %s in the passive-part graph', async (_name, code, mutate) => {
+    const entries = passivePackageParts(documentXml('<w:p><w:r><w:t>safe</w:t></w:r></w:p>'), passiveTheme(), passiveWebSettings());
+    const path = await writeSyntheticDocx(mutate(entries));
+    await expect(readDocxArtifact(path)).rejects.toMatchObject({ code });
+  });
+
+  it.each([
+    ['raw XML control', '\u0001'],
+    ['numeric XML control entity', '&#1;']
+  ])('rejects a %s before returning planted text', async (_name, planted) => {
+    const path = await docxFile(documentXml(`<w:p><w:r><w:t>private-canary${planted}</w:t></w:r></w:p>`));
+    await expect(readDocxArtifact(path)).rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
+  });
+
+  it('rejects an integrity-valid plan containing an XML-invalid replacement before staging', async () => {
+    const input = await docxFile(documentXml('<w:p><w:r><w:t>alpha@example.test</w:t></w:r></w:p>'));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const plan = planFor(source, [{ start: 0, end: unicodeCodePointLength(source.text) }]);
+    const invalidReplacementPlan = withReplacement(plan, '[EMAIL_1]\u0001');
+
+    expect(() => { assertTypedLabelPlanIntegrity(invalidReplacementPlan); }).not.toThrow();
+    await expect(session.stage(invalidReplacementPlan)).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    expect(await readdir(root)).toEqual(['document.docx']);
   });
 
   it('accepts bounded Microsoft-produced DEFLATE flags and a strictly shaped OPC growth hint', async () => {

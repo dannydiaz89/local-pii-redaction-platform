@@ -38,9 +38,10 @@ _RFC3339_DATE_TIME = re.compile(
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?"
     r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
-_BATCH_SCAN_REPORT_SCHEMA_ID = (
-    "https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0"
-)
+_BATCH_SCAN_REPORT_SCHEMA_IDS = {
+    "https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0",
+    "https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0",
+}
 
 
 @_FORMAT_CHECKER.checks("uuid")
@@ -101,7 +102,7 @@ def validate_contract(schema_id: str, value: object) -> None:
     except KeyError as error:
         raise ValueError(f"Unknown contract schema: {schema_id}") from error
     Draft202012Validator(schema, registry=_REGISTRY, format_checker=_FORMAT_CHECKER).validate(value)
-    if schema_id == _BATCH_SCAN_REPORT_SCHEMA_ID:
+    if schema_id in _BATCH_SCAN_REPORT_SCHEMA_IDS:
         semantic_errors = _batch_scan_report_semantic_errors(value)
         if semantic_errors:
             raise ValidationError("; ".join(semantic_errors))

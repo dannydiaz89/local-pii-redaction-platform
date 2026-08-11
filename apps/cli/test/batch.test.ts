@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { deterministicDetectorBundleVersion } from '@local-pii/detectors';
-import { batchScanReportSchemaId, validateContract } from '@local-pii/contracts';
+import { batchScanReportSchemaId, batchScanReportV2SchemaId, validateContract } from '@local-pii/contracts';
 
 import { assertBatchFileUnchanged, discoverBatchFiles, matchesBatchPattern } from '../src/batch.js';
 import { executeCli, type CliIo } from '../src/commands.js';
@@ -87,6 +87,7 @@ describe('bounded batch scan', () => {
     expect(report).toMatchObject({
       operation: 'BATCH_SCAN',
       outcome: 'SUCCEEDED',
+      completionPolicy: 'REQUIRE_COMPLETE',
       manifest: { selectedFileCount: 1, processedFileCount: 1, detectionCount: 1, conflictCount: 0 }
     });
     expect(stream.stderr).toEqual([]);
@@ -199,6 +200,7 @@ describe('bounded batch scan', () => {
     expect(JSON.parse(output)).toMatchObject({
       operation: 'BATCH_SCAN',
       outcome: 'PARTIAL',
+      completionPolicy: 'REQUIRE_COMPLETE',
       manifest: {
         complete: false,
         selectedFileCount: 2,
@@ -214,6 +216,71 @@ describe('bounded batch scan', () => {
     expect(output).not.toContain('invalid-private-name');
     expect(output).not.toContain('alpha@example.test');
     expect(output).not.toContain('private-value-canary');
+  });
+
+  it('allows an explicit partial-success policy without hiding the partial outcome', async () => {
+    const root = await temporaryRoot('allowed-partial-private-root-');
+    await writeFile(join(root, 'valid-private-name.txt'), 'Contact alpha@example.test');
+    await writeFile(join(root, 'invalid-private-name.json'), '{"private-value-canary":');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'scan', root, '--allow-partial', '--json'], stream.io)).toBe(0);
+
+    const output = stream.stdout.join('');
+    expect(JSON.parse(output)).toMatchObject({
+      operation: 'BATCH_SCAN',
+      outcome: 'PARTIAL',
+      completionPolicy: 'ALLOW_PARTIAL',
+      manifest: {
+        complete: false,
+        selectedFileCount: 2,
+        processedFileCount: 1,
+        failedFileCount: 1,
+        failuresByCode: { FORMAT_CORRUPT: 1 }
+      }
+    });
+    expect(stream.stderr).toEqual([]);
+    expect(output).not.toContain(root);
+    expect(output).not.toContain('valid-private-name');
+    expect(output).not.toContain('invalid-private-name');
+    expect(output).not.toContain('alpha@example.test');
+    expect(output).not.toContain('private-value-canary');
+  });
+
+  it('does not convert an all-failed batch into success when partial success is allowed', async () => {
+    const root = await temporaryRoot('failed-partial-private-root-');
+    await writeFile(join(root, 'invalid-private-name.json'), '{"private-value-canary":');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'scan', root, '--allow-partial', '--json'], stream.io)).toBe(3);
+
+    const output = stream.stdout.join('');
+    expect(JSON.parse(output)).toMatchObject({
+      operation: 'BATCH_SCAN',
+      outcome: 'FAILED',
+      completionPolicy: 'ALLOW_PARTIAL',
+      manifest: {
+        complete: false,
+        selectedFileCount: 1,
+        processedFileCount: 0,
+        failedFileCount: 1,
+        failuresByCode: { FORMAT_CORRUPT: 1 }
+      }
+    });
+    expect(stream.stderr).toEqual([]);
+    expect(output).not.toContain(root);
+    expect(output).not.toContain('invalid-private-name');
+    expect(output).not.toContain('private-value-canary');
+  });
+
+  it('rejects the partial-success option outside batch scan', async () => {
+    const root = await temporaryRoot();
+    const path = join(root, 'selected.txt');
+    await writeFile(path, 'synthetic');
+    const stream = capture();
+
+    expect(await executeCli(['scan', path, '--allow-partial', '--json'], stream.io)).toBe(2);
+    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
   });
 
   it('rejects unsafe patterns as command usage errors', async () => {
@@ -268,6 +335,20 @@ describe('bounded batch scan', () => {
       }
     } as const;
     expect(validateContract(batchScanReportSchemaId, base).valid).toBe(true);
+    expect(validateContract(batchScanReportSchemaId, {
+      ...base,
+      completionPolicy: 'IGNORE_FAILURES'
+    }).valid).toBe(false);
+    const v2Base = {
+      ...base,
+      schemaVersion: '2.0.0',
+      completionPolicy: 'REQUIRE_COMPLETE'
+    } as const;
+    expect(validateContract(batchScanReportV2SchemaId, v2Base).valid).toBe(true);
+    expect(validateContract(batchScanReportV2SchemaId, {
+      ...v2Base,
+      manifest: { ...v2Base.manifest, processedInputBytes: 11 }
+    }).valid).toBe(false);
     expect(validateContract(batchScanReportSchemaId, {
       ...base,
       manifest: { ...base.manifest, selectedFileCount: 0 }

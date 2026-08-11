@@ -1,9 +1,17 @@
-import type { CliBatchScanReportContract } from './generated/index.js';
+import type { CliBatchScanReportContract, CliBatchScanReportV2Contract } from './generated/index.js';
 
 export const batchScanReportSchemaId =
   'https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0';
+export const batchScanReportV2SchemaId =
+  'https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0';
+export const batchScanReportSchemaIds: ReadonlySet<string> = new Set([
+  batchScanReportSchemaId,
+  batchScanReportV2SchemaId
+]);
 
-type BatchScanReport = CliBatchScanReportContract.BoundedBatchScanReport;
+type BatchScanReport =
+  | CliBatchScanReportContract.BoundedBatchScanReport
+  | CliBatchScanReportV2Contract.BoundedBatchScanReportWithCompletionPolicy;
 
 function sumCounts(counts: Readonly<Record<string, number>>): number {
   return Object.values(counts).reduce((total, count) => total + count, 0);

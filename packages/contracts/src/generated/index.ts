@@ -4,6 +4,7 @@ export * as ArtifactsArtifactContract from './artifacts-artifact.js';
 export * as ArtifactsCreateArtifactRequestContract from './artifacts-create-artifact-request.js';
 export * as AuditAuditSummaryContract from './audit-audit-summary.js';
 export * as CapabilitiesCapabilityManifestContract from './capabilities-capability-manifest.js';
+export * as CliBatchScanReportV2Contract from './cli-batch-scan-report-v2.js';
 export * as CliBatchScanReportContract from './cli-batch-scan-report.js';
 export * as CliCliReportContract from './cli-cli-report.js';
 export * as CliPolicyReportContract from './cli-policy-report.js';
