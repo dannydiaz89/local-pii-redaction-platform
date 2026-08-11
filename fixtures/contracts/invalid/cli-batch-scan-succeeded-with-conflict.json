@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "BATCH_SCAN",
+  "outcome": "SUCCEEDED",
+  "detectorBundleVersion": "0.2.0",
+  "manifest": {
+    "complete": true,
+    "selectedFileCount": 1,
+    "processedFileCount": 1,
+    "failedFileCount": 0,
+    "directoryCount": 1,
+    "entryCount": 1,
+    "totalInputBytes": 64,
+    "processedInputBytes": 64,
+    "detectionCount": 0,
+    "conflictCount": 1,
+    "byEntity": {},
+    "failuresByCode": {}
+  },
+  "selection": { "includePatternCount": 1, "excludePatternCount": 0 },
+  "limits": {
+    "maximumFiles": 1000,
+    "maximumDirectories": 1000,
+    "maximumEntries": 10000,
+    "maximumTotalInputBytes": 268435456,
+    "maximumRelativePathCodeUnits": 8192,
+    "maximumPatternMatchSteps": 100000000,
+    "timeoutMs": 60000
+  }
+}

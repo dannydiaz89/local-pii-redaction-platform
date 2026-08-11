@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { Ajv2020 } from 'ajv/dist/2020.js';
+import {
+  batchScanReportSchemaId,
+  batchScanReportSemanticErrors
+} from '../packages/contracts/src/batch-scan-report.js';
 import { isCanonicalUuid, isRfc3339DateTime } from '../packages/contracts/src/formats.js';
 
 import { loadJson, loadSchemas, repositoryRoot } from './schema-utils.js';
@@ -59,7 +63,14 @@ const manifest = JSON.parse(readFileSync(resolve(corpusRoot, 'manifest.json'), '
 for (const testCase of manifest.cases) {
   const validate = ajv.getSchema(testCase.schemaId);
   if (validate === undefined) throw new Error(`Unknown corpus schema: ${testCase.schemaId}`);
-  const actualValid = validate(loadJson(resolve(corpusRoot, testCase.file))) === true;
+  const value = loadJson(resolve(corpusRoot, testCase.file));
+  const schemaValid = validate(value) === true;
+  const semanticValid = testCase.schemaId !== batchScanReportSchemaId
+    || !schemaValid
+    || batchScanReportSemanticErrors(
+      value as Parameters<typeof batchScanReportSemanticErrors>[0]
+    ).length === 0;
+  const actualValid = schemaValid && semanticValid;
   if (actualValid !== testCase.valid) {
     throw new Error(`${testCase.file}: expected valid=${String(testCase.valid)}, got ${String(actualValid)}: ${JSON.stringify(validate.errors)}`);
   }

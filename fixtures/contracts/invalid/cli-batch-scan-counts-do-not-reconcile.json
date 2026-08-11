@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "BATCH_SCAN",
+  "outcome": "PARTIAL",
+  "detectorBundleVersion": "0.2.0",
+  "manifest": {
+    "complete": false,
+    "selectedFileCount": 3,
+    "processedFileCount": 1,
+    "failedFileCount": 1,
+    "directoryCount": 2,
+    "entryCount": 3,
+    "totalInputBytes": 128,
+    "processedInputBytes": 64,
+    "detectionCount": 1,
+    "conflictCount": 0,
+    "byEntity": { "EMAIL": 1 },
+    "failuresByCode": { "FORMAT_CORRUPT": 1 }
+  },
+  "selection": { "includePatternCount": 5, "excludePatternCount": 1 },
+  "limits": {
+    "maximumFiles": 1000,
+    "maximumDirectories": 1000,
+    "maximumEntries": 10000,
+    "maximumTotalInputBytes": 268435456,
+    "maximumRelativePathCodeUnits": 8192,
+    "maximumPatternMatchSteps": 100000000,
+    "timeoutMs": 60000
+  }
+}

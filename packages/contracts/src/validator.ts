@@ -2,6 +2,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 
 import { schemaCatalog } from './generated/schema-catalog.js';
 import { isCanonicalUuid, isRfc3339DateTime } from './formats.js';
+import { batchScanReportSchemaId, batchScanReportSemanticErrors } from './batch-scan-report.js';
 
 export interface ContractValidationResult {
   readonly valid: boolean;
@@ -27,7 +28,22 @@ export function validateContract(schemaId: string, value: unknown): ContractVali
   }
 
   const valid = validator(value);
-  return { valid, errors: validator.errors ?? [] };
+  const schemaErrors = validator.errors ?? [];
+  if (!valid || schemaId !== batchScanReportSchemaId) return { valid, errors: schemaErrors };
+  const semanticErrors = batchScanReportSemanticErrors(
+    value as Parameters<typeof batchScanReportSemanticErrors>[0]
+  );
+  if (semanticErrors.length === 0) return { valid: true, errors: [] };
+  return {
+    valid: false,
+    errors: semanticErrors.map((message): ErrorObject => ({
+      keyword: 'batchScanSemantics',
+      instancePath: '/manifest',
+      schemaPath: '#/x-batchScanSemantics',
+      params: {},
+      message
+    }))
+  };
 }
 
 export function assertContract(schemaId: string, value: unknown): void {

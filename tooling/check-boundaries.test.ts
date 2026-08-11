@@ -63,6 +63,8 @@ describe('boundary checker', () => {
     const violations = checkSourceDependencyDirection(
       'apps/cli/src/example.ts',
       [
+        "import type { Stats } from 'node:fs';",
+        "import { readdir } from 'node:fs/promises';",
         "import Fastify from 'fastify';",
         "import { createClient } from 'redis';",
         "import { helper } from '@local-pii/core/internal';",

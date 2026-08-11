@@ -284,6 +284,106 @@ describe('TextProcessingApplication', () => {
     });
   });
 
+  it('accepts nonoverlapping DOCX segments that share one stable native paragraph identity', async () => {
+    const sourceText = 'ada@example.test\n\u0000\ntail';
+    const location = {
+      schemaVersion: '1.0.0' as const,
+      kind: 'DOCX_PART' as const,
+      part: 'word/document.xml',
+      paragraph: 1
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [
+        { schemaVersion: '1.0.0' as const, start: 0, end: 16, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location },
+        { schemaVersion: '1.0.0' as const, start: 19, end: 23, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location }
+      ]
+    };
+
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+
+    expect(result.evidence[0]?.nativeLocations).toEqual([location]);
+  });
+
+  it.each([
+    { schemaVersion: '1.0.0' as const, kind: 'JSON_POINTER' as const, pointer: '/email' },
+    { schemaVersion: '1.0.0' as const, kind: 'CSV_CELL' as const, row: 1, column: 1 }
+  ])('continues to reject duplicate $kind native identities', async (location) => {
+    const sourceText = 'ada@example.testsafe';
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [
+        { schemaVersion: '1.0.0' as const, start: 0, end: 16, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location },
+        { schemaVersion: '1.0.0' as const, start: 16, end: 20, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location }
+      ]
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
+  it('rejects a nonconsecutive DOCX paragraph identity recurrence', async () => {
+    const sourceText = 'abcdefghijkl';
+    const location = (paragraph: number) => ({
+      schemaVersion: '1.0.0' as const,
+      kind: 'DOCX_PART' as const,
+      part: 'word/document.xml',
+      paragraph
+    });
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [
+        { schemaVersion: '1.0.0' as const, start: 0, end: 4, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location: location(1) },
+        { schemaVersion: '1.0.0' as const, start: 4, end: 8, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location: location(2) },
+        { schemaVersion: '1.0.0' as const, start: 8, end: 12, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location: location(1) }
+      ]
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
+  it('rejects a detection that crosses two tab-separated DOCX segments', async () => {
+    const sourceText = 'left\n\u0000\nright';
+    const extractionRevision = revision(sourceText);
+    const location = {
+      schemaVersion: '1.0.0' as const,
+      kind: 'DOCX_PART' as const,
+      part: 'word/document.xml',
+      paragraph: 1
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [
+        { schemaVersion: '1.0.0' as const, start: 0, end: 4, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location },
+        { schemaVersion: '1.0.0' as const, start: 7, end: 12, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location }
+      ]
+    };
+    const detector: TextProcessingApplicationDependencies['detector'] = {
+      detectorBundleVersion: 'test-detector',
+      detect: () => Promise.resolve([{
+        id: parseDetectionId('11111111-1111-4111-8111-111111111111'),
+        entityType: 'CUSTOM',
+        span: { start: 0, end: 12, offsetUnit: 'UNICODE_CODE_POINT', extractionRevision },
+        confidence: 1,
+        source: 'REGEX',
+        detector: { id: 'synthetic-cross-boundary', version: 'test' }
+      }])
+    };
+
+    await expect(createTextProcessingApplication(dependencies({ detector })).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
   it('fails before detection when a structured policy has no adapter-owned regions', async () => {
     let detectorCalls = 0;
     const app = createTextProcessingApplication(dependencies({

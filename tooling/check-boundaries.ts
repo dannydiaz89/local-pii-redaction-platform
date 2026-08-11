@@ -125,7 +125,7 @@ const allowedCliWorkspaceDependencies: readonly WorkspacePackage[] = [
   'redaction',
   'verification'
 ];
-const allowedCliRuntimeModules = new Set(['node:fs/promises', 'node:path']);
+const allowedCliRuntimeModules = new Set(['node:fs', 'node:fs/promises', 'node:path']);
 const allowedApiWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'core', 'domain', 'job-store', 'profile-local'];
 const allowedApiRuntimeModules = new Set([
   'fastify',

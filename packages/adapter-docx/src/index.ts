@@ -16,12 +16,12 @@ import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from 
 import { SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.1.0';
+export const docxAdapterVersion = '0.2.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:ebd569376f51a0fd9d844fd5e9345c7ef2ce44b807ff568119f2632fdd852a9f')
+  digest: parseSha256Digest('sha256:5efee6da6c683e2e587d043ddb6689f4e639159a4be794a62e7321636c53dbcd')
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',
@@ -33,12 +33,16 @@ export const docxAdapterCapabilityDescriptor = {
   assurance: 'EXTRACT_ONLY',
   features: [
     { id: 'visible-document-paragraphs-and-tables', status: 'SUPPORTED' },
+    { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
+    { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
     { id: 'fragmented-run-source-map', status: 'SUPPORTED' },
     { id: 'unicode-code-point-offsets', status: 'SUPPORTED' },
     { id: 'native-reopen', status: 'SUPPORTED' },
+    { id: 'deflate-compression-option-flags', status: 'SUPPORTED' },
+    { id: 'opc-growth-hint-extra-field', status: 'SUPPORTED' },
     { id: 'macros-and-active-content', status: 'BLOCKED' },
     { id: 'external-relationships', status: 'BLOCKED' },
-    { id: 'metadata-and-additional-text-parts', status: 'BLOCKED' },
+    { id: 'metadata-comments-and-additional-text-parts', status: 'BLOCKED' },
     { id: 'images-drawings-and-embedded-objects', status: 'BLOCKED' },
     { id: 'revisions-fields-hidden-text-and-controls', status: 'BLOCKED' },
     { id: 'zip64-and-encrypted-entries', status: 'BLOCKED' },
@@ -66,11 +70,12 @@ const maximumZipEntries = 256;
 const maximumExpandedBytes = 50 * 1024 * 1024;
 const maximumEntryBytes = 10 * 1024 * 1024;
 const maximumCompressionRatio = 100;
+const maximumGrowthHintPaddingBytes = 4 * 1024;
 const maximumParagraphs = 50_000;
 const maximumTextNodes = 100_000;
 const maximumXmlElements = 250_000;
 const maximumXmlDepth = 128;
-const maximumXmlAttributes = 16;
+const maximumXmlAttributes = 64;
 const maximumXmlTagCodeUnits = 32 * 1024;
 const maximumCanonicalCodePoints = 10_000_000;
 const maximumPlanActions = 100_000;
@@ -78,6 +83,7 @@ const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const wordNamespace = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const officeRelationshipPrefix = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+const officeRelationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const contentTypesNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const docxMediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const paragraphBoundary = '\n\u0000\n';
@@ -91,12 +97,20 @@ function formatCorrupt(): never {
   });
 }
 
-function featureUnsupported(): never {
+type UnsupportedFeatureReason =
+  | 'additional_text_part'
+  | 'external_relationship'
+  | 'drawing_or_alternate_content'
+  | 'metadata_part'
+  | 'unknown_feature';
+
+function featureUnsupported(reason: UnsupportedFeatureReason = 'unknown_feature'): never {
   throw new SafeError({
     code: 'FORMAT_UNSUPPORTED',
     message: 'The DOCX input contains a feature outside this adapter’s declared safe text surface.',
     retryable: false,
-    correlationId: 'cor_docx_adapter'
+    correlationId: 'cor_docx_adapter',
+    details: { reason }
   });
 }
 
@@ -168,6 +182,30 @@ function safeEntryName(bytes: Buffer, utf8: boolean): string {
   return name;
 }
 
+function validZipFlags(flags: number, method: number): boolean {
+  const encodingFlag = flags & 0x0800;
+  const compressionOptions = flags & 0x0006;
+  return (flags & ~0x0806) === 0
+    && (encodingFlag === 0 || encodingFlag === 0x0800)
+    && (method === 8 || compressionOptions === 0);
+}
+
+function assertSupportedLocalExtra(extra: Buffer): void {
+  if (extra.length === 0) return;
+  if (extra.length < 8 || extra.length > maximumGrowthHintPaddingBytes + 8) formatCorrupt();
+  const fieldId = u16(extra, 0);
+  const fieldLength = u16(extra, 2);
+  if (fieldId !== 0xa220 || fieldLength !== extra.length - 4 || fieldLength < 4) formatCorrupt();
+  const signature = u16(extra, 4);
+  const initialPaddingLength = u16(extra, 6);
+  const padding = extra.subarray(8);
+  if (
+    signature !== 0xa028
+    || initialPaddingLength !== padding.length
+    || !padding.every((value) => value === 0)
+  ) formatCorrupt();
+}
+
 function parseZip(bytes: Buffer): readonly ZipEntry[] {
   if (bytes.length < 22 || bytes.readUInt32LE(0) !== 0x04034b50) formatCorrupt();
   let eocd = -1;
@@ -213,7 +251,7 @@ function parseZip(bytes: Buffer): readonly ZipEntry[] {
     const recordLength = 46 + nameLength + extraLength + entryCommentLength;
     checkedRange(bytes, cursor, recordLength);
     if (
-      (versionMadeBy >>> 8) !== 0 || flags !== 0x0800 || (method !== 0 && method !== 8)
+      (versionMadeBy >>> 8) !== 0 || !validZipFlags(flags, method) || (method !== 0 && method !== 8)
       || diskStart !== 0 || internalAttributes !== 0 || externalAttributes !== 0
       || extraLength !== 0 || entryCommentLength !== 0
     ) formatCorrupt();
@@ -239,10 +277,10 @@ function parseZip(bytes: Buffer): readonly ZipEntry[] {
     if (
       localFlags !== flags || localMethod !== method || localCrc !== expectedCrc
       || localCompressedSize !== compressedSize || localExpandedSize !== expandedSize
-      || localExtraLength !== 0
     ) formatCorrupt();
     if (!bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(nameBytes)) formatCorrupt();
-    const compressedStart = localOffset + 30 + localNameLength;
+    assertSupportedLocalExtra(bytes.subarray(localOffset + 30 + localNameLength, localOffset + 30 + localNameLength + localExtraLength));
+    const compressedStart = localOffset + 30 + localNameLength + localExtraLength;
     const compressedEnd = compressedStart + compressedSize;
     if (compressedEnd > centralOffset) formatCorrupt();
     localRanges.push([localOffset, compressedEnd]);
@@ -378,12 +416,18 @@ function scanXml(xml: string): readonly XmlElement[] {
     }
     if (xml.slice(cursor, openingStart).trim().length > 0) {
       const top = stack.at(-1);
-      if (top !== 'w:t' && top !== 'w:instrText' && top !== 'w:delText') formatCorrupt();
+      if (top !== 'w:t') featureUnsupported('unknown_feature');
     }
     if (xml.startsWith('<!--', openingStart)) featureUnsupported();
     if (xml.startsWith('<?', openingStart)) {
       const end = xml.indexOf('?>', openingStart + 2);
-      if (end < 0 || sawDeclaration || openingStart !== 0 || !xml.startsWith('<?xml', openingStart)) formatCorrupt();
+      if (end < 0) formatCorrupt();
+      const declaration = xml.slice(openingStart, end + 2);
+      if (
+        sawDeclaration
+        || openingStart !== 0
+        || !/^<\?xml[ \t\r\n]+version=(?:"1\.0"|'1\.0')(?:[ \t\r\n]+encoding=(?:"(?:UTF-8|utf-8)"|'(?:UTF-8|utf-8)'))?(?:[ \t\r\n]+standalone=(?:"(?:yes|no)"|'(?:yes|no)'))?[ \t\r\n]*\?>$/u.test(declaration)
+      ) featureUnsupported('unknown_feature');
       sawDeclaration = true;
       cursor = end + 2;
       continue;
@@ -456,17 +500,25 @@ interface TextNodeRegion {
   readonly preservesWhitespace: boolean;
 }
 
-interface ParagraphRegion {
+interface SegmentRegion {
+  readonly part: string;
   readonly paragraphNumber: number;
+  readonly segmentNumber: number;
   readonly canonicalStart: number;
   readonly canonicalEnd: number;
   readonly nodes: readonly TextNodeRegion[];
 }
 
-interface ParsedDocumentXml {
+interface ParsedTextPart {
+  readonly name: string;
   readonly xml: string;
+  readonly segments: readonly SegmentRegion[];
+}
+
+interface ParsedDocxPackage {
   readonly canonicalText: string;
-  readonly paragraphs: readonly ParagraphRegion[];
+  readonly parts: readonly ParsedTextPart[];
+  readonly segments: readonly SegmentRegion[];
   readonly extractionRevision: Sha256Digest;
 }
 
@@ -475,119 +527,269 @@ const blockedDocumentTags = new Set([
   'w:commentReference', 'w:cr', 'w:customXml', 'w:del', 'w:delText', 'w:drawing', 'w:fldChar', 'w:fldSimple',
   'w:hyperlink', 'w:ins', 'w:instrText', 'w:moveFrom', 'w:moveFromRangeStart', 'w:moveFromRangeEnd',
   'w:moveTo', 'w:moveToRangeStart', 'w:moveToRangeEnd', 'w:noBreakHyphen', 'w:object', 'w:oleObject',
-  'w:pict', 'w:ptab', 'w:sdt', 'w:softHyphen', 'w:sym', 'w:tab', 'w:txbxContent', 'w:vanish', 'w:webHidden'
+  'w:pict', 'w:ptab', 'w:sdt', 'w:softHyphen', 'w:sym', 'w:txbxContent', 'w:vanish', 'w:webHidden'
 ]);
 
-const allowedDocumentParents: Readonly<Record<string, readonly (string | undefined)[]>> = {
-  'w:document': [undefined],
-  'w:body': ['w:document'],
-  'w:p': ['w:body', 'w:tc'],
+const commonTextParents: Readonly<Record<string, readonly string[]>> = {
   'w:pPr': ['w:p'],
   'w:r': ['w:p'],
   'w:rPr': ['w:r'],
   'w:t': ['w:r'],
+  'w:tab': ['w:r'],
+  'w:footnoteReference': ['w:r'],
+  'w:endnoteReference': ['w:r'],
+  'w:separator': ['w:r'],
+  'w:continuationSeparator': ['w:r'],
   'w:b': ['w:rPr'],
   'w:i': ['w:rPr'],
-  'w:tbl': ['w:body', 'w:tc'],
   'w:tblPr': ['w:tbl'],
   'w:tblGrid': ['w:tbl'],
   'w:gridCol': ['w:tblGrid'],
   'w:tr': ['w:tbl'],
   'w:trPr': ['w:tr'],
   'w:tc': ['w:tr'],
-  'w:tcPr': ['w:tc'],
-  'w:sectPr': ['w:body']
+  'w:tcPr': ['w:tc']
 };
 
-function parseDocumentXml(bytes: Buffer): ParsedDocumentXml {
+interface TextPartDescriptor {
+  readonly name: string;
+  readonly root: 'w:document' | 'w:hdr' | 'w:ftr' | 'w:footnotes' | 'w:endnotes';
+}
+
+interface RawTextNode {
+  readonly rawStart: number;
+  readonly rawEnd: number;
+  readonly value: string;
+  readonly preservesWhitespace: boolean;
+}
+
+interface RawSegment {
+  readonly paragraphNumber: number;
+  readonly segmentNumber: number;
+  readonly nodes: readonly RawTextNode[];
+}
+
+interface ParsedTextPartRaw {
+  readonly descriptor: TextPartDescriptor;
+  readonly xml: string;
+  readonly segments: readonly RawSegment[];
+  readonly referencedHeaderFooterKinds: ReadonlyMap<string, 'header' | 'footer'>;
+  readonly referencedFootnoteIds: ReadonlySet<number>;
+  readonly referencedEndnoteIds: ReadonlySet<number>;
+  readonly declaredNoteIds: ReadonlySet<number>;
+  readonly paragraphCount: number;
+  readonly textNodeCount: number;
+}
+
+function allowedParentsFor(descriptor: TextPartDescriptor): Readonly<Record<string, readonly (string | undefined)[]>> {
+  const contentParent = descriptor.root === 'w:document'
+    ? 'w:body'
+    : descriptor.root === 'w:footnotes'
+      ? 'w:footnote'
+      : descriptor.root === 'w:endnotes'
+        ? 'w:endnote'
+        : descriptor.root;
+  return {
+    [descriptor.root]: [undefined],
+    ...commonTextParents,
+    ...(descriptor.root === 'w:document' ? { 'w:body': ['w:document'], 'w:sectPr': ['w:body'], 'w:headerReference': ['w:sectPr'], 'w:footerReference': ['w:sectPr'] } : {}),
+    ...(descriptor.root === 'w:footnotes' ? { 'w:footnote': ['w:footnotes'] } : {}),
+    ...(descriptor.root === 'w:endnotes' ? { 'w:endnote': ['w:endnotes'] } : {}),
+    'w:p': [contentParent, 'w:tc'],
+    'w:tbl': [contentParent, 'w:tc'],
+    'w:tr': ['w:tbl'],
+    'w:tc': ['w:tr']
+  };
+}
+
+function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTextPartRaw {
   const xml = decodeUtf8Xml(bytes);
   const elements = scanXml(xml);
   const root = elements.find((element) => !element.closing);
-  if (root?.name !== 'w:document' || root.attributes['xmlns:w'] !== wordNamespace) formatCorrupt();
+  if (root?.name !== descriptor.root || root.attributes['xmlns:w'] !== wordNamespace) formatCorrupt();
+  const allowedParents = allowedParentsFor(descriptor);
+  const referencedHeaderFooterKinds = new Map<string, 'header' | 'footer'>();
+  const referencedFootnoteIds = new Set<number>();
+  const referencedEndnoteIds = new Set<number>();
+  const declaredNoteIds = new Set<number>();
+  const specialNoteIds = new Set<number>();
+  let activeSpecialNote: { readonly type: 'separator' | 'continuationSeparator'; markerSeen: boolean } | undefined;
   for (const element of elements) {
-    if (element.name.includes(':') && !element.name.startsWith('w:')) featureUnsupported();
-    if (blockedDocumentTags.has(element.name)) featureUnsupported();
-    const allowedParents = allowedDocumentParents[element.name];
-    if (allowedParents === undefined || (!element.closing && !allowedParents.includes(element.parent))) {
-      featureUnsupported();
+    if (element.name === 'mc:AlternateContent' || element.name === 'w:drawing' || element.name === 'w:pict') {
+      featureUnsupported('drawing_or_alternate_content');
     }
-    if (element.closing) continue;
+    if (element.name.includes(':') && !element.name.startsWith('w:')) featureUnsupported('unknown_feature');
+    if (blockedDocumentTags.has(element.name)) featureUnsupported('unknown_feature');
+    const parents = allowedParents[element.name];
+    if (parents === undefined || (!element.closing && !parents.includes(element.parent))) {
+      featureUnsupported('unknown_feature');
+    }
+    if (element.closing) {
+      if (element.name === 'w:footnote' || element.name === 'w:endnote') {
+        if (activeSpecialNote !== undefined && !activeSpecialNote.markerSeen) featureUnsupported('unknown_feature');
+        activeSpecialNote = undefined;
+      }
+      continue;
+    }
     const attributeEntries = Object.entries(element.attributes);
     const firstAttribute = attributeEntries[0];
-    if (element.name === 'w:document') {
-      if (attributeEntries.length !== 1 || firstAttribute?.[0] !== 'xmlns:w' || firstAttribute[1] !== wordNamespace) featureUnsupported();
+    if (element.name === descriptor.root) {
+      const allowedRootAttributes = descriptor.root === 'w:document'
+        ? new Set(['xmlns:w', 'xmlns:r'])
+        : new Set(['xmlns:w']);
+      if (
+        attributeEntries.some(([name]) => !allowedRootAttributes.has(name))
+        || (root.attributes['xmlns:r'] !== undefined && root.attributes['xmlns:r'] !== officeRelationshipNamespace)
+      ) featureUnsupported('unknown_feature');
     } else if (element.name === 'w:t') {
-      if (attributeEntries.length > 1 || (attributeEntries.length === 1 && (firstAttribute?.[0] !== 'xml:space' || firstAttribute[1] !== 'preserve'))) featureUnsupported();
-    } else if (attributeEntries.length > 0) featureUnsupported();
+      if (activeSpecialNote !== undefined) featureUnsupported('unknown_feature');
+      if (attributeEntries.length > 1 || (attributeEntries.length === 1 && (firstAttribute?.[0] !== 'xml:space' || firstAttribute[1] !== 'preserve'))) featureUnsupported('unknown_feature');
+    } else if (element.name === 'w:tab') {
+      if (!element.selfClosing || attributeEntries.length > 0) featureUnsupported('unknown_feature');
+    } else if (element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference') {
+      if (descriptor.root !== 'w:document' || !element.selfClosing || attributeEntries.length !== 1 || !/^[1-9][0-9]{0,8}$/u.test(element.attributes['w:id'] ?? '')) {
+        featureUnsupported('unknown_feature');
+      }
+      const id = Number(element.attributes['w:id']);
+      (element.name === 'w:footnoteReference' ? referencedFootnoteIds : referencedEndnoteIds).add(id);
+    } else if (element.name === 'w:separator' || element.name === 'w:continuationSeparator') {
+      const expected = element.name === 'w:separator' ? 'separator' : 'continuationSeparator';
+      if (!element.selfClosing || attributeEntries.length !== 0 || activeSpecialNote?.type !== expected || activeSpecialNote.markerSeen) featureUnsupported('unknown_feature');
+      activeSpecialNote.markerSeen = true;
+    } else if (element.name === 'w:headerReference' || element.name === 'w:footerReference') {
+      if (
+        !element.selfClosing || attributeEntries.length !== 2
+        || !/^rId[1-9][0-9]{0,5}$/u.test(element.attributes['r:id'] ?? '')
+        || !['default', 'first', 'even'].includes(element.attributes['w:type'] ?? '')
+        || root.attributes['xmlns:r'] !== officeRelationshipNamespace
+      ) featureUnsupported('unknown_feature');
+      const id = element.attributes['r:id'] ?? '';
+      const kind = element.name === 'w:headerReference' ? 'header' : 'footer';
+      const priorKind = referencedHeaderFooterKinds.get(id);
+      if (priorKind !== undefined && priorKind !== kind) formatCorrupt();
+      referencedHeaderFooterKinds.set(id, kind);
+    } else if (element.name === 'w:footnote' || element.name === 'w:endnote') {
+      if (
+        attributeEntries.length < 1 || attributeEntries.length > 2
+        || !/^-?[0-9]{1,9}$/u.test(element.attributes['w:id'] ?? '')
+        || (element.attributes['w:type'] !== undefined && !['separator', 'continuationSeparator'].includes(element.attributes['w:type']))
+        || attributeEntries.some(([name]) => name !== 'w:id' && name !== 'w:type')
+      ) featureUnsupported('unknown_feature');
+      const id = Number(element.attributes['w:id']);
+      const noteType = element.attributes['w:type'];
+      if (noteType !== undefined) {
+        if (element.selfClosing || id > 0 || specialNoteIds.has(id)) featureUnsupported('unknown_feature');
+        specialNoteIds.add(id);
+        activeSpecialNote = { type: noteType as 'separator' | 'continuationSeparator', markerSeen: false };
+      } else {
+        if (id < 1 || declaredNoteIds.has(id)) formatCorrupt();
+        declaredNoteIds.add(id);
+      }
+    } else if (attributeEntries.length > 0) featureUnsupported('unknown_feature');
   }
 
-  const provisional: Array<{ readonly values: Array<{ readonly rawStart: number; readonly rawEnd: number; readonly value: string; readonly preservesWhitespace: boolean }> }> = [];
-  let currentParagraph: Array<{ readonly rawStart: number; readonly rawEnd: number; readonly value: string; readonly preservesWhitespace: boolean }> | undefined;
+  const provisional: RawSegment[] = [];
+  let paragraphNumber = 0;
+  let currentSegments: RawTextNode[][] | undefined;
   let textOpening: XmlElement | undefined;
   let textNodeCount = 0;
   for (const element of elements) {
     if (!element.closing && element.name === 'w:p') {
-      if (currentParagraph !== undefined) formatCorrupt();
-      if (provisional.length >= maximumParagraphs) formatCorrupt();
-      currentParagraph = [];
+      if (currentSegments !== undefined) formatCorrupt();
+      paragraphNumber += 1;
+      if (paragraphNumber > maximumParagraphs) formatCorrupt();
+      currentSegments = [[]];
     } else if (element.closing && element.name === 'w:p') {
-      if (currentParagraph === undefined || textOpening !== undefined) formatCorrupt();
-      provisional.push({ values: currentParagraph });
-      currentParagraph = undefined;
+      if (currentSegments === undefined || textOpening !== undefined) formatCorrupt();
+      const nonempty = currentSegments.filter((nodes) => nodes.length > 0);
+      for (const [segmentIndex, nodes] of nonempty.entries()) {
+        provisional.push(Object.freeze({ paragraphNumber, segmentNumber: segmentIndex + 1, nodes: Object.freeze(nodes) }));
+      }
+      currentSegments = undefined;
+    } else if (!element.closing && (element.name === 'w:tab' || element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference')) {
+      if (currentSegments === undefined) formatCorrupt();
+      if ((currentSegments.at(-1)?.length ?? 0) > 0) currentSegments.push([]);
     } else if (!element.closing && element.name === 'w:t') {
-      if (currentParagraph === undefined || textOpening !== undefined || element.selfClosing) formatCorrupt();
+      if (currentSegments === undefined || textOpening !== undefined || element.selfClosing) formatCorrupt();
       textOpening = element;
     } else if (element.closing && element.name === 'w:t') {
-      if (textOpening === undefined || currentParagraph === undefined) formatCorrupt();
+      if (textOpening === undefined || currentSegments === undefined) formatCorrupt();
       if (textNodeCount >= maximumTextNodes) formatCorrupt();
       const rawStart = textOpening.openingEnd;
       const rawEnd = element.openingStart;
       const rawValue = xml.slice(rawStart, rawEnd);
       if (rawValue.includes('<')) formatCorrupt();
-      currentParagraph.push({
-        rawStart,
-        rawEnd,
-        value: decodeXml(rawValue),
-        preservesWhitespace: textOpening.attributes['xml:space'] === 'preserve'
-      });
+      const value = decodeXml(rawValue);
+      if (value.length > 0) {
+        currentSegments.at(-1)?.push({
+          rawStart,
+          rawEnd,
+          value,
+          preservesWhitespace: textOpening.attributes['xml:space'] === 'preserve'
+        });
+      }
       textNodeCount += 1;
       textOpening = undefined;
     }
   }
-  if (currentParagraph !== undefined || textOpening !== undefined) formatCorrupt();
+  if (currentSegments !== undefined || textOpening !== undefined || activeSpecialNote !== undefined) formatCorrupt();
+  return {
+    descriptor,
+    xml,
+    segments: Object.freeze(provisional),
+    referencedHeaderFooterKinds,
+    referencedFootnoteIds,
+    referencedEndnoteIds,
+    declaredNoteIds,
+    paragraphCount: paragraphNumber,
+    textNodeCount
+  };
+}
 
+function assembleTextParts(parts: readonly ParsedTextPartRaw[]): ParsedDocxPackage {
+  if (parts.reduce((total, part) => total + part.paragraphCount, 0) > maximumParagraphs) formatCorrupt();
+  if (parts.reduce((total, part) => total + part.textNodeCount, 0) > maximumTextNodes) formatCorrupt();
   const canonicalParts: string[] = [];
-  const paragraphs: ParagraphRegion[] = [];
+  const parsedParts: ParsedTextPart[] = [];
+  const segments: SegmentRegion[] = [];
   let canonicalLength = 0;
-  const hash = createHash('sha256').update('local-pii:docx-extraction:v1\u0000', 'utf8');
-  for (const [paragraphIndex, paragraph] of provisional.entries()) {
-    if (paragraph.values.length === 0) continue;
-    if (paragraphs.length > 0) {
-      canonicalParts.push(paragraphBoundary);
-      canonicalLength += unicodeCodePointLength(paragraphBoundary);
+  const hash = createHash('sha256').update('local-pii:docx-extraction:v2\u0000', 'utf8');
+  for (const part of parts) {
+    const partSegments: SegmentRegion[] = [];
+    hash.update(`PART:${part.descriptor.name}\u0000`, 'utf8');
+    for (const segment of part.segments) {
+      if (segments.length > 0) {
+        canonicalParts.push(paragraphBoundary);
+        canonicalLength += unicodeCodePointLength(paragraphBoundary);
+      }
+      const segmentStart = canonicalLength;
+      hash.update(`S:${String(segment.paragraphNumber)}:${String(segment.segmentNumber)}:`, 'utf8');
+      const nodes: TextNodeRegion[] = [];
+      for (const value of segment.nodes) {
+        const canonicalStart = canonicalLength;
+        canonicalLength += unicodeCodePointLength(value.value);
+        if (canonicalLength > maximumCanonicalCodePoints) formatCorrupt();
+        canonicalParts.push(value.value);
+        nodes.push(Object.freeze({ ...value, canonicalStart, canonicalEnd: canonicalLength }));
+        hash.update('N:', 'utf8').update(String(Buffer.byteLength(value.value, 'utf8')), 'utf8').update(':', 'utf8').update(value.value, 'utf8');
+      }
+      const mapped = Object.freeze({
+        part: part.descriptor.name,
+        paragraphNumber: segment.paragraphNumber,
+        segmentNumber: segment.segmentNumber,
+        canonicalStart: segmentStart,
+        canonicalEnd: canonicalLength,
+        nodes: Object.freeze(nodes)
+      });
+      partSegments.push(mapped);
+      segments.push(mapped);
     }
-    const paragraphStart = canonicalLength;
-    hash.update(`P:${String(paragraphs.length)}:`, 'utf8');
-    const nodes: TextNodeRegion[] = [];
-    for (const value of paragraph.values) {
-      const canonicalStart = canonicalLength;
-      canonicalLength += unicodeCodePointLength(value.value);
-      if (canonicalLength > maximumCanonicalCodePoints) formatCorrupt();
-      canonicalParts.push(value.value);
-      nodes.push(Object.freeze({ ...value, canonicalStart, canonicalEnd: canonicalLength }));
-      hash.update('N:', 'utf8').update(String(Buffer.byteLength(value.value, 'utf8')), 'utf8').update(':', 'utf8').update(value.value, 'utf8');
-    }
-    paragraphs.push(Object.freeze({
-      paragraphNumber: paragraphIndex + 1,
-      canonicalStart: paragraphStart,
-      canonicalEnd: canonicalLength,
-      nodes: Object.freeze(nodes)
-    }));
+    parsedParts.push(Object.freeze({ name: part.descriptor.name, xml: part.xml, segments: Object.freeze(partSegments) }));
   }
   return {
-    xml,
     canonicalText: canonicalParts.join(''),
-    paragraphs: Object.freeze(paragraphs),
+    parts: Object.freeze(parsedParts),
+    segments: Object.freeze(segments),
     extractionRevision: parseSha256Digest(`sha256:${hash.digest('hex')}`)
   };
 }
@@ -599,12 +801,37 @@ function elementsByName(xml: string, expectedRoot: string): readonly XmlElement[
   return elements;
 }
 
-const allowedAuxiliaryParts: Readonly<Record<string, string>> = Object.freeze({});
+const supportedPartPattern = /^word\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml$/u;
+const relationshipKinds: Readonly<Record<string, { readonly root: TextPartDescriptor['root']; readonly contentType: string; readonly target: RegExp }>> = Object.freeze({
+  header: { root: 'w:hdr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml', target: /^header[1-9][0-9]{0,5}\.xml$/u },
+  footer: { root: 'w:ftr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml', target: /^footer[1-9][0-9]{0,5}\.xml$/u },
+  footnotes: { root: 'w:footnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml', target: /^footnotes\.xml$/u },
+  endnotes: { root: 'w:endnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml', target: /^endnotes\.xml$/u }
+});
 
-function validatePackage(entries: readonly ZipEntry[]): ParsedDocumentXml {
+function unsupportedEntryReason(name: string): UnsupportedFeatureReason {
+  if (/^(?:docProps|customXml)\//u.test(name) || /^word\/(?:styles|settings|theme|fontTable|numbering|webSettings)/u.test(name)) return 'metadata_part';
+  if (/^(?:word\/media|word\/embeddings|word\/drawings)\//u.test(name)) return 'drawing_or_alternate_content';
+  if (/^word\/(?:comments|glossary|subDoc)/u.test(name)) return 'additional_text_part';
+  return 'unknown_feature';
+}
+
+function partSort(left: TextPartDescriptor, right: TextPartDescriptor): number {
+  const rank = (name: string): number => name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : 4;
+  const difference = rank(left.name) - rank(right.name);
+  if (difference !== 0) return difference;
+  const suffix = (name: string): number => Number(/(?:header|footer)([1-9][0-9]*)\.xml$/u.exec(name)?.[1] ?? 0);
+  const numericDifference = suffix(left.name) - suffix(right.name);
+  if (numericDifference !== 0) return numericDifference;
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+}
+
+function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
   const byName = new Map(entries.map((entry) => [entry.name, entry]));
-  const allowed = new Set(['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/_rels/document.xml.rels', ...Object.keys(allowedAuxiliaryParts)]);
-  for (const entry of entries) if (!allowed.has(entry.name)) featureUnsupported();
+  const fixed = new Set(['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/_rels/document.xml.rels']);
+  for (const entry of entries) {
+    if (!fixed.has(entry.name) && !supportedPartPattern.test(entry.name)) featureUnsupported(unsupportedEntryReason(entry.name));
+  }
   const contentTypesEntry = byName.get('[Content_Types].xml');
   const rootRelsEntry = byName.get('_rels/.rels');
   const documentEntry = byName.get('word/document.xml');
@@ -614,7 +841,7 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocumentXml {
   const contentElements = elementsByName(contentTypesXml, 'Types');
   const contentRoot = contentElements.find((element) => !element.closing);
   if (contentRoot?.attributes.xmlns !== contentTypesNamespace || Object.keys(contentRoot.attributes).length !== 1) formatCorrupt();
-  let documentTypeFound = false;
+  const declaredTypes = new Map<string, string>();
   let relsDefaultFound = false;
   let xmlDefaultFound = false;
   for (const element of contentElements) {
@@ -627,12 +854,15 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocumentXml {
       if (element.attributes.Extension === 'rels' && contentType === 'application/vnd.openxmlformats-package.relationships+xml' && !relsDefaultFound) relsDefaultFound = true;
       else if (element.attributes.Extension === 'xml' && contentType === 'application/xml' && !xmlDefaultFound) xmlDefaultFound = true;
       else featureUnsupported();
-    } else if (element.attributes.PartName === '/word/document.xml') {
-      if (Object.keys(element.attributes).length !== 2 || contentType !== docxMediaType || documentTypeFound) formatCorrupt();
-      documentTypeFound = true;
-    } else featureUnsupported();
+    } else {
+      const partName = element.attributes.PartName;
+      if (Object.keys(element.attributes).length !== 2 || partName === undefined || !partName.startsWith('/') || declaredTypes.has(partName.slice(1))) formatCorrupt();
+      const normalized = partName.slice(1);
+      if (normalized !== 'word/document.xml' && !supportedPartPattern.test(normalized)) featureUnsupported(unsupportedEntryReason(normalized));
+      declaredTypes.set(normalized, contentType);
+    }
   }
-  if (!documentTypeFound || !relsDefaultFound || !xmlDefaultFound) formatCorrupt();
+  if (declaredTypes.get('word/document.xml') !== docxMediaType || !relsDefaultFound || !xmlDefaultFound) formatCorrupt();
 
   const rootRelsXml = decodeUtf8Xml(rootRelsEntry.contents);
   const rootRelationships = elementsByName(rootRelsXml, 'Relationships');
@@ -641,17 +871,19 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocumentXml {
   let officeDocumentFound = false;
   for (const element of rootRelationships) {
     if (element.closing || element.name === 'Relationships') continue;
-    if (element.name !== 'Relationship' || !element.selfClosing || element.attributes.TargetMode === 'External') featureUnsupported();
+    if (element.name !== 'Relationship' || !element.selfClosing) featureUnsupported('unknown_feature');
+    if (element.attributes.TargetMode === 'External') featureUnsupported('external_relationship');
     if (
       Object.keys(element.attributes).length !== 3 || !/^rId[1-9][0-9]{0,5}$/u.test(element.attributes.Id ?? '')
       || element.attributes.Type !== `${officeRelationshipPrefix}officeDocument`
       || element.attributes.Target !== 'word/document.xml' || officeDocumentFound
-    ) featureUnsupported();
+    ) featureUnsupported('unknown_feature');
     officeDocumentFound = true;
   }
   if (!officeDocumentFound) formatCorrupt();
 
-  const relatedParts = new Set<string>();
+  const relatedParts = new Map<string, { readonly id: string; readonly kind: string }>();
+  const relationshipIds = new Set<string>();
   const documentRels = byName.get('word/_rels/document.xml.rels');
   if (documentRels !== undefined) {
     const relationships = elementsByName(decodeUtf8Xml(documentRels.contents), 'Relationships');
@@ -659,23 +891,63 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocumentXml {
     if (relsRoot?.attributes.xmlns !== relationshipNamespace || Object.keys(relsRoot.attributes).length !== 1) formatCorrupt();
     for (const element of relationships) {
       if (element.closing || element.name === 'Relationships') continue;
+      if (element.attributes.TargetMode === 'External') featureUnsupported('external_relationship');
       if (
-        element.name !== 'Relationship' || !element.selfClosing || element.attributes.TargetMode === 'External'
+        element.name !== 'Relationship' || !element.selfClosing
         || Object.keys(element.attributes).length !== 3 || !/^rId[1-9][0-9]{0,5}$/u.test(element.attributes.Id ?? '')
-      ) featureUnsupported();
+      ) featureUnsupported('unknown_feature');
       const type = element.attributes.Type;
       const target = element.attributes.Target;
-      if (type === undefined || target === undefined || target.startsWith('/') || target.includes('\\') || target.split('/').includes('..')) featureUnsupported();
-      const expectedKind = allowedAuxiliaryParts[`word/${target}`];
-      if (expectedKind === undefined || type !== `${officeRelationshipPrefix}${expectedKind}`) featureUnsupported();
-      if (!byName.has(`word/${target}`) || relatedParts.has(`word/${target}`)) formatCorrupt();
-      relatedParts.add(`word/${target}`);
+      const kind = type?.startsWith(officeRelationshipPrefix) === true ? type.slice(officeRelationshipPrefix.length) : undefined;
+      if (kind === undefined || relationshipKinds[kind] === undefined || target === undefined || !relationshipKinds[kind].target.test(target)) featureUnsupported('unknown_feature');
+      const part = `word/${target}`;
+      if (!byName.has(part) || relatedParts.has(part) || relationshipIds.has(element.attributes.Id ?? '')) formatCorrupt();
+      relationshipIds.add(element.attributes.Id ?? '');
+      relatedParts.set(part, { id: element.attributes.Id ?? '', kind });
     }
   }
-  for (const part of Object.keys(allowedAuxiliaryParts)) {
-    if (byName.has(part) !== relatedParts.has(part)) formatCorrupt();
+  for (const part of byName.keys()) {
+    if (supportedPartPattern.test(part) && !relatedParts.has(part)) formatCorrupt();
   }
-  return parseDocumentXml(documentEntry.contents);
+  for (const [part, relationship] of relatedParts) {
+    const expected = relationshipKinds[relationship.kind]?.contentType;
+    if (declaredTypes.get(part) !== expected) formatCorrupt();
+  }
+  for (const part of declaredTypes.keys()) if (part !== 'word/document.xml' && !relatedParts.has(part)) formatCorrupt();
+
+  const descriptors: TextPartDescriptor[] = [{ name: 'word/document.xml', root: 'w:document' }];
+  for (const [part, relationship] of relatedParts) {
+    const root = relationshipKinds[relationship.kind]?.root;
+    if (root === undefined) formatCorrupt();
+    descriptors.push({ name: part, root });
+  }
+  descriptors.sort(partSort);
+  const rawParts = descriptors.map((descriptor) => {
+    const entry = byName.get(descriptor.name);
+    if (entry === undefined) return formatCorrupt();
+    return parseTextPart(entry.contents, descriptor);
+  });
+  const document = rawParts[0];
+  if (document === undefined || document.descriptor.name !== 'word/document.xml') formatCorrupt();
+  const referenced = document.referencedHeaderFooterKinds;
+  for (const [part, relationship] of relatedParts) {
+    if ((relationship.kind === 'header' || relationship.kind === 'footer') && referenced.get(relationship.id) !== relationship.kind) formatCorrupt();
+    if (referenced.has(relationship.id) && relationship.kind !== 'header' && relationship.kind !== 'footer') formatCorrupt();
+    if (!part.startsWith('word/')) formatCorrupt();
+  }
+  for (const id of referenced.keys()) if (!relationshipIds.has(id)) formatCorrupt();
+  const footnotes = rawParts.find((part) => part.descriptor.root === 'w:footnotes');
+  const endnotes = rawParts.find((part) => part.descriptor.root === 'w:endnotes');
+  const assertNoteGraph = (references: ReadonlySet<number>, part: ParsedTextPartRaw | undefined): void => {
+    if (references.size > 0 && part === undefined) formatCorrupt();
+    if (part !== undefined) {
+      for (const id of references) if (!part.declaredNoteIds.has(id)) formatCorrupt();
+      for (const id of part.declaredNoteIds) if (!references.has(id)) formatCorrupt();
+    }
+  };
+  assertNoteGraph(document.referencedFootnoteIds, footnotes);
+  assertNoteGraph(document.referencedEndnoteIds, endnotes);
+  return assembleTextParts(rawParts);
 }
 
 export interface DocxArtifact {
@@ -694,7 +966,7 @@ export interface DocxArtifact {
 
 interface DocxArtifactState {
   readonly entries: readonly ZipEntry[];
-  readonly document: ParsedDocumentXml;
+  readonly package: ParsedDocxPackage;
 }
 
 const docxArtifactStates = new WeakMap<DocxArtifact, DocxArtifactState>();
@@ -748,7 +1020,7 @@ export async function readDocxArtifact(
   const requestedPath = resolve(inputPath);
   const { path, bytes } = await readBoundedBinary(requestedPath, maximumBytes, fileSystem);
   const entries = parseZip(bytes);
-  const document = validatePackage(entries);
+  const parsedPackage = validatePackage(entries);
   const artifact: DocxArtifact = Object.freeze({
     reference: path,
     path,
@@ -756,29 +1028,29 @@ export async function readDocxArtifact(
     mediaType: docxMediaType,
     byteLength: bytes.length,
     digest: digestBytes(bytes),
-    extractionRevision: document.extractionRevision,
-    canonicalText: document.canonicalText,
-    text: document.canonicalText,
+    extractionRevision: parsedPackage.extractionRevision,
+    canonicalText: parsedPackage.canonicalText,
+    text: parsedPackage.canonicalText,
     hasUtf8Bom: false,
-    regions: Object.freeze(document.paragraphs.map((paragraph): CanonicalRegionV1 => Object.freeze({
+    regions: Object.freeze(parsedPackage.segments.map((segment): CanonicalRegionV1 => Object.freeze({
       schemaVersion: '1.0.0',
-      start: paragraph.canonicalStart,
-      end: paragraph.canonicalEnd,
+      start: segment.canonicalStart,
+      end: segment.canonicalEnd,
       offsetUnit: 'UNICODE_CODE_POINT',
       role: 'VALUE',
       location: Object.freeze({
         schemaVersion: '1.0.0',
         kind: 'DOCX_PART',
-        part: 'word/document.xml',
-        paragraph: paragraph.paragraphNumber
+        part: segment.part,
+        paragraph: segment.paragraphNumber
       })
     })))
   });
-  docxArtifactStates.set(artifact, { entries, document });
+  docxArtifactStates.set(artifact, { entries, package: parsedPackage });
   return artifact;
 }
 
-function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, paragraphs: readonly ParagraphRegion[]): Map<TextNodeRegion, TypedLabelAction[]> {
+function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, segments: readonly SegmentRegion[]): Map<TextNodeRegion, TypedLabelAction[]> {
   try {
     assertTypedLabelPlanIntegrity(plan);
   } catch {
@@ -813,14 +1085,14 @@ function assertPlan(plan: TypedLabelPlan, source: DocxArtifact, paragraphs: read
     }
   }
   const assignments = new Map<TextNodeRegion, TypedLabelAction[]>();
-  let paragraphIndex = 0;
+  let segmentIndex = 0;
   for (const action of sorted) {
-    let paragraph = paragraphs[paragraphIndex];
-    while (paragraph !== undefined && action.start >= paragraph.canonicalEnd) paragraph = paragraphs[++paragraphIndex];
-    if (paragraph === undefined || action.start < paragraph.canonicalStart || action.end > paragraph.canonicalEnd) {
-      throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'A redaction action crosses a DOCX paragraph boundary.', retryable: false, correlationId: 'cor_docx_adapter' });
+    let segment = segments[segmentIndex];
+    while (segment !== undefined && action.start >= segment.canonicalEnd) segment = segments[++segmentIndex];
+    if (segment === undefined || action.start < segment.canonicalStart || action.end > segment.canonicalEnd) {
+      throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'A redaction action crosses a DOCX structural boundary.', retryable: false, correlationId: 'cor_docx_adapter' });
     }
-    for (const node of paragraph.nodes) {
+    for (const node of segment.nodes) {
       if (action.start < node.canonicalEnd && action.end > node.canonicalStart) {
         const assigned = assignments.get(node) ?? [];
         assigned.push(action);
@@ -867,17 +1139,25 @@ function encodeXmlText(value: string): string {
 function applyDocxPlan(source: DocxArtifact, plan: TypedLabelPlan): Buffer {
   const state = docxArtifactStates.get(source);
   if (state === undefined) throw new SafeError({ code: 'REDACTION_PLAN_CONFLICT', message: 'The DOCX extraction state is unavailable.', retryable: false, correlationId: 'cor_docx_adapter' });
-  const assignments = assertPlan(plan, source, state.document.paragraphs);
-  const changed = [...assignments.entries()].sort(([left], [right]) => left.rawStart - right.rawStart);
-  const parts: string[] = [];
-  let cursor = 0;
-  for (const [node, actions] of changed) {
-    parts.push(state.document.xml.slice(cursor, node.rawStart), encodeXmlText(transformNode(node, actions)));
-    cursor = node.rawEnd;
+  const assignments = assertPlan(plan, source, state.package.segments);
+  const rewritten = new Map<string, Buffer>();
+  for (const part of state.package.parts) {
+    const nodes = part.segments.flatMap((segment) => segment.nodes)
+      .filter((node) => assignments.has(node))
+      .sort((left, right) => left.rawStart - right.rawStart);
+    if (nodes.length === 0) continue;
+    const output: string[] = [];
+    let cursor = 0;
+    for (const node of nodes) {
+      output.push(part.xml.slice(cursor, node.rawStart), encodeXmlText(transformNode(node, assignments.get(node) ?? [])));
+      cursor = node.rawEnd;
+    }
+    output.push(part.xml.slice(cursor));
+    rewritten.set(part.name, Buffer.from(output.join(''), 'utf8'));
   }
-  parts.push(state.document.xml.slice(cursor));
-  const documentBytes = Buffer.from(parts.join(''), 'utf8');
-  const outputEntries = state.entries.map((entry) => entry.name === 'word/document.xml' ? Object.freeze({ ...entry, contents: documentBytes }) : entry);
+  const outputEntries = state.entries.map((entry) => rewritten.has(entry.name)
+    ? Object.freeze({ ...entry, contents: rewritten.get(entry.name) ?? entry.contents })
+    : entry);
   return writeZip(outputEntries);
 }
 

@@ -6,7 +6,7 @@ from calendar import monthrange
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from referencing import Registry, Resource
 
 
@@ -38,6 +38,9 @@ _RFC3339_DATE_TIME = re.compile(
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?"
     r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
+_BATCH_SCAN_REPORT_SCHEMA_ID = (
+    "https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0"
+)
 
 
 @_FORMAT_CHECKER.checks("uuid")
@@ -56,6 +59,41 @@ def _is_rfc3339_date_time(value: object) -> bool:
     return day <= monthrange(year, month)[1]
 
 
+def _batch_scan_report_semantic_errors(value: object) -> tuple[str, ...]:
+    report = value if isinstance(value, dict) else {}
+    manifest_value = report.get("manifest")
+    manifest = manifest_value if isinstance(manifest_value, dict) else {}
+    by_entity_value = manifest.get("byEntity")
+    by_entity = by_entity_value if isinstance(by_entity_value, dict) else {}
+    failures_value = manifest.get("failuresByCode")
+    failures = failures_value if isinstance(failures_value, dict) else {}
+    errors: list[str] = []
+    if manifest.get("selectedFileCount") != (
+        manifest.get("processedFileCount", 0) + manifest.get("failedFileCount", 0)
+    ):
+        errors.append("selected file count does not reconcile")
+    if manifest.get("processedInputBytes", 0) > manifest.get("totalInputBytes", 0):
+        errors.append("processed bytes exceed selected bytes")
+    if sum(by_entity.values()) != manifest.get("detectionCount"):
+        errors.append("entity counts do not reconcile")
+    if sum(failures.values()) != manifest.get("failedFileCount"):
+        errors.append("failure counts do not reconcile")
+    if manifest.get("complete") != (manifest.get("failedFileCount") == 0):
+        errors.append("completion state does not reconcile")
+    if manifest.get("selectedFileCount") == 0 and manifest.get("totalInputBytes") != 0:
+        errors.append("empty selection reports selected bytes")
+    if (
+        manifest.get("processedFileCount") == 0
+        and manifest.get("processedInputBytes") != 0
+    ):
+        errors.append("empty processing reports processed bytes")
+    if manifest.get("processedFileCount") == 0 and manifest.get("detectionCount") != 0:
+        errors.append("empty processing reports detections")
+    if manifest.get("processedFileCount") == 0 and manifest.get("conflictCount") != 0:
+        errors.append("empty processing reports conflicts")
+    return tuple(errors)
+
+
 def validate_contract(schema_id: str, value: object) -> None:
     """Validate a value against a canonical contract or raise a schema validation error."""
     try:
@@ -63,3 +101,7 @@ def validate_contract(schema_id: str, value: object) -> None:
     except KeyError as error:
         raise ValueError(f"Unknown contract schema: {schema_id}") from error
     Draft202012Validator(schema, registry=_REGISTRY, format_checker=_FORMAT_CHECKER).validate(value)
+    if schema_id == _BATCH_SCAN_REPORT_SCHEMA_ID:
+        semantic_errors = _batch_scan_report_semantic_errors(value)
+        if semantic_errors:
+            raise ValidationError("; ".join(semantic_errors))

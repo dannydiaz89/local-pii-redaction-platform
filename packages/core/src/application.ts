@@ -160,6 +160,7 @@ function validatedRegions(
   const candidateRegions: unknown = regions;
   if (!Array.isArray(candidateRegions) || candidateRegions.length > 100_000) return sourceMapInvalid(requestCorrelationId);
   let previousEnd = 0;
+  let previousIdentity: string | undefined;
   const locations = new Set<string>();
   for (const region of candidateRegions as readonly unknown[]) {
     if (region === null || typeof region !== 'object' || Array.isArray(region)) return sourceMapInvalid(requestCorrelationId);
@@ -191,8 +192,11 @@ function validatedRegions(
       ) return sourceMapInvalid(requestCorrelationId);
     }
     const identity = nativeLocationIdentity(candidate.location);
-    if (locations.has(identity)) return sourceMapInvalid(requestCorrelationId);
+    if (locations.has(identity) && (candidate.location.kind !== 'DOCX_PART' || previousIdentity !== identity)) {
+      return sourceMapInvalid(requestCorrelationId);
+    }
     locations.add(identity);
+    previousIdentity = identity;
     previousEnd = candidate.end as number;
   }
   return regions;

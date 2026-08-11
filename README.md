@@ -70,6 +70,8 @@ pnpm --silent pii-redact policies explain high-risk-disclosure --json
 pnpm --silent pii-redact capabilities --json
 pnpm pii-redact inspect ./sample-data/input/sample.txt
 pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
+pnpm --silent pii-redact batch scan ./sample-data/input \
+  --include '**/*.txt' --exclude '**/ignored-*' --json
 pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
   --policy development-labels --output ./test-output/sample.redacted.txt --json \
   > ./test-output/sample.redact-report.json
@@ -284,7 +286,8 @@ a `.csv` extension.
 JSON values, CSV cells, and DOCX paragraphs now expose a versioned typed source map internally:
 RFC 6901 JSON pointers, one-based logical CSV row/column coordinates, or an allow-listed DOCX part
 and one-based paragraph. Core validates that every structured detection belongs to exactly one
-declared region, and span resolution binds those native locations into its digest. These locations
+declared region, while permitting tab-separated nonoverlapping DOCX regions to retain one stable
+part/paragraph identity; span resolution binds those native locations into its digest. These locations
 are deliberately omitted from ordinary CLI/API reports because paths and headers can themselves be
 sensitive. Exact path/cell policy selection now uses this source-map seam. Carrying native targets
 directly in a future plan contract and cross-checking them at the writer boundary remain future
@@ -311,11 +314,15 @@ redact-report v3; existing scan v1 and bundled-policy redaction v2 reports remai
 The rules-only CLI has an experimental strict `.docx` inspect/scan surface through
 [`@local-pii/adapter-docx`](./packages/adapter-docx). It accepts only bounded, non-encrypted OOXML
 packages whose declared visible content is ordinary `w:t` text in `word/document.xml` body and
-table paragraphs, including text fragmented across formatting runs. It rejects macros, external
-or embedded relationships, metadata and auxiliary parts, headers/footers/notes/comments, images,
-text boxes, fields, revisions, hidden text, custom XML, unknown parts, and unsafe or inconsistent
-ZIP structures instead of silently skipping them. Its `docx-extract-v1` evidence attests bounded
-ZIP structure, the feature allowlist, and native paragraph mapping only. DOCX redaction and
+table paragraphs or in strictly related headers, footers, footnotes, and endnotes, including text
+fragmented across formatting runs. Tabs and note-reference markers become non-crossable structural
+boundaries; standard reserved nonpositive-ID note separators remain zero-text. Content types, relationships,
+header/footer references, and ordinary note IDs must form a closed graph. It rejects macros,
+external or embedded relationships, metadata, comments, drawings/`AlternateContent`, text boxes,
+fields, revisions, hidden text, custom XML, unknown parts, and unsafe or inconsistent ZIP structures
+instead of silently skipping them. Privacy-safe unsupported errors expose only a closed reason
+category. Its `docx-extract-v1` evidence attests bounded ZIP structure, the feature allowlist, and
+native paragraph mapping only. DOCX redaction and
 standalone verification are not exposed: native leakage verification, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
@@ -381,6 +388,16 @@ output collisions.
 - The rules-only CLI accepts UTF-8 `.txt`, `.md`, `.markdown`, `.json`, and `.csv` regular files for
   inspect/scan/redact/verify. Its narrow experimental `.docx` surface is inspect/scan only. Symbolic
   links are rejected. The current browser/API intake remains TXT/Markdown-only.
+- `batch scan` recursively processes only TXT/Markdown/JSON/CSV beneath one non-symbolic directory.
+  Traversal is deterministic and bounded to 1,000 files, 1,000 directories, 10,000 entries,
+  256 MiB of selected input, 32 include and 32 exclude patterns, and a 60-second cooperative
+  deadline by default. Glob matching uses a deterministic automaton rather than backtracking regexes,
+  with an 8,192-code-unit relative-path limit and a 100-million-state-step traversal budget. Its
+  canonical manifest contains aggregate counts and fixed error-code counts only: no paths,
+  filenames, patterns, content digests, native locations, or values. Per-file safe failures produce
+  a nonzero partial/failed manifest. Recursive redaction, output mapping, resume, and Ollama batch
+  processing remain unavailable. Complete mediation of a hostile process concurrently replacing
+  parent-directory entries requires a future dirfd/openat-style traversal boundary.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
 - The opt-in Ollama hybrid scan is experimental and unqualified. Its contextual results can be

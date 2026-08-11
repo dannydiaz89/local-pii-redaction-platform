@@ -15,7 +15,8 @@ import {
   readLocalUtf8Artifact
 } from '@local-pii/adapter-text';
 import { assertContract } from '@local-pii/contracts';
-import { SafeError, unicodeCodePointLength, type EntityType } from '@local-pii/domain';
+import { deterministicDetectorBundleVersion } from '@local-pii/detectors';
+import { SafeError, unicodeCodePointLength, type EntityType, type ErrorCode } from '@local-pii/domain';
 import {
   bundledPolicies,
   compilePolicy,
@@ -37,6 +38,13 @@ import {
   textCapabilityRequirement
 } from './application.js';
 import { createCurrentCapabilityManifest } from './capabilities.js';
+import {
+  assertBatchPattern,
+  assertBatchFileUnchanged,
+  batchTraversalLimits,
+  defaultBatchIncludes,
+  discoverBatchFiles
+} from './batch.js';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -62,6 +70,9 @@ interface ParsedArguments {
   readonly model: string | undefined;
   readonly ollamaUrl: string | undefined;
   readonly timeoutMs: number | undefined;
+  readonly batchTimeoutMs: number | undefined;
+  readonly includes: readonly string[];
+  readonly excludes: readonly string[];
   readonly allowExperimental: boolean;
   readonly apply: boolean;
   readonly json: boolean;
@@ -73,6 +84,7 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
@@ -90,6 +102,7 @@ const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
 const cliScanReportV2SchemaId = 'https://local-pii.dev/schemas/cli/scan-report/2.0.0';
 const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/2.0.0';
 const cliRedactReportV3SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/3.0.0';
+const cliBatchScanReportSchemaId = 'https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const stageRecoveryReportSchemaId = 'https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
@@ -106,6 +119,9 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let model: string | undefined;
   let ollamaUrl: string | undefined;
   let timeoutMs: number | undefined;
+  let batchTimeoutMs: number | undefined;
+  const includes: string[] = [];
+  const excludes: string[] = [];
   let allowExperimental = false;
   let apply = false;
   let json = false;
@@ -160,6 +176,21 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       if (!Number.isSafeInteger(parsed) || parsed < 1_000 || parsed > 300_000) throw new Error('invalid timeout');
       timeoutMs = parsed;
       index += 1;
+    } else if (value === '--batch-timeout-ms') {
+      const parsed = Number(valueAfter(index, '--batch-timeout-ms'));
+      if (!Number.isSafeInteger(parsed)
+        || parsed < batchTraversalLimits.minimumTimeoutMs
+        || parsed > batchTraversalLimits.maximumTimeoutMs
+      ) throw new Error('invalid batch timeout');
+      batchTimeoutMs = parsed;
+      index += 1;
+    } else if (value === '--include' || value === '--exclude') {
+      const collection = value === '--include' ? includes : excludes;
+      const pattern = valueAfter(index, value);
+      assertBatchPattern(pattern);
+      collection.push(pattern);
+      if (collection.length > batchTraversalLimits.maximumPatterns) throw new Error('too many batch patterns');
+      index += 1;
     } else if (value?.startsWith('-') === true) {
       throw new Error('unknown option');
     } else if (value !== undefined) positional.push(value);
@@ -177,6 +208,9 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     model,
     ollamaUrl,
     timeoutMs,
+    batchTimeoutMs,
+    includes: Object.freeze(includes),
+    excludes: Object.freeze(excludes),
     allowExperimental,
     apply,
     json,
@@ -193,6 +227,8 @@ function writeResult(io: CliIo, json: boolean, value: object, human: string): vo
     schemaId = schemaVersion === '3.0.0' ? cliRedactReportV3SchemaId : cliRedactReportV2SchemaId;
   } else if (operation === 'SCAN' && schemaVersion === '2.0.0') {
     schemaId = cliScanReportV2SchemaId;
+  } else if (operation === 'BATCH_SCAN') {
+    schemaId = cliBatchScanReportSchemaId;
   } else if (operation === 'STAGE_RECOVERY') {
     schemaId = stageRecoveryReportSchemaId;
   }
@@ -414,6 +450,142 @@ async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal
   return resolution.conflicts.length === 0 ? 0 : 5;
 }
 
+async function runBatchScan(
+  root: string,
+  parsed: ParsedArguments,
+  io: CliIo,
+  signal?: AbortSignal
+): Promise<number> {
+  const timeoutController = new AbortController();
+  const timeoutMs = parsed.batchTimeoutMs ?? batchTraversalLimits.defaultTimeoutMs;
+  const timer = setTimeout(() => {
+    timeoutController.abort();
+  }, timeoutMs);
+  const batchSignal = signal === undefined
+    ? timeoutController.signal
+    : AbortSignal.any([signal, timeoutController.signal]);
+  try {
+    const traversal = await discoverBatchFiles(root, {
+      includes: parsed.includes.length === 0 ? defaultBatchIncludes : parsed.includes,
+      excludes: parsed.excludes,
+      signal: batchSignal
+    });
+    const byEntity: Partial<Record<EntityType, number>> = {};
+    let detectionCount = 0;
+    let conflictCount = 0;
+    let processedFileCount = 0;
+    let processedInputBytes = 0;
+    const failuresByCode: Partial<Record<ErrorCode, number>> = {};
+    for (const file of traversal.files) {
+      batchSignal.throwIfAborted();
+      let result;
+      try {
+        await assertBatchFileUnchanged(file);
+        result = await localFileApplication.scan({
+          session: localSession(file.path),
+          requirement: scanCapabilityRequirement(file.path, 'rules', undefined),
+          signal: batchSignal
+        }, { correlationId: 'cor_cli_batch_scan' });
+        await assertBatchFileUnchanged(file);
+        if (result.artifact.byteLength !== file.byteLength) {
+          throw new SafeError({
+            code: 'JOB_CONFLICT',
+            message: 'A selected batch file changed before its scan completed.',
+            retryable: true,
+            correlationId: 'cor_cli_batch'
+          });
+        }
+      } catch (error: unknown) {
+        if (batchSignal.aborted) throw error;
+        if (!(error instanceof SafeError)) throw error;
+        failuresByCode[error.code] = (failuresByCode[error.code] ?? 0) + 1;
+        continue;
+      }
+      if (result.detectorBundleVersion !== deterministicDetectorBundleVersion) {
+        throw new SafeError({
+          code: 'JOB_CONFLICT',
+          message: 'The batch detector bundle changed during processing.',
+          retryable: true,
+          correlationId: 'cor_cli_batch'
+        });
+      }
+      processedFileCount += 1;
+      processedInputBytes += result.artifact.byteLength;
+      if (processedInputBytes > batchTraversalLimits.maximumTotalInputBytes) {
+        throw new SafeError({
+          code: 'INPUT_TOO_LARGE',
+          message: 'The batch input exceeds the bounded traversal or byte limits.',
+          retryable: false,
+          correlationId: 'cor_cli_batch'
+        });
+      }
+      detectionCount += result.resolution.spans.length;
+      conflictCount += result.resolution.conflicts.length;
+      for (const span of result.resolution.spans) {
+        byEntity[span.entityType] = (byEntity[span.entityType] ?? 0) + 1;
+      }
+    }
+    const failedFileCount = traversal.files.length - processedFileCount;
+    const outcome = failedFileCount === 0
+      ? conflictCount === 0 ? 'SUCCEEDED' : 'NEEDS_REVIEW'
+      : processedFileCount === 0 && traversal.files.length > 0 ? 'FAILED' : 'PARTIAL';
+    const report = {
+      schemaVersion: '1.0.0',
+      operation: 'BATCH_SCAN',
+      outcome,
+      detectorBundleVersion: deterministicDetectorBundleVersion,
+      manifest: {
+        complete: failedFileCount === 0,
+        selectedFileCount: traversal.files.length,
+        processedFileCount,
+        failedFileCount,
+        directoryCount: traversal.directoryCount,
+        entryCount: traversal.entryCount,
+        totalInputBytes: traversal.totalInputBytes,
+        processedInputBytes,
+        detectionCount,
+        conflictCount,
+        byEntity,
+        failuresByCode
+      },
+      selection: {
+        includePatternCount: parsed.includes.length === 0 ? defaultBatchIncludes.length : parsed.includes.length,
+        excludePatternCount: parsed.excludes.length
+      },
+      limits: {
+        maximumFiles: batchTraversalLimits.maximumFiles,
+        maximumDirectories: batchTraversalLimits.maximumDirectories,
+        maximumEntries: batchTraversalLimits.maximumEntries,
+        maximumTotalInputBytes: batchTraversalLimits.maximumTotalInputBytes,
+        maximumRelativePathCodeUnits: batchTraversalLimits.maximumRelativePathCodeUnits,
+        maximumPatternMatchSteps: batchTraversalLimits.maximumPatternMatchSteps,
+        timeoutMs
+      }
+    } as const;
+    writeResult(io, parsed.json, report, [
+      `Selected files: ${String(traversal.files.length)}`,
+      `Completed files: ${String(processedFileCount)}`,
+      `Failed files: ${String(failedFileCount)}`,
+      `Detections: ${String(detectionCount)}`,
+      `Conflicts: ${String(conflictCount)}`
+    ].join('\n'));
+    return failedFileCount > 0 ? 3 : conflictCount === 0 ? 0 : 5;
+  } catch (error: unknown) {
+    if (timeoutController.signal.aborted) {
+      throw new SafeError({
+        code: 'OPERATION_CANCELLED',
+        message: 'The batch scan exceeded its bounded processing time.',
+        retryable: true,
+        correlationId: 'cor_cli_batch',
+        details: { deadlineExceeded: true }
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function validEngineSelection(parsed: ParsedArguments): boolean {
   const modelOptionsSelected = parsed.model !== undefined
     || parsed.ollamaUrl !== undefined
@@ -445,6 +617,9 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
+      && parsed.batchTimeoutMs === undefined
+      && parsed.includes.length === 0
+      && parsed.excludes.length === 0
       && !parsed.allowExperimental
       && !parsed.apply
       && !parsed.help
@@ -464,10 +639,29 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
+      && parsed.batchTimeoutMs === undefined
+      && parsed.includes.length === 0
+      && parsed.excludes.length === 0
       && !parsed.allowExperimental
       && !parsed.help
       && !parsed.license;
   }
+  if (parsed.command === 'batch') {
+    return parsed.input === 'scan'
+      && parsed.policyName !== undefined
+      && parsed.output === undefined
+      && parsed.selectedPolicy === undefined
+      && parsed.policyFile === undefined
+      && !parsed.engineSpecified
+      && parsed.engine === 'rules'
+      && parsed.model === undefined
+      && parsed.ollamaUrl === undefined
+      && parsed.timeoutMs === undefined
+      && !parsed.allowExperimental
+      && !parsed.apply
+      && !parsed.license;
+  }
+  if (parsed.batchTimeoutMs !== undefined || parsed.includes.length > 0 || parsed.excludes.length > 0) return false;
   if (!validEngineSelection(parsed)) return false;
   if (parsed.policyFile !== undefined && parsed.engine !== 'rules') return false;
   if (
@@ -640,7 +834,7 @@ function writeSafeError(error: SafeError, json: boolean, io: CliIo, exitCode?: n
         || error.code === 'ARTIFACT_DIGEST_MISMATCH'
         ? 4
         : error.code === 'OPERATION_CANCELLED'
-          ? 130
+          ? error.details?.deadlineExceeded === true ? 3 : 130
         : 3);
 }
 
@@ -716,6 +910,9 @@ export async function executeCli(
     }
     if (parsed.command === 'cleanup-stages') {
       return await runStageRecovery(parsed.output as string, parsed.apply, parsed.json, io, signal);
+    }
+    if (parsed.command === 'batch') {
+      return await runBatchScan(parsed.policyName as string, parsed, io, signal);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
       return writeUsageError(parsed.json, io);

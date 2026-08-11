@@ -5,8 +5,8 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
 
 ## Responsibilities
 
-- Implements `inspect`, `scan`, `redact`, `verify`, `capabilities`, policy inspection, and bounded
-  staged-artifact cleanup commands.
+- Implements `inspect`, `scan`, bounded rules-only `batch scan`, `redact`, `verify`, `capabilities`,
+  policy inspection, and bounded staged-artifact cleanup commands.
 - Converts canonical application results and safe errors into stable human or JSON output and
   documented exit codes.
 - Owns CLI argument validation, process-signal handling, and command-specific policy binding.
@@ -14,6 +14,11 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
   exact JSON Pointer and CSV index/header classification; selectors and file paths are omitted from
   reports. There are no YAML, include, environment, executable, or network policy sources.
 - Keeps Ollama opt-in, loopback-only, experimental, and scan-only.
+- Recursively scans a deterministic, contained TXT/Markdown/JSON/CSV selection with bounded
+  include/exclude globs, a deterministic non-backtracking matcher with an explicit work budget,
+  conservative symlink rejection, a total byte/time budget, and an aggregate
+  privacy-safe manifest. The deadline is cooperative; hard isolation of synchronous parsers remains
+  future sandbox work. Recursive redaction and output mapping are intentionally not exposed yet.
 - Selects the native JSON adapter for `.json`; keys remain outside detection and only string values
   may be transformed.
 - Selects the native CSV adapter for `.csv`; an explicit v2 policy may select its delimiter and
