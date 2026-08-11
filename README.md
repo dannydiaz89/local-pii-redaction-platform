@@ -181,9 +181,10 @@ screen-reader, zoom/reflow, and contrast review remain required before accessibi
 
 The capability preflight accepts only a numeric-loopback API origin and a per-launch bearer token
 in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
-secrets, local/session storage, cookies, or remote catalogs. Its bounded client denies redirects,
-credentials, referrers, and caching, then projects only aggregate values from the capability
-response. A separate bounded, typed client now discovers the pinned policy catalog, creates a
+secrets, local/session storage, cookies, or remote catalogs. The browser consumes the public root
+of [`@local-pii/sdk`](./packages/sdk). Its bounded session client denies redirects, credentials,
+referrers, and caching, rejects incompatible capability-contract versions before any upload, then
+projects only aggregate values from the capability response. The same typed client discovers the pinned policy catalog, creates a
 process-local artifact and real asynchronous rules-scan job, observes its state/events, and requests
 value-free detection pages. Once connected, document intake admits TXT/Markdown files up to 8 MiB.
 The UI displays the server-owned completion state/event count plus aggregate categories and a
@@ -346,8 +347,13 @@ relationships, comments, text boxes, fields, revisions, hidden text/styles, bina
 parts, and any non-qualified carrier shape still fail closed instead of being skipped. Privacy-safe
 unsupported errors expose only a closed reason category. XML input and internal replacement strings
 must satisfy the XML 1.0 character repertoire. Its `docx-extract-v1` evidence attests bounded ZIP
-structure, the feature allowlist, and typed native source mapping only. DOCX redaction and
-standalone verification are not exposed: native leakage verification, broader feature coverage,
+structure, the feature allowlist, and typed native source mapping only. An adapter-local reconciliation foundation
+now reconciles the paragraph-only internal writer's exact plan/receipt, deterministic staged bytes,
+native reopen, canonical replacements, retained carrier inventory, untouched decompressed parts,
+and uniquely planted planned-source canaries on synthetic packages. It deliberately reuses the extraction
+parser, reports no independent or fidelity qualification, and rejects plans targeting accepted
+relationship/XML carriers. DOCX redaction and standalone verification therefore remain unexposed:
+complete carrier writers, an independent native leakage verifier, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
 
@@ -496,6 +502,7 @@ output collisions.
 - [`packages/core`](./packages/core): use-case orchestration and provider/adapter ports
 - [`packages/profile-local`](./packages/profile-local): reusable rules-only and experimental local composition
 - [`packages/provider-ollama`](./packages/provider-ollama): experimental loopback-only contextual provider
+- [`packages/sdk`](./packages/sdk): bounded authenticated numeric-loopback TypeScript session client
 - [`packages/i18n`](./packages/i18n): typed bundled catalogs and locale helpers
 - [`packages/job-store`](./packages/job-store): revisioned, idempotent job-metadata port and volatile conformance adapter
 - [`packages/adapter-job-sqlite`](./packages/adapter-job-sqlite): disabled metadata-only SQLite transaction/restart prototype

@@ -16,11 +16,11 @@ import {
   type LocalApiSession
 } from './api.js';
 import {
-  webPreviewMaximumConflictDetails,
-  webPreviewMaximumDetectionDetails,
-  webPreviewMaximumInputBytes,
-  webRedactionMaximumOutputBytes
-} from './preview-limit.js';
+  localClientMaximumConflictDetails,
+  localClientMaximumDetectionDetails,
+  localClientMaximumInputBytes,
+  localClientMaximumOutputBytes
+} from './limits.js';
 
 export type JobOperation = JobsJobContract.Job['operation'];
 export type JobState = JobsJobContract.Job['state'];
@@ -316,10 +316,10 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
     || !isRecord(value.counts.byEntity)
     || Object.keys(value.counts.byEntity).length > entityTypes.size
     || !Array.isArray(value.detections)
-    || value.detections.length > webPreviewMaximumDetectionDetails
+    || value.detections.length > localClientMaximumDetectionDetails
     || typeof value.detailsLimited !== 'boolean'
     || !Array.isArray(value.conflicts)
-    || value.conflicts.length > webPreviewMaximumConflictDetails
+    || value.conflicts.length > localClientMaximumConflictDetails
     || typeof value.conflictDetailsLimited !== 'boolean') {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
@@ -361,8 +361,8 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
       sources: Object.freeze(item.sources as PreviewDetectionSource[])
     });
   });
-  if (details.length !== Math.min(value.counts.detections, webPreviewMaximumDetectionDetails)
-    || value.detailsLimited !== (value.counts.detections > webPreviewMaximumDetectionDetails)) {
+  if (details.length !== Math.min(value.counts.detections, localClientMaximumDetectionDetails)
+    || value.detailsLimited !== (value.counts.detections > localClientMaximumDetectionDetails)) {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
   for (let index = 1; index < details.length; index += 1) {
@@ -400,8 +400,8 @@ export function projectPreviewScan(value: unknown): PreviewScanSummary {
       sources: Object.freeze(item.sources as PreviewDetectionSource[])
     });
   });
-  if (conflictDetails.length !== Math.min(value.counts.conflicts, webPreviewMaximumConflictDetails)
-    || value.conflictDetailsLimited !== (value.counts.conflicts > webPreviewMaximumConflictDetails)) {
+  if (conflictDetails.length !== Math.min(value.counts.conflicts, localClientMaximumConflictDetails)
+    || value.conflictDetailsLimited !== (value.counts.conflicts > localClientMaximumConflictDetails)) {
     throw new Error('PREVIEW_RESPONSE_INVALID');
   }
   for (let index = 1; index < conflictDetails.length; index += 1) {
@@ -525,7 +525,7 @@ function projectArtifact(value: unknown): ArtifactSummary {
     || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
     || value.kind !== 'INPUT'
     || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
-    || !safeInteger(value.byteLength, 1, webPreviewMaximumInputBytes)
+    || !safeInteger(value.byteLength, 1, localClientMaximumInputBytes)
     || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
     || typeof value.displayName !== 'string' || value.displayName.length > 255
     || (value.publicationState !== 'STAGED' && value.publicationState !== 'IMMUTABLE')
@@ -552,7 +552,7 @@ function projectOutputArtifact(value: unknown): Omit<RedactedOutputSummary, 'byt
     || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
     || value.kind !== 'SANITIZED_OUTPUT'
     || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
-    || !safeInteger(value.byteLength, 0, webRedactionMaximumOutputBytes)
+    || !safeInteger(value.byteLength, 0, localClientMaximumOutputBytes)
     || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
     || (value.displayName !== 'document.redacted.txt' && value.displayName !== 'document.redacted.md')
     || (value.mediaType === 'text/plain') !== (value.displayName === 'document.redacted.txt')
@@ -855,7 +855,7 @@ export function createLocalJobClient(
     signal: AbortSignal
   ): Promise<ArtifactSummary> => {
     const mediaType = mediaTypeForFile(file);
-    if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > webPreviewMaximumInputBytes) {
+    if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > localClientMaximumInputBytes) {
       throw new TypeError('The processing file is invalid.');
     }
     const bytes = await file.arrayBuffer();
@@ -1006,7 +1006,7 @@ export function createLocalJobClient(
         if (outputUrl.origin !== origin.origin || !response.ok) throw new Error('OUTPUT_REQUEST_FAILED');
         const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
         if (mediaType !== output.mediaType) throw new Error('OUTPUT_RESPONSE_INVALID');
-        return readBoundedResponseBytes(response, webRedactionMaximumOutputBytes, 'OUTPUT_RESPONSE_INVALID');
+        return readBoundedResponseBytes(response, localClientMaximumOutputBytes, 'OUTPUT_RESPONSE_INVALID');
       });
       const digestBytes = outputBytes.slice();
       let downloadedDigest: string;
@@ -1084,7 +1084,7 @@ export function createLocalJobClient(
       if (format === undefined
         || !Number.isSafeInteger(file.size)
         || file.size < 0
-        || file.size > webPreviewMaximumInputBytes) {
+        || file.size > localClientMaximumInputBytes) {
         throw new TypeError('The preview file is invalid.');
       }
       const url = new URL('/v1/preview/review', origin);

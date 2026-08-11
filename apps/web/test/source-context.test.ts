@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { JobDetectionSummary } from '../src/job-api.js';
+import type { JobDetectionSummary } from '@local-pii/sdk';
 import { readSourceDetectionContext } from '../src/source-context.js';
 
 function detection(start: number, end: number): JobDetectionSummary {

@@ -6,9 +6,8 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WebApplication } from '../src/application.js';
-import type { CapabilityClient } from '../src/api.js';
+import type { CapabilityClient, LocalJobClient } from '@local-pii/sdk';
 import { preflightSelectedFile } from '../src/file-preflight.js';
-import type { LocalJobClient } from '../src/job-api.js';
 import { createRedactedTextPreview } from '../src/redacted-preview.js';
 
 const scanJobId = 'job_01J4M91NJK8WAPJ7J95K73CB2M';
@@ -35,14 +34,16 @@ afterEach(() => {
 function readyClient(): CapabilityClient {
   return {
     load: () => Promise.resolve({
+      schemaVersion: '1.0.0',
+      supportedContractVersions: ['1.0.0'],
       engineMode: 'RULES_ONLY',
       formatCount: 2,
       availableDetectorCount: 1,
       maximumInputBytes: 104_857_600,
       supportedFiles: [
-        { extension: '.markdown', maximumInputBytes: 104_857_600 },
-        { extension: '.md', maximumInputBytes: 104_857_600 },
-        { extension: '.txt', maximumInputBytes: 104_857_600 }
+        { extension: '.markdown', maximumInputBytes: 104_857_600, supportsRedaction: true },
+        { extension: '.md', maximumInputBytes: 104_857_600, supportsRedaction: true },
+        { extension: '.txt', maximumInputBytes: 104_857_600, supportsRedaction: true }
       ],
       supportedEntityTypes: ['EMAIL', 'PHONE', 'SSN', 'CREDIT_CARD']
     })
@@ -535,11 +536,11 @@ describe('web application foundation', () => {
   it('uses the selected extension-specific limit without reading file bytes', () => {
     expect(preflightSelectedFile(
       { name: 'synthetic.md', size: 11 },
-      { supportedFiles: [{ extension: '.md', maximumInputBytes: 10 }] }
+      { supportedFiles: [{ extension: '.md', maximumInputBytes: 10, supportsRedaction: true }] }
     )).toEqual({ kind: 'too-large', maximumInputBytes: 10 });
     expect(preflightSelectedFile(
       { name: 'synthetic.TXT', size: 10 },
-      { supportedFiles: [{ extension: '.txt', maximumInputBytes: 10 }] }
+      { supportedFiles: [{ extension: '.txt', maximumInputBytes: 10, supportsRedaction: true }] }
     )).toEqual({ kind: 'ready', byteLength: 10, extension: '.txt' });
   });
 

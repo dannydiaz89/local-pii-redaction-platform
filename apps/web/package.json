@@ -10,8 +10,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@local-pii/contracts": "workspace:*",
     "@local-pii/i18n": "workspace:*",
+    "@local-pii/sdk": "workspace:*",
     "@local-pii/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

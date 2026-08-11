@@ -7,28 +7,57 @@ import {
   localRedactionMaximumOutputBytes
 } from '@local-pii/contracts';
 
-import { createCapabilityClient, projectCapabilitySummary } from '../src/api.js';
 import {
-  createLocalJobClient,
+  createCapabilityClient,
+  createLocalSessionClient,
+  localClientMaximumConflictDetails,
+  localClientMaximumDetectionDetails,
+  localClientMaximumInputBytes,
+  localClientMaximumOutputBytes,
+  projectCapabilitySummary,
   projectPolicyCatalog,
   projectPreviewScan,
   projectReviewSet
-} from '../src/job-api.js';
-import {
-  webPreviewMaximumConflictDetails,
-  webPreviewMaximumDetectionDetails,
-  webPreviewMaximumInputBytes,
-  webRedactionMaximumOutputBytes
-} from '../src/preview-limit.js';
+} from '../src/index.js';
+import * as sdk from '../src/index.js';
+import { createLocalJobClient } from '../src/job-api.js';
 
 const session = {
   apiOrigin: 'http://127.0.0.1:4174',
   bearerToken: 'A'.repeat(43)
 } as const;
 
+describe('public SDK surface', () => {
+  it('exposes only the reviewed root runtime API', () => {
+    expect(Object.keys(sdk).sort()).toEqual([
+      'assertLocalApiSession',
+      'capabilityRequestTimeoutMs',
+      'createCapabilityClient',
+      'createDisconnectedCapabilityClient',
+      'createDisconnectedLocalSessionClient',
+      'createLocalSessionClient',
+      'jobRequestTimeoutMs',
+      'localClientMaximumConflictDetails',
+      'localClientMaximumDetectionDetails',
+      'localClientMaximumInputBytes',
+      'localClientMaximumOutputBytes',
+      'projectCapabilitySummary',
+      'projectDetectionPage',
+      'projectPolicyCatalog',
+      'projectPreviewScan',
+      'projectReviewSet',
+      'scanWorkflowTimeoutMs'
+    ]);
+  });
+});
+
 function capabilityResponse(): Readonly<Record<string, unknown>> {
   return {
+    schemaVersion: '1.0.0',
+    id: 'local-session',
+    version: '0.1.0',
     engineMode: 'RULES_ONLY',
+    supportedContractVersions: ['1.0.0'],
     formats: [
       {
         id: 'text', extensions: ['.txt'], operations: ['SCAN'],
@@ -43,6 +72,8 @@ function capabilityResponse(): Readonly<Record<string, unknown>> {
       { id: 'rules', availability: 'AVAILABLE', entityTypes: ['EMAIL', 'PHONE'] },
       { id: 'model', availability: 'DISABLED', entityTypes: ['PERSON'] }
     ],
+    transformations: [{}],
+    verificationProfiles: [{}],
     limits: { maximumInputBytes: 104_857_600 }
   };
 }
@@ -82,14 +113,16 @@ function requestUrl(input: URL | RequestInfo): URL {
 describe('browser capability client', () => {
   it('projects only bounded display-safe capability aggregates', () => {
     expect(projectCapabilitySummary(capabilityResponse())).toEqual({
+      schemaVersion: '1.0.0',
+      supportedContractVersions: ['1.0.0'],
       engineMode: 'RULES_ONLY',
       formatCount: 2,
       availableDetectorCount: 1,
-      maximumInputBytes: 104_857_600,
+      maximumInputBytes: localClientMaximumInputBytes,
       supportedFiles: [
-        { extension: '.markdown', maximumInputBytes: 52_428_800 },
-        { extension: '.md', maximumInputBytes: 52_428_800 },
-        { extension: '.txt', maximumInputBytes: 104_857_600 }
+        { extension: '.markdown', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false },
+        { extension: '.md', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false },
+        { extension: '.txt', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false }
       ],
       supportedEntityTypes: ['EMAIL', 'PHONE']
     });
@@ -99,6 +132,9 @@ describe('browser capability client', () => {
     expect(() => projectCapabilitySummary({ ...capabilityResponse(), engineMode: 'REMOTE' })).toThrow(
       'CAPABILITY_RESPONSE_INVALID'
     );
+    expect(() => projectCapabilitySummary({
+      ...capabilityResponse(), supportedContractVersions: ['2.0.0']
+    })).toThrow('CAPABILITY_RESPONSE_INVALID');
     expect(() => projectCapabilitySummary({
       ...capabilityResponse(),
       formats: [{ id: 'unsafe', extensions: ['../../txt'], operations: ['SCAN'], limits: { maximumInputBytes: 1 } }]
@@ -140,6 +176,20 @@ describe('browser capability client', () => {
     );
   });
 
+  it('requires compatible capability negotiation before any artifact upload', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilityResponse()));
+    const client = createLocalSessionClient(session, fetchImplementation);
+    const file = new File(['synthetic'], 'sample.txt', { type: 'text/plain' });
+
+    await expect(client.jobs.scan(file, policy, () => undefined, new AbortController().signal)).rejects.toThrow(
+      'CAPABILITY_NEGOTIATION_REQUIRED'
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
+
+    await client.capabilities.load(new AbortController().signal);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+  });
+
   it('bounds a non-cooperative capability request and aborts its transport signal', async () => {
     let transportSignal: AbortSignal | undefined;
     const hanging = vi.fn<typeof fetch>((_input, init) => {
@@ -154,10 +204,10 @@ describe('browser capability client', () => {
 
 describe('browser policy and job client', () => {
   it('keeps the browser preview ceiling aligned with the canonical API contract', () => {
-    expect(webPreviewMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
-    expect(webPreviewMaximumDetectionDetails).toBe(localPreviewMaximumDetectionDetails);
-    expect(webPreviewMaximumConflictDetails).toBe(localPreviewMaximumConflictDetails);
-    expect(webRedactionMaximumOutputBytes).toBe(localRedactionMaximumOutputBytes);
+    expect(localClientMaximumInputBytes).toBe(localPreviewMaximumInputBytes);
+    expect(localClientMaximumDetectionDetails).toBe(localPreviewMaximumDetectionDetails);
+    expect(localClientMaximumConflictDetails).toBe(localPreviewMaximumConflictDetails);
+    expect(localClientMaximumOutputBytes).toBe(localRedactionMaximumOutputBytes);
   });
 
   it('projects a closed policy catalog without presentation copy', () => {

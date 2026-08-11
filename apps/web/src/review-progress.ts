@@ -1,4 +1,4 @@
-import type { JobDetectionSummary, ReviewDecisionSummary } from './job-api.js';
+import type { JobDetectionSummary, ReviewDecisionSummary } from '@local-pii/sdk';
 
 export interface ReviewProgressSummary {
   readonly saved: number;

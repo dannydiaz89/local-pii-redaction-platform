@@ -1,4 +1,4 @@
-import type { CapabilitySummary, SupportedFileFormat } from './api.js';
+import type { CapabilitySummary, SupportedFileFormat } from '@local-pii/sdk';
 
 export type FilePreflightResult =
   | { readonly kind: 'none' }

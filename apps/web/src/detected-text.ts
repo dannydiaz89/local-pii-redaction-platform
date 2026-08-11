@@ -1,4 +1,4 @@
-import type { JobDetectionSummary } from './job-api.js';
+import type { JobDetectionSummary } from '@local-pii/sdk';
 
 const maximumDetectionRows = 100;
 const maximumDetectedTextCodePoints = 256;

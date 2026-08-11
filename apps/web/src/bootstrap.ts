@@ -1,4 +1,4 @@
-import type { LocalApiSession } from './api.js';
+import type { LocalApiSession } from '@local-pii/sdk';
 
 interface BootstrapWindow {
   __LOCAL_PII_BOOTSTRAP__?: LocalApiSession;

@@ -11,7 +11,7 @@ import {
 } from '@local-pii/i18n';
 import { Button, Callout, Card, FileField, Metric, StatusBadge } from '@local-pii/ui';
 
-import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from './api.js';
+import type { CapabilityClient, CapabilitySummary, LocalEngineMode } from '@local-pii/sdk';
 import { readDetectedText } from './detected-text.js';
 import { preflightSelectedFile, type FilePreflightResult } from './file-preflight.js';
 import type {
@@ -26,8 +26,8 @@ import type {
   ReviewDecisionInput,
   ReviewDecisionSummary,
   ScanProgressState
-} from './job-api.js';
-import { webPreviewMaximumInputBytes } from './preview-limit.js';
+} from '@local-pii/sdk';
+import { localClientMaximumInputBytes } from '@local-pii/sdk';
 import { createRedactedTextPreview } from './redacted-preview.js';
 import { findUnreviewedDetectionId, summarizeReviewProgress } from './review-progress.js';
 import { readSourceDetectionContext, type SourceDetectionContext } from './source-context.js';
@@ -264,13 +264,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     ? {
       supportedFiles: preflight.summary.supportedFiles.map((format) => ({
         ...format,
-        maximumInputBytes: Math.min(format.maximumInputBytes, webPreviewMaximumInputBytes)
+        maximumInputBytes: Math.min(format.maximumInputBytes, localClientMaximumInputBytes)
       }))
     }
     : { supportedFiles: [] };
   const maximumPreviewBytes = Math.min(
-    preflight.kind === 'ready' ? preflight.summary.maximumInputBytes : webPreviewMaximumInputBytes,
-    webPreviewMaximumInputBytes
+    preflight.kind === 'ready' ? preflight.summary.maximumInputBytes : localClientMaximumInputBytes,
+    localClientMaximumInputBytes
   );
   const defaultPolicy = preflight.kind === 'ready' ? preflight.policyCatalog.defaultPolicy : undefined;
   const intakeMessage = filePreflight.kind === 'ready'

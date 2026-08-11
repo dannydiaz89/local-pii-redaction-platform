@@ -20,7 +20,6 @@
   "tests": {
     "apps/api/test/api.test.ts": ["unit", "contract", "integration", "security-privacy", "recovery"],
     "apps/api/test/web-shell.test.ts": ["unit", "integration", "end-to-end", "security-privacy", "recovery"],
-    "apps/web/test/api.test.ts": ["unit", "contract", "security-privacy"],
     "apps/web/test/application.test.tsx": ["unit", "integration", "accessibility", "localization"],
     "apps/web/test/bootstrap.test.ts": ["unit", "integration", "security-privacy"],
     "apps/web/test/detected-text.test.ts": ["unit", "security-privacy", "localization"],
@@ -47,6 +46,7 @@
     "packages/policy/test/policy.test.ts": ["unit", "contract", "security-privacy"],
     "packages/provider-ollama/test/provider-ollama.test.ts": ["unit", "integration", "security-privacy"],
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
+    "packages/sdk/test/sdk.test.ts": ["unit", "contract", "security-privacy"],
     "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
     "packages/ui/test/ui.test.tsx": ["unit", "accessibility"],
     "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],

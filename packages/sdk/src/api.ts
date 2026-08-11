@@ -1,14 +1,19 @@
 import type { CapabilitiesCapabilityManifestContract, CommonEntityTypeContract } from '@local-pii/contracts';
 
+import { localClientMaximumInputBytes } from './limits.js';
+
 export type EngineMode = CapabilitiesCapabilityManifestContract.CapabilityManifest['engineMode'];
 export type LocalEngineMode = Exclude<EngineMode, 'REMOTE'>;
 
 export interface SupportedFileFormat {
   readonly extension: string;
   readonly maximumInputBytes: number;
+  readonly supportsRedaction: boolean;
 }
 
 export interface CapabilitySummary {
+  readonly schemaVersion: '1.0.0';
+  readonly supportedContractVersions: readonly ['1.0.0', ...string[]];
   readonly engineMode: LocalEngineMode;
   readonly formatCount: number;
   readonly availableDetectorCount: number;
@@ -29,6 +34,8 @@ export interface LocalApiSession {
 const maximumCapabilityResponseBytes = 128 * 1024;
 export const capabilityRequestTimeoutMs = 5_000;
 const tokenPattern = /^[A-Za-z0-9_-]{43,128}$/u;
+const identifierPattern = /^[a-z][a-z0-9-]{2,63}$/u;
+const semverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/u;
 const localEngineModes = new Set<LocalEngineMode>(['RULES_ONLY', 'LOCAL_HYBRID']);
 const canonicalEntityTypes = new Set<CommonEntityTypeContract.EntityType>([
   'PERSON', 'EMAIL', 'PHONE', 'ADDRESS', 'LOCATION', 'ORGANIZATION', 'DATE_OF_BIRTH', 'SSN',
@@ -146,15 +153,24 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function hasOnlyKeys(value: Readonly<Record<string, unknown>>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
 function boundedInteger(value: unknown, maximum: number): value is number {
   return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 && value <= maximum;
+}
+
+function isLocalEngineMode(value: unknown): value is LocalEngineMode {
+  return typeof value === 'string' && localEngineModes.has(value as LocalEngineMode);
 }
 
 function supportedFiles(
   formats: readonly unknown[],
   globalMaximumInputBytes: number
 ): readonly SupportedFileFormat[] {
-  const limits = new Map<string, number>();
+  const effectiveGlobalMaximumInputBytes = Math.min(globalMaximumInputBytes, localClientMaximumInputBytes);
+  const limits = new Map<string, { maximumInputBytes: number; supportsRedaction: boolean }>();
   for (const format of formats) {
     if (
       !isRecord(format)
@@ -174,17 +190,40 @@ function supportedFiles(
         throw new Error('CAPABILITY_RESPONSE_INVALID');
       }
       const current = limits.get(extension);
-      limits.set(extension, Math.min(current ?? globalMaximumInputBytes, format.limits.maximumInputBytes));
+      limits.set(extension, {
+        maximumInputBytes: Math.min(
+          current?.maximumInputBytes ?? effectiveGlobalMaximumInputBytes,
+          format.limits.maximumInputBytes,
+          effectiveGlobalMaximumInputBytes
+        ),
+        supportsRedaction: (current?.supportsRedaction ?? false) || format.operations.includes('REDACT')
+      });
     }
   }
   if (limits.size < 1 || limits.size > 64) throw new Error('CAPABILITY_RESPONSE_INVALID');
   return Object.freeze([...limits.entries()]
     .sort(([left], [right]) => left.localeCompare(right, 'en'))
-    .map(([extension, maximumInputBytes]) => Object.freeze({ extension, maximumInputBytes })));
+    .map(([extension, support]) => Object.freeze({ extension, ...support })));
 }
 
 export function projectCapabilitySummary(value: unknown): CapabilitySummary {
-  if (!isRecord(value) || !localEngineModes.has(value.engineMode as LocalEngineMode)) {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion', 'id', 'version', 'engineMode', 'supportedContractVersions', 'formats',
+      'detectors', 'transformations', 'verificationProfiles', 'limits'
+    ])
+    || value.schemaVersion !== '1.0.0'
+    || typeof value.id !== 'string' || !identifierPattern.test(value.id)
+    || typeof value.version !== 'string' || !semverPattern.test(value.version)
+    || !isLocalEngineMode(value.engineMode)
+    || !Array.isArray(value.supportedContractVersions)
+    || value.supportedContractVersions.length < 1 || value.supportedContractVersions.length > 16
+    || value.supportedContractVersions.some((version) => typeof version !== 'string' || !semverPattern.test(version))
+    || new Set(value.supportedContractVersions).size !== value.supportedContractVersions.length
+    || !value.supportedContractVersions.includes('1.0.0')
+    || !Array.isArray(value.transformations) || value.transformations.length < 1 || value.transformations.length > 32
+    || !Array.isArray(value.verificationProfiles) || value.verificationProfiles.length < 1
+    || value.verificationProfiles.length > 32) {
     throw new Error('CAPABILITY_RESPONSE_INVALID');
   }
   if (!Array.isArray(value.formats) || value.formats.length < 1 || value.formats.length > 32) {
@@ -196,7 +235,8 @@ export function projectCapabilitySummary(value: unknown): CapabilitySummary {
   if (!isRecord(value.limits) || !boundedInteger(value.limits.maximumInputBytes, 1024 * 1024 * 1024)) {
     throw new Error('CAPABILITY_RESPONSE_INVALID');
   }
-  const maximumInputBytes = value.limits.maximumInputBytes;
+  const serverMaximumInputBytes = value.limits.maximumInputBytes;
+  const maximumInputBytes = Math.min(serverMaximumInputBytes, localClientMaximumInputBytes);
   const supportedEntityTypes = new Set<CommonEntityTypeContract.EntityType>();
   let availableDetectorCount = 0;
   for (const detector of value.detectors) {
@@ -216,14 +256,20 @@ export function projectCapabilitySummary(value: unknown): CapabilitySummary {
     }
   }
   if (supportedEntityTypes.size === 0) throw new Error('CAPABILITY_RESPONSE_INVALID');
-  return {
-    engineMode: value.engineMode as LocalEngineMode,
+  const supportedContractVersions: readonly ['1.0.0', ...string[]] = [
+    '1.0.0',
+    ...value.supportedContractVersions.filter((version): version is string => version !== '1.0.0')
+  ];
+  return Object.freeze({
+    schemaVersion: '1.0.0',
+    supportedContractVersions: Object.freeze(supportedContractVersions),
+    engineMode: value.engineMode,
     formatCount: value.formats.length,
     availableDetectorCount,
     maximumInputBytes,
-    supportedFiles: supportedFiles(value.formats, maximumInputBytes),
+    supportedFiles: supportedFiles(value.formats, serverMaximumInputBytes),
     supportedEntityTypes: Object.freeze([...supportedEntityTypes].sort())
-  };
+  });
 }
 
 export function createCapabilityClient(

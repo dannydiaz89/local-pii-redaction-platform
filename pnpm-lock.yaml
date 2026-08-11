@@ -131,12 +131,12 @@ importers:
 
   apps/web:
     dependencies:
-      '@local-pii/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
       '@local-pii/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@local-pii/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@local-pii/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -326,6 +326,12 @@ importers:
       '@local-pii/detectors':
         specifier: workspace:*
         version: link:../detectors
+
+  packages/sdk:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/span-resolution:
     dependencies:

@@ -2,6 +2,9 @@
 
 Loopback-only HTTP composition root for the local web application.
 
+The matching browser transport is owned by the public root of `@local-pii/sdk`; this application
+owns the authenticated HTTP routes and never imports client or UI code.
+
 ## Responsibilities
 
 - Builds the Fastify server around injected application and readiness ports.

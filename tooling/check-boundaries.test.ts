@@ -46,7 +46,7 @@ describe('boundary checker', () => {
     expect(checkSourceDependencyDirection(
       'apps/web/src/example.ts',
       "import { localPreviewMaximumInputBytes } from '@local-pii/contracts';",
-      ['contracts', 'i18n', 'ui'],
+      ['contracts', 'i18n', 'sdk', 'ui'],
       { webRuntime: true }
     ).map(({ message }) => message)).toEqual([
       'imports @local-pii/contracts at browser runtime; use type-only imports and browser-safe drift-checked constants'
@@ -54,7 +54,7 @@ describe('boundary checker', () => {
     expect(checkSourceDependencyDirection(
       'apps/web/src/example.ts',
       "import type { Detection } from '@local-pii/contracts';",
-      ['contracts', 'i18n', 'ui'],
+      ['contracts', 'i18n', 'sdk', 'ui'],
       { webRuntime: true }
     )).toEqual([]);
   });
@@ -147,12 +147,12 @@ describe('boundary checker', () => {
     ]);
   });
 
-  it('allows the web app to use only contracts, design-system packages, and React', () => {
+  it('allows the web app to use only the SDK, design-system packages, and React', () => {
     expect(checkWebManifest('apps/web/package.json', {
       name: '@local-pii/web',
       dependencies: {
-        '@local-pii/contracts': 'workspace:*',
         '@local-pii/i18n': 'workspace:*',
+        '@local-pii/sdk': 'workspace:*',
         '@local-pii/ui': 'workspace:*',
         react: '^19.2.8',
         'react-dom': '^19.2.8'
@@ -166,12 +166,30 @@ describe('boundary checker', () => {
         "import { process } from '@local-pii/core';",
         "import Fastify from 'fastify';"
       ].join('\n'),
-      ['contracts', 'i18n', 'ui'],
+      ['i18n', 'sdk', 'ui'],
       { webRuntime: true }
     );
     expect(violations.map(({ message }) => message)).toEqual([
       'imports @local-pii/core, outside its allow-listed dependency direction',
       'imports or loads forbidden durable/server infrastructure fastify'
+    ]);
+  });
+
+  it('keeps the browser SDK on generated contract types without external runtime modules', () => {
+    expect(checkPackageManifest('packages/sdk/package.json', 'sdk', {
+      name: '@local-pii/sdk',
+      exports: { '.': './dist/index.js' },
+      dependencies: { '@local-pii/contracts': 'workspace:*' }
+    })).toEqual([]);
+
+    expect(checkSourceDependencyDirection(
+      'packages/sdk/src/example.ts',
+      "import type { Job } from '@local-pii/contracts'; import telemetry from 'telemetry'; import { run } from '@local-pii/core';",
+      ['contracts'],
+      { packageRuntime: 'sdk' }
+    ).map(({ message }) => message)).toEqual([
+      'imports telemetry, but the browser SDK runtime permits no external modules',
+      'imports @local-pii/core, outside its allow-listed dependency direction'
     ]);
   });
 

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { readDetectedText } from '../src/detected-text.js';
-import type { JobDetectionSummary } from '../src/job-api.js';
+import type { JobDetectionSummary } from '@local-pii/sdk';
 
 function detection(id: string, start: number, end: number): JobDetectionSummary {
   return { id, start, end, entityType: 'CUSTOM', confidence: 0.5, sources: ['REGEX'] };

@@ -1,4 +1,4 @@
-import type { JobDetectionSummary } from './job-api.js';
+import type { JobDetectionSummary } from '@local-pii/sdk';
 
 const contextCodePointsBefore = 80;
 const contextCodePointsAfter = 120;

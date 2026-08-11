@@ -21,6 +21,7 @@ type WorkspacePackage =
   | 'profile-local'
   | 'provider-ollama'
   | 'redaction'
+  | 'sdk'
   | 'span-resolution'
   | 'verification'
   | 'ui'
@@ -57,6 +58,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'profile-local',
   'provider-ollama',
   'redaction',
+  'sdk',
   'span-resolution',
   'verification',
   'ui',
@@ -83,6 +85,7 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-text', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
+  sdk: ['contracts'],
   'span-resolution': ['domain'],
   verification: ['contracts', 'detectors', 'domain', 'span-resolution'],
   ui: [],
@@ -104,6 +107,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   'profile-local': [],
   'provider-ollama': [],
   redaction: ['detectors'],
+  sdk: [],
   'span-resolution': ['detectors'],
   verification: [],
   ui: [],
@@ -137,7 +141,7 @@ const allowedApiRuntimeModules = new Set([
   'node:url'
 ]);
 const allowedSqliteJobAdapterRuntimeModules = new Set(['node:fs', 'node:path', 'node:sqlite']);
-const allowedWebWorkspaceDependencies: readonly WorkspacePackage[] = ['contracts', 'i18n', 'ui'];
+const allowedWebWorkspaceDependencies: readonly WorkspacePackage[] = ['i18n', 'sdk', 'ui'];
 const allowedWebRuntimeModules = new Set(['react', 'react-dom/client']);
 const workspaceApplications = ['api', 'cli', 'web'] as const;
 
@@ -388,8 +392,11 @@ export function checkSourceDependencyDirection(
       ));
       continue;
     }
-    if ((options.packageRuntime === 'i18n' || options.packageRuntime === 'job-store') && !specifier.startsWith('.')) {
-      const label = options.packageRuntime === 'i18n' ? 'localization' : 'job metadata';
+    if ((options.packageRuntime === 'i18n' || options.packageRuntime === 'job-store'
+      || options.packageRuntime === 'sdk') && !specifier.startsWith('.')) {
+      const label = options.packageRuntime === 'i18n'
+        ? 'localization'
+        : options.packageRuntime === 'sdk' ? 'browser SDK' : 'job metadata';
       violations.push(violation(path, `imports ${specifier}, but the ${label} runtime permits no external modules`));
       continue;
     }
@@ -461,12 +468,12 @@ export function checkPackageManifest(
       violations.push(violation(path, 'localization package must not declare external dependencies'));
     }
   }
-  if (packageName === 'job-store') {
+  if (packageName === 'job-store' || packageName === 'sdk') {
     const external = (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const)
       .flatMap((field) => dependencyNames(manifest, field))
       .filter((name) => !name.startsWith('@local-pii/'));
     if (external.length > 0) {
-      violations.push(violation(path, 'job metadata package must not declare external dependencies'));
+      violations.push(violation(path, `${packageName === 'sdk' ? 'browser SDK' : 'job metadata'} package must not declare external dependencies`));
     }
   }
   if (packageName === 'adapter-job-sqlite') {

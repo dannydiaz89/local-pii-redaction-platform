@@ -5,8 +5,8 @@ Accessible, localized React shell for the future local review workflow.
 ## Responsibilities
 
 - Renders the capability, pinned-policy, and local file-metadata preflight plus the local-processing disclosure.
-- Provides a bounded typed client for process-local artifact creation/upload, real asynchronous job
-  state/events, cancellation, and value-free detection pagination.
+- Consumes the bounded public `@local-pii/sdk` session client for process-local artifact
+  creation/upload, real asynchronous job state/events, cancellation, and value-free detection pagination.
 - Runs the authenticated rules-only job and renders localized status, aggregate counts, a bounded
   filterable native detection table, server-owned page controls, and a native conflict table.
 - Provides native accept/reject/retype controls whose category choices come from the live capability
@@ -37,6 +37,8 @@ Accessible, localized React shell for the future local review workflow.
 
 The application accepts a TXT or Markdown file up to 8 MiB, sends only its raw bytes to the
 same-origin numeric-loopback API, and creates a session-only artifact and real scan job. The
+SDK must first accept the server's canonical `1.0.0` capability envelope and advertised format
+limits; an absent or incompatible negotiation fails before artifact upload. The
 filename is not sent and neither bytes nor results enter browser persistence or durable storage.
 Artifact/job metadata and value-free results disappear when the application closes. Each page of up
 to 100 detection rows exposes category, one-based Unicode code-point location, detector confidence,

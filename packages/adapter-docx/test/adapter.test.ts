@@ -14,6 +14,7 @@ import {
   docxAdapterCapabilityDescriptor,
   docxWriterDescriptor,
   readDocxArtifact,
+  reconcileDocxStageFoundation,
   type DocxArtifact
 } from '../src/index.js';
 
@@ -681,6 +682,118 @@ describe('DOCX adapter', () => {
     expect(await readFile(input)).not.toEqual(await readFile(staged.path));
     await session.discard(staged);
     expect(await readdir(root)).toEqual(['document.docx']);
+  });
+
+  it('reconciles the paragraph-only writer against the exact stage while retaining every qualified carrier and untouched part', async () => {
+    const target = 'https://synthetic.invalid/profile';
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:r><w:t>alpha@example.test</w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const input = await writeSyntheticDocx(packageParts(document, [{
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}hyperlink" Target="${target}" TargetMode="External"/></Relationships>`
+    }]));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const value = 'alpha@example.test';
+    const start = codePointOffsetOf(source.text, value);
+    const plan = planFor(source, [{ start, end: start + unicodeCodePointLength(value) }]);
+    const staged = await session.stage(plan);
+
+    const evidence = await reconcileDocxStageFoundation(source, staged, plan);
+
+    expect(evidence).toMatchObject({
+      outcome: 'RECONCILED_NONINDEPENDENT',
+      expectedActionCount: 1,
+      appliedActionCount: 1,
+      retainedCarrierCount: 1,
+      changedPartCount: 1,
+      unchangedPartCount: 3,
+      uniqueSourceCanaryCount: 1,
+      independentlyVerified: false,
+      fidelityVerified: false
+    });
+    expect(evidence.checks).toContain('UNTOUCHED_PART_CONTENT_IDENTITY');
+    expect(docxAdapterCapabilityDescriptor.operations).not.toContain('REDACT');
+    expect(docxAdapterCapabilityDescriptor.operations).not.toContain('VERIFY');
+    await session.discard(staged);
+  });
+
+  it('fails the internal writer closed for a plan that targets an accepted relationship carrier', async () => {
+    const target = 'https://synthetic.invalid/private@example.test';
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const input = await writeSyntheticDocx(packageParts(document, [{
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}hyperlink" Target="${target}" TargetMode="External"/></Relationships>`
+    }]));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const start = codePointOffsetOf(source.text, 'private@example.test');
+
+    await expect(session.stage(planFor(source, [{
+      start,
+      end: start + unicodeCodePointLength('private@example.test')
+    }]))).rejects.toMatchObject({ code: 'REDACTION_PLAN_CONFLICT' });
+    expect(await readdir(root)).toEqual(['document.docx']);
+  });
+
+  it('detects a changed retained carrier in the exact staged-byte reconciliation without exposing its value', async () => {
+    const originalTarget = 'https://synthetic.invalid/original-carrier-canary';
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:r><w:t>alpha@example.test</w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const relationship = (target: string) => `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}hyperlink" Target="${target}" TargetMode="External"/></Relationships>`;
+    const input = await writeSyntheticDocx(packageParts(document, [{ name: 'word/_rels/document.xml.rels', contents: relationship(originalTarget) }]));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const plan = planFor(source, [{ start: 0, end: unicodeCodePointLength('alpha@example.test') }]);
+    const staged = await session.stage(plan);
+    const tamperedDocument = document.replace('alpha@example.test', '[EMAIL_1]');
+    await writeFile(staged.path, zip(packageParts(tamperedDocument, [{
+      name: 'word/_rels/document.xml.rels',
+      contents: relationship('https://synthetic.invalid/changed-carrier-canary')
+    }])));
+
+    try {
+      await reconcileDocxStageFoundation(source, staged, plan);
+      throw new Error('Expected changed-carrier reconciliation failure.');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'VERIFICATION_INCOMPLETE', details: { reason: 'writer_byte_mismatch' } });
+      expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details }))
+        .not.toMatch(/original-carrier-canary|changed-carrier-canary/u);
+    }
+    await session.discard(staged);
+  });
+
+  it('does not treat an intentionally retained duplicate value as a unique planted canary', async () => {
+    const value = 'alpha@example.test';
+    const input = await docxFile(documentXml(`<w:p><w:r><w:t>${value} ${value}</w:t></w:r></w:p>`));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const plan = planFor(source, [{ start: 0, end: unicodeCodePointLength(value) }]);
+    const staged = await session.stage(plan);
+
+    const evidence = await reconcileDocxStageFoundation(source, staged, plan);
+
+    expect(evidence.uniqueSourceCanaryCount).toBe(0);
+    expect((await session.reopen(staged)).text).toBe(`[EMAIL_1] ${value}`);
+    await session.discard(staged);
+  });
+
+  it('rejects a forged writer receipt before treating a private DOCX stage as reconciled', async () => {
+    const input = await docxFile(documentXml('<w:p><w:r><w:t>alpha@example.test</w:t></w:r></w:p>'));
+    const root = roots.at(-1) ?? '';
+    const session = createLocalDocxArtifactSession(input, join(root, 'document.redacted.docx'));
+    const source = await session.input();
+    const plan = planFor(source, [{ start: 0, end: unicodeCodePointLength(source.text) }]);
+    const staged = await session.stage(plan);
+    const forged = { ...staged, receipt: { ...staged.receipt, appliedActionIds: [] } };
+
+    await expect(reconcileDocxStageFoundation(source, forged, plan)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE',
+      details: { reason: 'receipt_binding_mismatch' }
+    });
+    await session.discard(staged);
   });
 
   it('publishes without clobbering and leaves the immutable input intact', async () => {

@@ -553,6 +553,33 @@ interface ParsedDocxPackage {
   readonly extractionRevision: Sha256Digest;
 }
 
+/**
+ * Privacy-safe evidence produced by the adapter-local DOCX reconciliation
+ * foundation. This is deliberately not a release verification attestation:
+ * it reuses the extraction parser and therefore cannot satisfy the independent
+ * verifier boundary required by the application core.
+ */
+export interface DocxStageReconciliationFoundation {
+  readonly outcome: 'RECONCILED_NONINDEPENDENT';
+  readonly checks: readonly [
+    'PLAN_AND_RECEIPT_BINDING',
+    'WRITER_BYTE_REPRODUCTION',
+    'ZIP_AND_OOXML_REOPEN',
+    'CANONICAL_REPLACEMENT_RECONCILIATION',
+    'QUALIFIED_CARRIER_RECONCILIATION',
+    'UNTOUCHED_PART_CONTENT_IDENTITY',
+    'UNIQUE_PLANNED_SOURCE_CANARY_SCAN'
+  ];
+  readonly expectedActionCount: number;
+  readonly appliedActionCount: number;
+  readonly retainedCarrierCount: number;
+  readonly changedPartCount: number;
+  readonly unchangedPartCount: number;
+  readonly uniqueSourceCanaryCount: number;
+  readonly independentlyVerified: false;
+  readonly fidelityVerified: false;
+}
+
 interface XmlCarrierValue {
   readonly value: string;
   readonly location: DocxRelationshipLocationV2 | DocxXmlValueLocationV2;
@@ -2254,6 +2281,188 @@ function createReceipt(plan: TypedLabelPlan, staged: Pick<StagedTextArtifact, 'd
     appliedActionIds: plan.actions.map(({ id }) => id)
   };
   return Object.freeze({ ...unsigned, receiptDigest: parseSha256Digest(computeWriterReceiptDigest(unsigned)) });
+}
+
+function docxVerificationIncomplete(reason: string): never {
+  throw new SafeError({
+    code: 'VERIFICATION_INCOMPLETE',
+    message: 'The staged DOCX artifact did not satisfy the bounded native reconciliation foundation.',
+    retryable: false,
+    correlationId: 'cor_docx_adapter',
+    details: { reason }
+  });
+}
+
+function unicodeSlice(value: string, start: number, end: number): string {
+  return value.slice(codePointToUtf16(value, start), codePointToUtf16(value, end));
+}
+
+function expectedCanonicalText(source: string, plan: TypedLabelPlan): string {
+  const output: string[] = [];
+  let cursor = 0;
+  for (const action of [...plan.actions].sort((left, right) => left.start - right.start || left.end - right.end)) {
+    output.push(unicodeSlice(source, cursor, action.start), action.replacement);
+    cursor = action.end;
+  }
+  output.push(unicodeSlice(source, cursor, unicodeCodePointLength(source)));
+  return output.join('');
+}
+
+function nativeRegionIdentity(region: CanonicalRegion): string {
+  const location = region.location;
+  if (location.kind === 'DOCX_PART') return `P\u0000${location.part}\u0000${String(location.paragraph)}`;
+  if (location.kind === 'DOCX_RELATIONSHIP') {
+    return `R\u0000${location.sourcePart}\u0000${location.relationshipId}\u0000${location.field}`;
+  }
+  if (location.kind === 'DOCX_XML_VALUE') {
+    return `X\u0000${location.part}\u0000${location.element}\u0000${String(location.elementOrdinal)}\u0000${location.carrier}\u0000${location.attribute ?? ''}`;
+  }
+  return JSON.stringify(location);
+}
+
+function qualifiedCarrierValues(artifact: DocxArtifact): readonly (readonly [string, string])[] {
+  return Object.freeze(artifact.regions.flatMap((region) => {
+    if (region.location.kind !== 'DOCX_RELATIONSHIP' && region.location.kind !== 'DOCX_XML_VALUE') return [];
+    return [[nativeRegionIdentity(region), unicodeSlice(artifact.text, region.start, region.end)] as const];
+  }));
+}
+
+/**
+ * Reconciles the current paragraph-only internal writer against a private
+ * staged DOCX. It deliberately returns `independentlyVerified: false` and
+ * cannot be used as the application's `docx-redact-v1` attestation. In
+ * particular, carrier-targeted actions still fail closed at the writer
+ * boundary and independent leakage/fidelity verification remains open.
+ */
+export async function reconcileDocxStageFoundation(
+  source: DocxArtifact,
+  staged: StagedTextArtifact,
+  plan: TypedLabelPlan,
+  fileSystem: TextArtifactFileSystem = defaultTextArtifactFileSystem
+): Promise<DocxStageReconciliationFoundation> {
+  const sourceState = docxArtifactStates.get(source);
+  if (sourceState === undefined) docxVerificationIncomplete('source_state_unavailable');
+  try {
+    assertTypedLabelPlanIntegrity(plan);
+  } catch {
+    docxVerificationIncomplete('plan_integrity_mismatch');
+  }
+  const expectedReceipt = createReceipt(plan, staged);
+  if (
+    staged.receipt.receiptDigest !== expectedReceipt.receiptDigest
+    || staged.receipt.planDigest !== plan.digest
+    || staged.receipt.stagedDigest !== staged.digest
+    || staged.receipt.stagedByteLength !== staged.byteLength
+    || staged.receipt.appliedActionCount !== plan.expectedActionCount
+    || staged.receipt.appliedActionIds.length !== plan.actions.length
+    || staged.receipt.appliedActionIds.some((id, index) => id !== plan.actions[index]?.id)
+  ) docxVerificationIncomplete('receipt_binding_mismatch');
+
+  const assignments = assertPlan(plan, source, sourceState.package.segments);
+  const changedParts = new Set<string>();
+  for (const part of sourceState.package.parts) {
+    if (part.segments.some((segment) => segment.nodes.some((node) => assignments.has(node)))) changedParts.add(part.name);
+  }
+
+  let stagedBytes: Buffer;
+  try {
+    stagedBytes = await fileSystem.readFile(staged.path);
+  } catch {
+    docxVerificationIncomplete('stage_reopen_failed');
+  }
+  if (
+    stagedBytes.length !== staged.byteLength
+    || digestBytes(stagedBytes) !== staged.digest
+    || !stagedBytes.equals(applyDocxPlan(source, plan))
+  ) docxVerificationIncomplete('writer_byte_mismatch');
+
+  let reopened: DocxArtifact;
+  try {
+    reopened = await readDocxArtifact(staged.path, defaultMaximumDocxInputBytes, fileSystem);
+  } catch {
+    docxVerificationIncomplete('package_reopen_failed');
+  }
+  if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
+    docxVerificationIncomplete('reopened_digest_mismatch');
+  }
+  const reopenedState = docxArtifactStates.get(reopened);
+  if (reopenedState === undefined) docxVerificationIncomplete('reopened_state_unavailable');
+
+  if (reopened.text !== expectedCanonicalText(source.text, plan)) {
+    docxVerificationIncomplete('canonical_replacement_mismatch');
+  }
+  const sourceLocations = source.regions.map(nativeRegionIdentity);
+  const outputLocations = reopened.regions.map(nativeRegionIdentity);
+  if (
+    sourceLocations.length !== outputLocations.length
+    || sourceLocations.some((identity, index) => identity !== outputLocations[index])
+  ) docxVerificationIncomplete('source_map_inventory_mismatch');
+
+  const sourceCarriers = qualifiedCarrierValues(source);
+  const outputCarriers = qualifiedCarrierValues(reopened);
+  if (
+    sourceCarriers.length !== outputCarriers.length
+    || sourceCarriers.some(([identity, value], index) => {
+      const candidate = outputCarriers[index];
+      return candidate?.[0] !== identity || candidate[1] !== value;
+    })
+  ) docxVerificationIncomplete('qualified_carrier_mismatch');
+
+  if (sourceState.entries.length !== reopenedState.entries.length) docxVerificationIncomplete('package_inventory_mismatch');
+  let unchangedPartCount = 0;
+  for (const [index, inputEntry] of sourceState.entries.entries()) {
+    const outputEntry = reopenedState.entries[index];
+    if (outputEntry?.name !== inputEntry.name || outputEntry.method !== inputEntry.method) {
+      docxVerificationIncomplete('package_inventory_mismatch');
+    }
+    if (!changedParts.has(inputEntry.name)) {
+      if (!outputEntry.contents.equals(inputEntry.contents)) docxVerificationIncomplete('untouched_part_changed');
+      unchangedPartCount += 1;
+    } else if (outputEntry.contents.equals(inputEntry.contents)) {
+      docxVerificationIncomplete('planned_part_unchanged');
+    }
+  }
+
+  let residualCount = 0;
+  let uniqueSourceCanaryCount = 0;
+  for (const action of plan.actions) {
+    const sourceValue = unicodeSlice(source.text, action.start, action.end);
+    const first = source.text.indexOf(sourceValue);
+    const unique = sourceValue.length > 0 && first >= 0 && source.text.indexOf(sourceValue, first + sourceValue.length) < 0;
+    if (!unique) continue;
+    uniqueSourceCanaryCount += 1;
+    if (sourceValue === action.replacement || reopened.text.includes(sourceValue)) residualCount += 1;
+  }
+  if (residualCount > 0) {
+    throw new SafeError({
+      code: 'VERIFICATION_RESIDUAL',
+      message: 'The staged DOCX artifact retained one or more uniquely planted planned-source canaries.',
+      retryable: false,
+      correlationId: 'cor_docx_adapter',
+      details: { findingCount: residualCount }
+    });
+  }
+
+  return Object.freeze({
+    outcome: 'RECONCILED_NONINDEPENDENT',
+    checks: Object.freeze([
+      'PLAN_AND_RECEIPT_BINDING',
+      'WRITER_BYTE_REPRODUCTION',
+      'ZIP_AND_OOXML_REOPEN',
+      'CANONICAL_REPLACEMENT_RECONCILIATION',
+      'QUALIFIED_CARRIER_RECONCILIATION',
+      'UNTOUCHED_PART_CONTENT_IDENTITY',
+      'UNIQUE_PLANNED_SOURCE_CANARY_SCAN'
+    ] as const),
+    expectedActionCount: plan.expectedActionCount,
+    appliedActionCount: staged.receipt.appliedActionCount,
+    retainedCarrierCount: sourceCarriers.length,
+    changedPartCount: changedParts.size,
+    unchangedPartCount,
+    uniqueSourceCanaryCount,
+    independentlyVerified: false,
+    fidelityVerified: false
+  });
 }
 
 async function stageBinary(
