@@ -64,7 +64,7 @@ describe('typed-label redaction', () => {
     });
     const plan = compileTypedLabelPlan({
       extractionRevision: revision,
-      algorithmVersion: '0.2.0',
+      algorithmVersion: '0.3.0',
       digest: parseSha256Digest(`sha256:${'e'.repeat(64)}`),
       spans,
       conflicts: [],

@@ -42,6 +42,9 @@ _BATCH_SCAN_REPORT_SCHEMA_IDS = {
     "https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0",
     "https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0",
 }
+_BATCH_REDACT_REPORT_SCHEMA_ID = (
+    "https://local-pii.dev/schemas/cli/batch-redact-report/1.0.0"
+)
 
 
 @_FORMAT_CHECKER.checks("uuid")
@@ -95,6 +98,38 @@ def _batch_scan_report_semantic_errors(value: object) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def _batch_redact_report_semantic_errors(value: object) -> tuple[str, ...]:
+    report = value if isinstance(value, dict) else {}
+    manifest_value = report.get("manifest")
+    manifest = manifest_value if isinstance(manifest_value, dict) else {}
+    by_entity_value = manifest.get("byEntity")
+    by_entity = by_entity_value if isinstance(by_entity_value, dict) else {}
+    failures_value = manifest.get("failuresByCode")
+    failures = failures_value if isinstance(failures_value, dict) else {}
+    errors: list[str] = []
+    if manifest.get("selectedFileCount") != (
+        manifest.get("publishedFileCount", 0) + manifest.get("failedFileCount", 0)
+    ):
+        errors.append("selected file count does not reconcile")
+    if manifest.get("processedInputBytes", 0) > manifest.get("totalInputBytes", 0):
+        errors.append("processed bytes exceed selected bytes")
+    if sum(by_entity.values()) != manifest.get("replacementCount"):
+        errors.append("entity counts do not reconcile")
+    if sum(failures.values()) != manifest.get("failedFileCount"):
+        errors.append("failure counts do not reconcile")
+    if manifest.get("complete") != (manifest.get("failedFileCount") == 0):
+        errors.append("completion state does not reconcile")
+    if manifest.get("selectedFileCount") == 0 and manifest.get("totalInputBytes") != 0:
+        errors.append("empty selection reports selected bytes")
+    if manifest.get("publishedFileCount") == 0 and (
+        manifest.get("processedInputBytes") != 0
+        or manifest.get("publishedOutputBytes") != 0
+        or manifest.get("replacementCount") != 0
+    ):
+        errors.append("empty publication reports processed output evidence")
+    return tuple(errors)
+
+
 def validate_contract(schema_id: str, value: object) -> None:
     """Validate a value against a canonical contract or raise a schema validation error."""
     try:
@@ -104,5 +139,9 @@ def validate_contract(schema_id: str, value: object) -> None:
     Draft202012Validator(schema, registry=_REGISTRY, format_checker=_FORMAT_CHECKER).validate(value)
     if schema_id in _BATCH_SCAN_REPORT_SCHEMA_IDS:
         semantic_errors = _batch_scan_report_semantic_errors(value)
+        if semantic_errors:
+            raise ValidationError("; ".join(semantic_errors))
+    if schema_id == _BATCH_REDACT_REPORT_SCHEMA_ID:
+        semantic_errors = _batch_redact_report_semantic_errors(value)
         if semantic_errors:
             raise ValidationError("; ".join(semantic_errors))

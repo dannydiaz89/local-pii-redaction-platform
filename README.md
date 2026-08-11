@@ -72,6 +72,10 @@ pnpm pii-redact inspect ./sample-data/input/sample.txt
 pnpm --silent pii-redact scan ./sample-data/input/sample.txt --json
 pnpm --silent pii-redact batch scan ./sample-data/input \
   --include '**/*.txt' --exclude '**/ignored-*' --json
+mkdir -m 700 ./test-output/batch-redacted
+pnpm --silent pii-redact batch redact ./sample-data/input \
+  --output ./test-output/batch-redacted --policy development-labels --json \
+  > ./test-output/batch.redact-report.json
 pnpm --silent pii-redact redact ./sample-data/input/sample.txt \
   --policy development-labels --output ./test-output/sample.redacted.txt --json \
   > ./test-output/sample.redact-report.json
@@ -295,11 +299,13 @@ cells are treated as untrusted text: the CLI never evaluates them, but unchanged
 not neutralized for spreadsheet software. CSV redaction requires the selected output path to retain
 a `.csv` extension.
 
-JSON values, CSV cells, and DOCX paragraphs now expose a versioned typed source map internally:
-RFC 6901 JSON pointers, one-based logical CSV row/column coordinates, or an allow-listed DOCX part
-and one-based paragraph. Core validates that every structured detection belongs to exactly one
+JSON values, CSV cells, DOCX paragraphs, and qualified DOCX XML value carriers now expose an
+append-only versioned typed source map internally: RFC 6901 JSON pointers, one-based logical CSV
+row/column coordinates, an allow-listed DOCX part and paragraph, or value-free carrier metadata.
+Relationship targets use their owning content part and stable relationship ID; target values are
+never stored in the location. Core validates that every structured detection belongs to exactly one
 declared region, while permitting tab-separated nonoverlapping DOCX regions to retain one stable
-part/paragraph identity; span resolution binds those native locations into its digest. These locations
+part/paragraph identity; span resolution `0.3.0` binds those native locations into its digest. These locations
 are deliberately omitted from ordinary CLI/API reports because paths and headers can themselves be
 sensitive. Exact path/cell policy selection now uses this source-map seam. Carrying native targets
 directly in a future plan contract and cross-checking them at the writer boundary remain future
@@ -329,15 +335,18 @@ packages whose declared visible content is ordinary `w:t` text in `word/document
 table paragraphs or in strictly related headers, footers, footnotes, and endnotes, including text
 fragmented across formatting runs. Tabs and note-reference markers become non-crossable structural
 boundaries; standard reserved nonpositive-ID note separators remain zero-text. Content types, relationships,
-header/footer references, and ordinary note IDs must form a closed graph. It rejects macros,
-external or embedded relationships, metadata, comments, drawings/`AlternateContent`, text boxes,
-fields, revisions, hidden text, custom XML, unknown parts, and unsafe or inconsistent ZIP structures
-instead of silently skipping them. Privacy-safe unsupported errors expose only a closed reason
-category. One exact standard Office theme profile and an exact empty web-settings profile are
-accepted as validated passive structure; settings, fonts, custom XML, styles, numbering, and
-document properties remain blocked. XML input and internal replacement strings must satisfy the
-XML 1.0 character repertoire. Its `docx-extract-v1` evidence attests bounded ZIP structure, the feature allowlist, and
-native paragraph mapping only. DOCX redaction and
+header/footer references, and ordinary note IDs must form a closed graph. Version 0.4 also scans
+bounded external HTTPS/mailto hyperlink targets without dereferencing them, generated numbering
+templates, style/font metadata, core/extended document properties, and one exact zero-text
+bibliography custom-XML graph through typed relationship/XML-value regions. Strict Word-generated
+settings, numbering, styles, font tables, a zero-text decorative drawing/`AlternateContent` profile,
+one exact Office theme, and empty web settings require closed namespaces, parents, ordering,
+cardinality, attributes, relationships, and content types. Macros, non-hyperlink external or embedded
+relationships, comments, text boxes, fields, revisions, hidden text/styles, binary objects, unknown
+parts, and any non-qualified carrier shape still fail closed instead of being skipped. Privacy-safe
+unsupported errors expose only a closed reason category. XML input and internal replacement strings
+must satisfy the XML 1.0 character repertoire. Its `docx-extract-v1` evidence attests bounded ZIP
+structure, the feature allowlist, and typed native source mapping only. DOCX redaction and
 standalone verification are not exposed: native leakage verification, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
@@ -414,8 +423,14 @@ output collisions.
   a nonzero partial/failed manifest by default. Explicit `--allow-partial` changes only a mixed,
   conflict-free partial result to exit success; the manifest remains `PARTIAL`, and an all-failed
   manifest remains nonzero. The report always records the selected completion policy. Recursive
-  redaction, output mapping, resume, and Ollama batch processing
-  remain unavailable. Complete mediation of a hostile process concurrently replacing
+  `batch redact` uses the same bounds for rules-only verified TXT/Markdown/JSON/CSV publication.
+  It requires a separate existing output root, preserves deterministic relative paths, and checks
+  the complete target set for existing outputs, duplicate case-folded mappings, containment, and
+  observed symbolic parents before any content processing. Each file uses the existing private
+  stage, reopen, verification, hard-link no-clobber publication, and cleanup workflow. A per-file
+  safe failure produces a privacy-safe `PARTIAL` or `FAILED` aggregate report and always returns
+  nonzero; `--allow-partial` is scan-only. Already verified outputs from earlier files are not
+  rolled back. Resume and Ollama batch processing remain unavailable. Complete mediation of a hostile process concurrently replacing
   parent-directory entries requires a future dirfd/openat-style traversal boundary.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.

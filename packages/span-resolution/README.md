@@ -7,7 +7,7 @@ Deterministic resolution of overlapping and duplicate detection evidence.
 - Validates evidence spans against canonical text length.
 - Groups supporting evidence for equivalent spans.
 - Applies deterministic precedence when spans overlap.
-- Carries validated typed native locations and binds them into the resolution digest.
+- Carries validated typed native locations and binds them into the `0.3.0` resolution digest.
 - Returns accepted spans and explicit conflicts without mutating evidence.
 
 ## Boundary

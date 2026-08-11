@@ -44,8 +44,10 @@ def normalize_references(
             # meaning would change if they were copied into the parent.
             if (
                 separator == ""
-                and schema_id
-                == "https://local-pii.dev/schemas/common/native-location/1.0.0"
+                and schema_id in {
+                    "https://local-pii.dev/schemas/common/native-location/1.0.0",
+                    "https://local-pii.dev/schemas/common/native-location/2.0.0",
+                }
             ):
                 target_schema = {
                     nested_key: nested_value

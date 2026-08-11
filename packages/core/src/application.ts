@@ -1,10 +1,12 @@
 import {
   SafeError,
   isNativeLocationV1,
+  isNativeLocationV2,
   nativeLocationIdentity,
   parseCorrelationId,
   parseSha256Digest,
   unicodeCodePointLength,
+  type CanonicalRegion,
   type CanonicalRegionV1,
   type DetectionEvidence,
   type CorrelationId
@@ -153,10 +155,10 @@ function sourceMapInvalid(requestCorrelationId: CorrelationId): never {
 }
 
 function validatedRegions(
-  regions: readonly CanonicalRegionV1[],
+  regions: readonly CanonicalRegion[],
   textLength: number,
   requestCorrelationId: CorrelationId
-): readonly CanonicalRegionV1[] {
+): readonly CanonicalRegion[] {
   const candidateRegions: unknown = regions;
   if (!Array.isArray(candidateRegions) || candidateRegions.length > 100_000) return sourceMapInvalid(requestCorrelationId);
   let previousEnd = 0;
@@ -167,7 +169,7 @@ function validatedRegions(
     const candidate = region as Readonly<Record<string, unknown>>;
     if (
       (Object.keys(candidate).length !== 6 && Object.keys(candidate).length !== 7)
-      || candidate.schemaVersion !== '1.0.0'
+      || (candidate.schemaVersion !== '1.0.0' && candidate.schemaVersion !== '2.0.0')
       || candidate.offsetUnit !== 'UNICODE_CODE_POINT'
       || candidate.role !== 'VALUE'
       || !Number.isSafeInteger(candidate.start)
@@ -175,12 +177,16 @@ function validatedRegions(
       || (candidate.start as number) < previousEnd
       || (candidate.end as number) < (candidate.start as number)
       || (candidate.end as number) > textLength
-      || !isNativeLocationV1(candidate.location)
     ) return sourceMapInvalid(requestCorrelationId);
+    const location = candidate.location;
+    if (!isNativeLocationV2(location)
+      || (candidate.schemaVersion === '1.0.0' && !isNativeLocationV1(location))) {
+      return sourceMapInvalid(requestCorrelationId);
+    }
     if (candidate.selector !== undefined) {
       const selector = candidate.selector;
       if (
-        candidate.location.kind !== 'CSV_CELL'
+        location.kind !== 'CSV_CELL'
         ||
         selector === null
         || typeof selector !== 'object'
@@ -191,8 +197,8 @@ function validatedRegions(
         || ((selector as Readonly<Record<string, unknown>>).csvHeader as string).length > 256
       ) return sourceMapInvalid(requestCorrelationId);
     }
-    const identity = nativeLocationIdentity(candidate.location);
-    if (locations.has(identity) && (candidate.location.kind !== 'DOCX_PART' || previousIdentity !== identity)) {
+    const identity = nativeLocationIdentity(location);
+    if (locations.has(identity) && (location.kind !== 'DOCX_PART' || previousIdentity !== identity)) {
       return sourceMapInvalid(requestCorrelationId);
     }
     locations.add(identity);
@@ -203,10 +209,10 @@ function validatedRegions(
 }
 
 function regionForSpan(
-  regions: readonly CanonicalRegionV1[],
+  regions: readonly CanonicalRegion[],
   start: number,
   end: number
-): CanonicalRegionV1 | undefined {
+): CanonicalRegion | undefined {
   let low = 0;
   let high = regions.length - 1;
   while (low <= high) {
@@ -222,18 +228,18 @@ function regionForSpan(
 
 function sameNativeLocations(
   left: readonly unknown[] | undefined,
-  right: readonly CanonicalRegionV1['location'][]
+  right: readonly CanonicalRegion['location'][]
 ): boolean {
   return left === undefined || (
     left.length === right.length
-    && left.every((location, index) => isNativeLocationV1(location)
-      && nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as CanonicalRegionV1['location']))
+    && left.every((location, index) => isNativeLocationV2(location)
+      && nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as CanonicalRegion['location']))
   );
 }
 
 function bindNativeLocations(
   detected: readonly DetectionEvidence[],
-  sourceRegions: readonly CanonicalRegionV1[] | undefined,
+  sourceRegions: readonly CanonicalRegion[] | undefined,
   textLength: number,
   requestCorrelationId: CorrelationId
 ): readonly DetectionEvidence[] {

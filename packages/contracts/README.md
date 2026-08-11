@@ -13,14 +13,16 @@ Canonical, language-neutral data contracts for every process and package boundar
   ceilings for the ephemeral local preview boundary.
 - Defines the bounded append-only review request/set contracts used for value-free optimistic
   decision replay without changing the immutable detector evidence contracts.
-- Retains detection v1 and adds detection v2 plus canonical-region/native-location schemas for
-  typed JSON pointer, CSV cell, and narrow DOCX paragraph provenance.
+- Retains detection v1/v2 and native-location/canonical-region v1, then adds detection v3 and
+  location/region v2 for bounded value-free DOCX relationship and XML carrier provenance.
 - Retains redaction-policy v1 and adds redaction-policy v2 for exact JSON Pointer classification,
   explicit CSV delimiter/header behavior, and exact CSV index/header classification.
 - Adds policy-bound CLI scan-report v2 and redaction-report v3 contracts without loosening the
   existing scan v1 or bundled-policy redaction v2 report schemas.
 - Retains batch-scan-report v1 and adds append-only v2 so an explicit `REQUIRE_COMPLETE` or
   `ALLOW_PARTIAL` completion policy is machine-visible without breaking existing report consumers.
+- Adds the separate append-only batch-redact-report v1 aggregate contract. Its completion policy is
+  fixed to `REQUIRE_COMPLETE`, and it excludes paths, names, values, patterns, and per-file digests.
 - Defines v4 reviewed-redaction admission and v2 redaction-plan contracts that bind an exact scan,
   append-only review revision/digest, effective value-free decisions, policy, and writer provenance.
 

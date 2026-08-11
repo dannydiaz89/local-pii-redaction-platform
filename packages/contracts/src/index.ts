@@ -6,3 +6,4 @@ export * from './writer-receipt.js';
 export * from './verification-attestation.js';
 export * from './local-preview.js';
 export * from './batch-scan-report.js';
+export * from './batch-redact-report.js';

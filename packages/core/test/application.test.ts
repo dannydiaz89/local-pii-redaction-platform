@@ -261,6 +261,104 @@ describe('TextProcessingApplication', () => {
     }]);
   });
 
+  it('binds a DOCX relationship carrier only through a v2 canonical region', async () => {
+    const sourceText = 'ada@example.test';
+    const location = {
+      schemaVersion: '2.0.0' as const,
+      kind: 'DOCX_RELATIONSHIP' as const,
+      sourcePart: 'word/document.xml',
+      relationshipId: 'rId1',
+      field: 'TARGET' as const
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '2.0.0' as const,
+        start: 0,
+        end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location
+      }]
+    };
+
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+    expect(result.evidence[0]?.nativeLocations).toEqual([location]);
+
+    const invalidV1Wrapper = {
+      ...source,
+      regions: [{
+        schemaVersion: '1.0.0' as const,
+        start: 0,
+        end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location
+      }]
+    } as unknown as TextArtifact;
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(invalidV1Wrapper) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
+  it('binds exact unprefixed DOCX XML element and attribute names without inventing prefixes', async () => {
+    const sourceText = 'ada@example.test';
+    const location = {
+      schemaVersion: '2.0.0' as const,
+      kind: 'DOCX_XML_VALUE' as const,
+      part: 'docProps/app.xml',
+      element: 'Properties',
+      elementOrdinal: 1,
+      carrier: 'ATTRIBUTE' as const,
+      attribute: 'baseType'
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '2.0.0' as const,
+        start: 0,
+        end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location
+      }]
+    };
+
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+
+    expect(result.evidence[0]?.nativeLocations).toEqual([location]);
+  });
+
+  it('rejects duplicate DOCX relationship carrier identities', async () => {
+    const sourceText = 'ada@example.testsafe';
+    const location = {
+      schemaVersion: '2.0.0' as const,
+      kind: 'DOCX_RELATIONSHIP' as const,
+      sourcePart: 'word/document.xml',
+      relationshipId: 'rId1',
+      field: 'TARGET' as const
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [
+        { schemaVersion: '2.0.0' as const, start: 0, end: 16, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location },
+        { schemaVersion: '2.0.0' as const, start: 16, end: 20, offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location }
+      ]
+    };
+
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
   it('fails safely when a detection crosses structured canonical regions', async () => {
     const sourceText = 'Email ada@example.test';
     const source = {

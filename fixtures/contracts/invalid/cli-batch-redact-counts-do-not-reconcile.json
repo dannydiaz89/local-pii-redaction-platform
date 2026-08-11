@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "BATCH_REDACT",
+  "outcome": "PARTIAL",
+  "completionPolicy": "REQUIRE_COMPLETE",
+  "detectorBundleVersion": "0.2.0",
+  "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW", "example": true },
+  "manifest": { "complete": false, "selectedFileCount": 3, "publishedFileCount": 1, "failedFileCount": 1, "directoryCount": 1, "entryCount": 3, "totalInputBytes": 64, "processedInputBytes": 32, "publishedOutputBytes": 24, "replacementCount": 1, "byEntity": { "EMAIL": 1 }, "failuresByCode": { "FORMAT_CORRUPT": 1 } },
+  "selection": { "includePatternCount": 5, "excludePatternCount": 0 },
+  "limits": { "maximumFiles": 1000, "maximumDirectories": 1000, "maximumEntries": 10000, "maximumTotalInputBytes": 268435456, "maximumRelativePathCodeUnits": 8192, "maximumPatternMatchSteps": 100000000, "timeoutMs": 60000 }
+}

@@ -740,6 +740,377 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/cli/batch-redact-report/1.0.0",
+    "title": "Bounded batch redaction report",
+    "description": "Privacy-safe aggregate manifest for one strict bounded recursive rules-only redaction attempt. Paths, names, values, source text, patterns, and per-file digests are excluded.",
+    "schemaVersion": "1.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "operation",
+      "outcome",
+      "completionPolicy",
+      "detectorBundleVersion",
+      "policy",
+      "manifest",
+      "selection",
+      "limits"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "1.0.0"
+      },
+      "operation": {
+        "const": "BATCH_REDACT"
+      },
+      "outcome": {
+        "enum": [
+          "SUCCEEDED",
+          "PARTIAL",
+          "FAILED"
+        ]
+      },
+      "completionPolicy": {
+        "const": "REQUIRE_COMPLETE"
+      },
+      "detectorBundleVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "policy": {
+        "$ref": "https://local-pii.dev/schemas/cli/cli-report/1.0.0#/$defs/policySummary"
+      },
+      "manifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "complete",
+          "selectedFileCount",
+          "publishedFileCount",
+          "failedFileCount",
+          "directoryCount",
+          "entryCount",
+          "totalInputBytes",
+          "processedInputBytes",
+          "publishedOutputBytes",
+          "replacementCount",
+          "byEntity",
+          "failuresByCode"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "selectedFileCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "publishedFileCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "failedFileCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "directoryCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "entryCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "totalInputBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 268435456
+          },
+          "processedInputBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 268435456
+          },
+          "publishedOutputBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1073741824
+          },
+          "replacementCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "byEntity": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000
+            }
+          },
+          "failuresByCode": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "CONTRACT_UNSUPPORTED",
+                "SCHEMA_INVALID",
+                "IDEMPOTENCY_CONFLICT",
+                "INPUT_TOO_LARGE",
+                "FORMAT_UNSUPPORTED",
+                "FORMAT_ENCRYPTED",
+                "FORMAT_CORRUPT",
+                "POLICY_UNSATISFIABLE",
+                "POLICY_REVIEW_REQUIRED",
+                "POLICY_BLOCKED",
+                "REQUIRED_DETECTOR_UNAVAILABLE",
+                "MODEL_UNAVAILABLE",
+                "DETECTOR_TIMEOUT",
+                "DETECTION_LIMIT_EXCEEDED",
+                "MODEL_OUTPUT_INVALID",
+                "SOURCE_MAP_INVALID",
+                "REDACTION_PLAN_CONFLICT",
+                "REDACTION_COUNT_MISMATCH",
+                "VERIFICATION_RESIDUAL",
+                "VERIFICATION_INCOMPLETE",
+                "FIDELITY_OUT_OF_RANGE",
+                "ARTIFACT_DIGEST_MISMATCH",
+                "STORAGE_UNAVAILABLE",
+                "JOB_CONFLICT",
+                "OUTPUT_COLLISION",
+                "RATE_LIMITED",
+                "SUPPLY_CHAIN_INVALID",
+                "AUTHORIZATION_DENIED",
+                "OPERATION_CANCELLED",
+                "INTERNAL_ERROR"
+              ]
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      "selection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "includePatternCount",
+          "excludePatternCount"
+        ],
+        "properties": {
+          "includePatternCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "excludePatternCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          }
+        }
+      },
+      "limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maximumFiles",
+          "maximumDirectories",
+          "maximumEntries",
+          "maximumTotalInputBytes",
+          "maximumRelativePathCodeUnits",
+          "maximumPatternMatchSteps",
+          "timeoutMs"
+        ],
+        "properties": {
+          "maximumFiles": {
+            "const": 1000
+          },
+          "maximumDirectories": {
+            "const": 1000
+          },
+          "maximumEntries": {
+            "const": 10000
+          },
+          "maximumTotalInputBytes": {
+            "const": 268435456
+          },
+          "maximumRelativePathCodeUnits": {
+            "const": 8192
+          },
+          "maximumPatternMatchSteps": {
+            "const": 100000000
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 300000
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "outcome": {
+              "const": "SUCCEEDED"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "complete": {
+                  "const": true
+                },
+                "failedFileCount": {
+                  "const": 0
+                },
+                "failuresByCode": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "maxProperties": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "outcome": {
+              "const": "PARTIAL"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "complete": {
+                  "const": false
+                },
+                "publishedFileCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "failedFileCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "failuresByCode": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "outcome": {
+              "const": "FAILED"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "complete": {
+                  "const": false
+                },
+                "publishedFileCount": {
+                  "const": 0
+                },
+                "failedFileCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "failuresByCode": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "operation": "BATCH_REDACT",
+        "outcome": "SUCCEEDED",
+        "completionPolicy": "REQUIRE_COMPLETE",
+        "detectorBundleVersion": "0.2.0",
+        "policy": {
+          "id": "development-labels",
+          "version": "0.1.0",
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "riskTier": "LOW",
+          "example": true
+        },
+        "manifest": {
+          "complete": true,
+          "selectedFileCount": 1,
+          "publishedFileCount": 1,
+          "failedFileCount": 0,
+          "directoryCount": 1,
+          "entryCount": 1,
+          "totalInputBytes": 32,
+          "processedInputBytes": 32,
+          "publishedOutputBytes": 24,
+          "replacementCount": 1,
+          "byEntity": {
+            "EMAIL": 1
+          },
+          "failuresByCode": {}
+        },
+        "selection": {
+          "includePatternCount": 5,
+          "excludePatternCount": 0
+        },
+        "limits": {
+          "maximumFiles": 1000,
+          "maximumDirectories": 1000,
+          "maximumEntries": 10000,
+          "maximumTotalInputBytes": 268435456,
+          "maximumRelativePathCodeUnits": 8192,
+          "maximumPatternMatchSteps": 100000000,
+          "timeoutMs": 60000
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0",
     "title": "Bounded batch scan report with completion policy",
     "description": "Privacy-safe aggregate manifest for one bounded recursive rules-only scan attempt, including the explicit completion policy. Paths, names, content digests, values, native locations, and patterns are excluded.",
@@ -3508,6 +3879,158 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/native-location/2.0.0",
+    "title": "Native structured location v2",
+    "description": "An append-only, value-free native location. DOCX XML carrier metadata never contains the carrier value.",
+    "schemaVersion": "2.0.0",
+    "oneOf": [
+      {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0"
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "sourcePart",
+          "relationshipId",
+          "field"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "2.0.0"
+          },
+          "kind": {
+            "const": "DOCX_RELATIONSHIP"
+          },
+          "sourcePart": {
+            "type": "string",
+            "pattern": "^word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\\.xml$"
+          },
+          "relationshipId": {
+            "type": "string",
+            "pattern": "^rId[1-9][0-9]{0,5}$"
+          },
+          "field": {
+            "const": "TARGET"
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "part",
+          "element",
+          "elementOrdinal",
+          "carrier"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "2.0.0"
+          },
+          "kind": {
+            "const": "DOCX_XML_VALUE"
+          },
+          "part": {
+            "type": "string",
+            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+          },
+          "element": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
+          },
+          "elementOrdinal": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "carrier": {
+            "const": "TEXT"
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "part",
+          "element",
+          "elementOrdinal",
+          "carrier",
+          "attribute"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "2.0.0"
+          },
+          "kind": {
+            "const": "DOCX_XML_VALUE"
+          },
+          "part": {
+            "type": "string",
+            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+          },
+          "element": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
+          },
+          "elementOrdinal": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "carrier": {
+            "const": "ATTRIBUTE"
+          },
+          "attribute": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "kind": "DOCX_PART",
+        "part": "word/document.xml",
+        "paragraph": 1
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "kind": "DOCX_RELATIONSHIP",
+        "sourcePart": "word/document.xml",
+        "relationshipId": "rId1",
+        "field": "TARGET"
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "kind": "DOCX_XML_VALUE",
+        "part": "word/settings.xml",
+        "element": "w:setting",
+        "elementOrdinal": 1,
+        "carrier": "ATTRIBUTE",
+        "attribute": "w:val"
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "kind": "DOCX_XML_VALUE",
+        "part": "docProps/app.xml",
+        "element": "Properties",
+        "elementOrdinal": 1,
+        "carrier": "ATTRIBUTE",
+        "attribute": "baseType"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/native-location/1.0.0",
     "title": "Native structured location",
     "description": "A versioned value-free native location owned by a structured format adapter.",
@@ -4002,6 +4525,147 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detection/3.0.0",
+    "title": "Detection evidence with DOCX XML carrier locations",
+    "description": "One value-free detector assertion anchored to an extraction revision and optional typed native locations.",
+    "schemaVersion": "3.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "entityType",
+      "span",
+      "confidence",
+      "source",
+      "detector"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "3.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+      },
+      "entityType": {
+        "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+      },
+      "span": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "offsetUnit",
+          "extractionRevision"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offsetUnit": {
+            "const": "UNICODE_CODE_POINT"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "source": {
+        "enum": [
+          "REGEX",
+          "CHECKSUM",
+          "STRUCTURED",
+          "DICTIONARY",
+          "MODEL",
+          "MANUAL"
+        ]
+      },
+      "detector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "nativeLocations": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/native-location/2.0.0"
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "3.0.0",
+        "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "entityType": "EMAIL",
+        "span": {
+          "start": 8,
+          "end": 25,
+          "offsetUnit": "UNICODE_CODE_POINT",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": 0.99,
+        "source": "REGEX",
+        "detector": {
+          "id": "email-pattern",
+          "version": "0.1.0",
+          "ruleId": "email-v1"
+        },
+        "nativeLocations": [
+          {
+            "schemaVersion": "2.0.0",
+            "kind": "DOCX_RELATIONSHIP",
+            "sourcePart": "word/document.xml",
+            "relationshipId": "rId1",
+            "field": "TARGET"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
     "title": "Detection evidence",
     "description": "One value-free detector assertion anchored to an extraction revision.",
@@ -4148,6 +4812,105 @@ export const schemaCatalog = [
           "id": "email-pattern",
           "version": "0.1.0",
           "ruleId": "email-v1"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/extraction/canonical-region/2.0.0",
+    "title": "Canonical structured region v2",
+    "description": "One canonical Unicode code-point region and its exact value-free native location, including bounded DOCX XML carriers.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "start",
+      "end",
+      "offsetUnit",
+      "role",
+      "location"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "start": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "end": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "offsetUnit": {
+        "const": "UNICODE_CODE_POINT"
+      },
+      "role": {
+        "const": "VALUE"
+      },
+      "location": {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/2.0.0"
+      },
+      "selector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "csvHeader"
+        ],
+        "properties": {
+          "csvHeader": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "selector": true
+          },
+          "required": [
+            "selector"
+          ]
+        },
+        "then": {
+          "properties": {
+            "location": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "CSV_CELL"
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "start": 8,
+        "end": 25,
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "role": "VALUE",
+        "location": {
+          "schemaVersion": "2.0.0",
+          "kind": "DOCX_RELATIONSHIP",
+          "sourcePart": "word/document.xml",
+          "relationshipId": "rId1",
+          "field": "TARGET"
         }
       }
     ]

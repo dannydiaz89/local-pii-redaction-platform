@@ -6,8 +6,8 @@ Dependency-free domain vocabulary and invariants shared across the platform.
 
 - Defines branded identifiers and SHA-256 digest parsing.
 - Defines canonical entity types, detector provenance, and detection evidence.
-- Defines versioned typed native locations and canonical structured regions for JSON values, CSV
-  cells, and the narrow DOCX paragraph surface.
+- Defines append-only typed native locations and canonical regions for JSON values, CSV cells,
+  DOCX paragraphs, stable relationship targets, and bounded value-free XML carriers.
 - Provides privacy-safe typed errors and allow-listed error details.
 - Defines Unicode code-point spans and safe slicing helpers.
 - Defines legal job-state transitions.

@@ -1,6 +1,7 @@
 import type {
   DetectionEvidence,
   EntityType,
+  CanonicalRegion,
   CanonicalRegionV1,
   Sha256Digest
 } from '@local-pii/domain';
@@ -55,7 +56,7 @@ export interface TextArtifact {
   readonly text: string;
   readonly hasUtf8Bom: boolean;
   /** Complete adapter-owned source regions for structured canonical text. */
-  readonly regions?: readonly CanonicalRegionV1[];
+  readonly regions?: readonly CanonicalRegion[];
 }
 
 export interface StagedTextArtifact {

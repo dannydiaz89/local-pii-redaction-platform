@@ -3,6 +3,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 import { schemaCatalog } from './generated/schema-catalog.js';
 import { isCanonicalUuid, isRfc3339DateTime } from './formats.js';
 import { batchScanReportSchemaIds, batchScanReportSemanticErrors } from './batch-scan-report.js';
+import { batchRedactReportSchemaId, batchRedactReportSemanticErrors } from './batch-redact-report.js';
 
 export interface ContractValidationResult {
   readonly valid: boolean;
@@ -29,17 +30,19 @@ export function validateContract(schemaId: string, value: unknown): ContractVali
 
   const valid = validator(value);
   const schemaErrors = validator.errors ?? [];
-  if (!valid || !batchScanReportSchemaIds.has(schemaId)) return { valid, errors: schemaErrors };
-  const semanticErrors = batchScanReportSemanticErrors(
-    value as Parameters<typeof batchScanReportSemanticErrors>[0]
-  );
+  if (!valid) return { valid, errors: schemaErrors };
+  const semanticErrors = batchScanReportSchemaIds.has(schemaId)
+    ? batchScanReportSemanticErrors(value as Parameters<typeof batchScanReportSemanticErrors>[0])
+    : schemaId === batchRedactReportSchemaId
+      ? batchRedactReportSemanticErrors(value as Parameters<typeof batchRedactReportSemanticErrors>[0])
+      : [];
   if (semanticErrors.length === 0) return { valid: true, errors: [] };
   return {
     valid: false,
     errors: semanticErrors.map((message): ErrorObject => ({
-      keyword: 'batchScanSemantics',
+      keyword: 'aggregateReportSemantics',
       instancePath: '/manifest',
-      schemaPath: '#/x-batchScanSemantics',
+      schemaPath: '#/x-aggregateReportSemantics',
       params: {},
       message
     }))

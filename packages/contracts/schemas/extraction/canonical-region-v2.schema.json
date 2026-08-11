@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/extraction/canonical-region/2.0.0",
+  "title": "Canonical structured region v2",
+  "description": "One canonical Unicode code-point region and its exact value-free native location, including bounded DOCX XML carriers.",
+  "schemaVersion": "2.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "start", "end", "offsetUnit", "role", "location"],
+  "properties": {
+    "schemaVersion": { "const": "2.0.0" },
+    "start": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "end": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "offsetUnit": { "const": "UNICODE_CODE_POINT" },
+    "role": { "const": "VALUE" },
+    "location": { "$ref": "https://local-pii.dev/schemas/common/native-location/2.0.0" },
+    "selector": {
+      "type": "object", "additionalProperties": false, "required": ["csvHeader"],
+      "properties": { "csvHeader": { "type": "string", "minLength": 1, "maxLength": 256 } }
+    }
+  },
+  "allOf": [{
+    "if": { "properties": { "selector": true }, "required": ["selector"] },
+    "then": {
+      "properties": {
+        "location": {
+          "type": "object", "additionalProperties": true, "required": ["kind"],
+          "properties": { "kind": { "const": "CSV_CELL" } }
+        }
+      }
+    }
+  }],
+  "examples": [{
+    "schemaVersion": "2.0.0",
+    "start": 8,
+    "end": 25,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "role": "VALUE",
+    "location": { "schemaVersion": "2.0.0", "kind": "DOCX_RELATIONSHIP", "sourcePart": "word/document.xml", "relationshipId": "rId1", "field": "TARGET" }
+  }]
+}

@@ -36,6 +36,8 @@ export interface BatchTraversalLimits {
 
 export interface BatchFile {
   readonly path: string;
+  /** Root-relative POSIX-style path retained only in process for deterministic output mapping. */
+  readonly relativePath: string;
   readonly byteLength: number;
   readonly device: number;
   readonly inode: number;
@@ -343,6 +345,7 @@ export async function discoverBatchFiles(
       totalInputBytes += metadata.size;
       files.push(Object.freeze({
         path: resolvedPath,
+        relativePath,
         byteLength: metadata.size,
         device: metadata.dev,
         inode: metadata.ino,

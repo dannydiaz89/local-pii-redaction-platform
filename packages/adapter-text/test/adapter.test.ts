@@ -61,7 +61,7 @@ function typedLabelPlan(source: TextArtifact, actions: readonly TestAction[] = [
 }]): TypedLabelPlan {
   return compileTypedLabelPlan({
     extractionRevision: source.extractionRevision,
-    algorithmVersion: '0.2.0',
+    algorithmVersion: '0.3.0',
     digest: parseSha256Digest(`sha256:${'d'.repeat(64)}`),
     spans: actions.map((action, index) => {
       const suffix = String(index + 1).padStart(12, '0');

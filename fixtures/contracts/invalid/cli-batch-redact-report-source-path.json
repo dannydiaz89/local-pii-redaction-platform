@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "operation": "BATCH_REDACT",
+  "outcome": "SUCCEEDED",
+  "completionPolicy": "REQUIRE_COMPLETE",
+  "detectorBundleVersion": "0.2.0",
+  "policy": { "id": "development-labels", "version": "0.1.0", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "riskTier": "LOW", "example": true },
+  "sourcePath": "/private/synthetic-canary.txt",
+  "manifest": { "complete": true, "selectedFileCount": 0, "publishedFileCount": 0, "failedFileCount": 0, "directoryCount": 1, "entryCount": 0, "totalInputBytes": 0, "processedInputBytes": 0, "publishedOutputBytes": 0, "replacementCount": 0, "byEntity": {}, "failuresByCode": {} },
+  "selection": { "includePatternCount": 5, "excludePatternCount": 0 },
+  "limits": { "maximumFiles": 1000, "maximumDirectories": 1000, "maximumEntries": 10000, "maximumTotalInputBytes": 268435456, "maximumRelativePathCodeUnits": 8192, "maximumPatternMatchSteps": 100000000, "timeoutMs": 60000 }
+}

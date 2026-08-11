@@ -69,10 +69,29 @@ describe('span resolution', () => {
         : [{ ...item.nativeLocations[0], row: 3 }]
     })), revision, unicodeCodePointLength(text));
 
-    expect(original.algorithmVersion).toBe('0.2.0');
+    expect(original.algorithmVersion).toBe('0.3.0');
     expect(original.spans[0]?.nativeLocations).toEqual([{
       schemaVersion: '1.0.0', kind: 'CSV_CELL', row: 2, column: 3
     }]);
+    expect(moved.digest).not.toBe(original.digest);
+  });
+
+  it('normalizes DOCX relationship locations and binds their safe identity into the v3 digest', () => {
+    const text = 'alpha@example.test';
+    const first = detectDeterministic(text, revision)[0];
+    if (first === undefined) throw new Error('Synthetic detector fixture produced no evidence');
+    const location = {
+      schemaVersion: '2.0.0' as const,
+      kind: 'DOCX_RELATIONSHIP' as const,
+      sourcePart: 'word/document.xml',
+      relationshipId: 'rId1',
+      field: 'TARGET' as const
+    };
+    const original = resolveEvidence([{ ...first, nativeLocations: [location] }], revision, unicodeCodePointLength(text));
+    const moved = resolveEvidence([{ ...first, nativeLocations: [{ ...location, relationshipId: 'rId2' }] }], revision, unicodeCodePointLength(text));
+
+    expect(original.algorithmVersion).toBe('0.3.0');
+    expect(original.spans[0]?.nativeLocations).toEqual([location]);
     expect(moved.digest).not.toBe(original.digest);
   });
 

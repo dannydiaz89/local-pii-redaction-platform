@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/common/native-location/2.0.0",
+  "title": "Native structured location v2",
+  "description": "An append-only, value-free native location. DOCX XML carrier metadata never contains the carrier value.",
+  "schemaVersion": "2.0.0",
+  "oneOf": [
+    { "$ref": "https://local-pii.dev/schemas/common/native-location/1.0.0" },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "sourcePart", "relationshipId", "field"],
+      "properties": {
+        "schemaVersion": { "const": "2.0.0" },
+        "kind": { "const": "DOCX_RELATIONSHIP" },
+        "sourcePart": {
+          "type": "string",
+          "pattern": "^word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\\.xml$"
+        },
+        "relationshipId": { "type": "string", "pattern": "^rId[1-9][0-9]{0,5}$" },
+        "field": { "const": "TARGET" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "part", "element", "elementOrdinal", "carrier"],
+      "properties": {
+        "schemaVersion": { "const": "2.0.0" },
+        "kind": { "const": "DOCX_XML_VALUE" },
+        "part": {
+          "type": "string",
+          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+        },
+        "element": { "type": "string", "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$" },
+        "elementOrdinal": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "carrier": { "const": "TEXT" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "part", "element", "elementOrdinal", "carrier", "attribute"],
+      "properties": {
+        "schemaVersion": { "const": "2.0.0" },
+        "kind": { "const": "DOCX_XML_VALUE" },
+        "part": {
+          "type": "string",
+          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+        },
+        "element": { "type": "string", "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$" },
+        "elementOrdinal": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "carrier": { "const": "ATTRIBUTE" },
+        "attribute": { "type": "string", "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$" }
+      }
+    }
+  ],
+  "examples": [
+    { "schemaVersion": "1.0.0", "kind": "DOCX_PART", "part": "word/document.xml", "paragraph": 1 },
+    { "schemaVersion": "2.0.0", "kind": "DOCX_RELATIONSHIP", "sourcePart": "word/document.xml", "relationshipId": "rId1", "field": "TARGET" },
+    { "schemaVersion": "2.0.0", "kind": "DOCX_XML_VALUE", "part": "word/settings.xml", "element": "w:setting", "elementOrdinal": 1, "carrier": "ATTRIBUTE", "attribute": "w:val" },
+    { "schemaVersion": "2.0.0", "kind": "DOCX_XML_VALUE", "part": "docProps/app.xml", "element": "Properties", "elementOrdinal": 1, "carrier": "ATTRIBUTE", "attribute": "baseType" }
+  ]
+}

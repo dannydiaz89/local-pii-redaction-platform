@@ -45,6 +45,13 @@ import {
   defaultBatchIncludes,
   discoverBatchFiles
 } from './batch.js';
+import {
+  assertBatchRedactionTarget,
+  assertPublishedBatchTarget,
+  cleanupBatchDirectories,
+  mustAbortBatchRedaction,
+  prepareBatchRedaction
+} from './batch-redact.js';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -86,6 +93,7 @@ const usage = `Usage:
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--json]
+  pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
@@ -105,6 +113,7 @@ const cliRedactReportV2SchemaId = 'https://local-pii.dev/schemas/cli/redact-repo
 const cliRedactReportV3SchemaId = 'https://local-pii.dev/schemas/cli/redact-report/3.0.0';
 const cliBatchScanReportSchemaId = 'https://local-pii.dev/schemas/cli/batch-scan-report/1.0.0';
 const cliBatchScanReportV2SchemaId = 'https://local-pii.dev/schemas/cli/batch-scan-report/2.0.0';
+const cliBatchRedactReportSchemaId = 'https://local-pii.dev/schemas/cli/batch-redact-report/1.0.0';
 const policyReportSchemaId = 'https://local-pii.dev/schemas/cli/policy-report/1.0.0';
 const stageRecoveryReportSchemaId = 'https://local-pii.dev/schemas/cli/stage-recovery-report/1.0.0';
 const errorEnvelopeSchemaId = 'https://local-pii.dev/schemas/common/errors/1.0.0';
@@ -234,6 +243,8 @@ function writeResult(io: CliIo, json: boolean, value: object, human: string): vo
     schemaId = cliScanReportV2SchemaId;
   } else if (operation === 'BATCH_SCAN') {
     schemaId = schemaVersion === '2.0.0' ? cliBatchScanReportV2SchemaId : cliBatchScanReportSchemaId;
+  } else if (operation === 'BATCH_REDACT') {
+    schemaId = cliBatchRedactReportSchemaId;
   } else if (operation === 'STAGE_RECOVERY') {
     schemaId = stageRecoveryReportSchemaId;
   }
@@ -594,6 +605,143 @@ async function runBatchScan(
   }
 }
 
+async function runBatchRedact(
+  root: string,
+  parsed: ParsedArguments,
+  io: CliIo,
+  signal?: AbortSignal
+): Promise<number> {
+  const timeoutController = new AbortController();
+  const timeoutMs = parsed.batchTimeoutMs ?? batchTraversalLimits.defaultTimeoutMs;
+  const timer = setTimeout(() => {
+    timeoutController.abort();
+  }, timeoutMs);
+  const batchSignal = signal === undefined
+    ? timeoutController.signal
+    : AbortSignal.any([signal, timeoutController.signal]);
+  let createdDirectories: readonly string[] = [];
+  try {
+    const policy = parsed.policyFile === undefined
+      ? compilePolicy(bundledPolicies[parsed.selectedPolicy ?? 'development-labels'])
+      : await loadPolicyFile(parsed.policyFile, batchSignal);
+    const traversal = await discoverBatchFiles(root, {
+      includes: parsed.includes.length === 0 ? defaultBatchIncludes : parsed.includes,
+      excludes: parsed.excludes,
+      signal: batchSignal
+    });
+    const prepared = await prepareBatchRedaction(root, parsed.output as string, traversal.files, batchSignal);
+    createdDirectories = prepared.createdDirectories;
+    const byEntity: Partial<Record<EntityType, number>> = {};
+    const failuresByCode: Partial<Record<ErrorCode, number>> = {};
+    let publishedFileCount = 0;
+    let processedInputBytes = 0;
+    let publishedOutputBytes = 0;
+    let replacementCount = 0;
+    for (const target of prepared.targets) {
+      batchSignal.throwIfAborted();
+      let publicationReturned = false;
+      try {
+        await assertBatchFileUnchanged(target.input);
+        await assertBatchRedactionTarget(target, prepared.outputRoot);
+        const result = await localFileApplication.redact({
+          session: localSession(
+            target.input.path,
+            target.outputPath,
+            policy.limits.maximumInputBytes,
+            policy
+          ),
+          requirement: capabilityRequirement(target.input.path, 'REDACT'),
+          policy,
+          signal: batchSignal
+        }, { correlationId: 'cor_cli_batch_redact' });
+        publicationReturned = true;
+        await assertBatchFileUnchanged(target.input);
+        if (result.input.byteLength !== target.input.byteLength) {
+          throw new SafeError({
+            code: 'JOB_CONFLICT',
+            message: 'A selected batch file changed before its redaction completed.',
+            retryable: true,
+            correlationId: 'cor_cli_batch_redact'
+          });
+        }
+        await assertPublishedBatchTarget(target, prepared.outputRoot);
+        publishedFileCount += 1;
+        processedInputBytes += result.input.byteLength;
+        publishedOutputBytes += result.published.byteLength;
+        replacementCount += result.plan.actions.length;
+        for (const action of result.plan.actions) {
+          byEntity[action.entityType] = (byEntity[action.entityType] ?? 0) + 1;
+        }
+      } catch (error: unknown) {
+        if (batchSignal.aborted) throw error;
+        if (mustAbortBatchRedaction(error, publicationReturned)) throw error;
+        if (!(error instanceof SafeError)) throw error;
+        failuresByCode[error.code] = (failuresByCode[error.code] ?? 0) + 1;
+      }
+    }
+    const failedFileCount = traversal.files.length - publishedFileCount;
+    const outcome = failedFileCount === 0
+      ? 'SUCCEEDED'
+      : publishedFileCount === 0 ? 'FAILED' : 'PARTIAL';
+    const report = {
+      schemaVersion: '1.0.0',
+      operation: 'BATCH_REDACT',
+      outcome,
+      completionPolicy: 'REQUIRE_COMPLETE',
+      detectorBundleVersion: deterministicDetectorBundleVersion,
+      policy: policySummary(policy, parsed.policyFile === undefined),
+      manifest: {
+        complete: failedFileCount === 0,
+        selectedFileCount: traversal.files.length,
+        publishedFileCount,
+        failedFileCount,
+        directoryCount: traversal.directoryCount,
+        entryCount: traversal.entryCount,
+        totalInputBytes: traversal.totalInputBytes,
+        processedInputBytes,
+        publishedOutputBytes,
+        replacementCount,
+        byEntity,
+        failuresByCode
+      },
+      selection: {
+        includePatternCount: parsed.includes.length === 0 ? defaultBatchIncludes.length : parsed.includes.length,
+        excludePatternCount: parsed.excludes.length
+      },
+      limits: {
+        maximumFiles: batchTraversalLimits.maximumFiles,
+        maximumDirectories: batchTraversalLimits.maximumDirectories,
+        maximumEntries: batchTraversalLimits.maximumEntries,
+        maximumTotalInputBytes: batchTraversalLimits.maximumTotalInputBytes,
+        maximumRelativePathCodeUnits: batchTraversalLimits.maximumRelativePathCodeUnits,
+        maximumPatternMatchSteps: batchTraversalLimits.maximumPatternMatchSteps,
+        timeoutMs
+      }
+    } as const;
+    writeResult(io, parsed.json, report, [
+      `Selected files: ${String(traversal.files.length)}`,
+      `Published files: ${String(publishedFileCount)}`,
+      `Failed files: ${String(failedFileCount)}`,
+      `Replacements: ${String(replacementCount)}`
+    ].join('\n'));
+    return failedFileCount === 0 ? 0 : 3;
+  } catch (error: unknown) {
+    if (timeoutController.signal.aborted) {
+      throw new SafeError({
+        code: 'OPERATION_CANCELLED',
+        message: 'The batch redaction exceeded its bounded processing time.',
+        retryable: true,
+        correlationId: 'cor_cli_batch_redact',
+        details: { deadlineExceeded: true }
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    await cleanupBatchDirectories(createdDirectories);
+  }
+}
+
 function validEngineSelection(parsed: ParsedArguments): boolean {
   const modelOptionsSelected = parsed.model !== undefined
     || parsed.ollamaUrl !== undefined
@@ -657,16 +805,19 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && !parsed.license;
   }
   if (parsed.command === 'batch') {
-    return parsed.input === 'scan'
+    const isScan = parsed.input === 'scan';
+    const isRedact = parsed.input === 'redact';
+    return (isScan || isRedact)
       && parsed.policyName !== undefined
-      && parsed.output === undefined
-      && parsed.selectedPolicy === undefined
-      && parsed.policyFile === undefined
+      && (isRedact ? parsed.output !== undefined : parsed.output === undefined)
+      && (isRedact || parsed.selectedPolicy === undefined)
+      && (isRedact || parsed.policyFile === undefined)
       && !parsed.engineSpecified
       && parsed.engine === 'rules'
       && parsed.model === undefined
       && parsed.ollamaUrl === undefined
       && parsed.timeoutMs === undefined
+      && (isScan || !parsed.allowPartial)
       && !parsed.allowExperimental
       && !parsed.apply
       && !parsed.license;
@@ -923,7 +1074,9 @@ export async function executeCli(
       return await runStageRecovery(parsed.output as string, parsed.apply, parsed.json, io, signal);
     }
     if (parsed.command === 'batch') {
-      return await runBatchScan(parsed.policyName as string, parsed, io, signal);
+      return parsed.input === 'scan'
+        ? await runBatchScan(parsed.policyName as string, parsed, io, signal)
+        : await runBatchRedact(parsed.policyName as string, parsed, io, signal);
     }
     if (parsed.input === undefined || !['scan', 'redact', 'verify', 'inspect'].includes(parsed.command)) {
       return writeUsageError(parsed.json, io);

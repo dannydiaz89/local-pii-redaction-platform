@@ -34,7 +34,7 @@ function planFor(
 ) {
   return compileTypedLabelPlan({
     extractionRevision: source.extractionRevision,
-    algorithmVersion: '0.2.0',
+    algorithmVersion: '0.3.0',
     digest: parseSha256Digest(`sha256:${'1'.repeat(64)}`),
     spans: spans.map((span, index) => ({
       id: `rsp_${String(index + 1).padStart(32, '0')}`,

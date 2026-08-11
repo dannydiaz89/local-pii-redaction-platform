@@ -240,7 +240,7 @@ function planFor(
 ) {
   return compileTypedLabelPlan({
     extractionRevision: source.extractionRevision,
-    algorithmVersion: '0.2.0',
+    algorithmVersion: '0.3.0',
     digest: parseSha256Digest(`sha256:${'1'.repeat(64)}`),
     spans: spans.map((span, index) => ({
       id: `rsp_${String(index + 1).padStart(32, '0')}`,
@@ -385,6 +385,175 @@ describe('DOCX adapter', () => {
 
     expect(artifact.text).toBe('safe-visible-text');
     expect(artifact.regions).toHaveLength(1);
+  });
+
+  it('maps an external HTTPS hyperlink target as an isolated v2 relationship region without dereferencing it', async () => {
+    const target = 'https://private-canary.invalid/profile';
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body><w:p><w:hyperlink r:id="rId2"><w:r><w:t>safe label</w:t></w:r></w:hyperlink></w:p><w:sectPr/></w:body></w:document>`;
+    const entries = packageParts(document, [{
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}hyperlink" Target="${target}" TargetMode="External"/></Relationships>`
+    }]);
+    const path = await writeSyntheticDocx(entries);
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.text).toContain(target);
+    expect(artifact.regions.at(-1)).toMatchObject({
+      schemaVersion: '2.0.0',
+      location: { schemaVersion: '2.0.0', kind: 'DOCX_RELATIONSHIP', sourcePart: 'word/document.xml', relationshipId: 'rId2', field: 'TARGET' }
+    });
+  });
+
+  it('maps resume-shaped support parts and rejects hidden, wrong-parent, reordered, self-closing, and empty-identity profiles', async () => {
+    const namespaces = `xmlns:w="${wordNamespace}" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"`;
+    const parts = [
+      { kind: 'settings', name: 'settings.xml', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml', contents: `<w:settings ${namespaces}><w:compat><w:compatSetting w:name="private-settings-canary" w:uri="https://private-canary.invalid/settings" w:val="safe-profile"/></w:compat></w:settings>` },
+      { kind: 'numbering', name: 'numbering.xml', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml', contents: `<w:numbering xmlns:w="${wordNamespace}"><w:abstractNum w:abstractNumId="1"><w:nsid w:val="00000001"/><w:multiLevelType w:val="single"/><w:tmpl w:val="00000001"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="2025550100"/><w:lvlJc w:val="left"/><w:pPr><w:tabs><w:tab w:val="left" w:pos="1"/></w:tabs><w:ind w:left="1"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num></w:numbering>` },
+      { kind: 'styles', name: 'styles.xml', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml', contents: `<w:styles xmlns:w="${wordNamespace}"><w:style w:type="paragraph" w:styleId="private-style-canary"><w:name w:val="private-style-name-canary"/><w:rPr><w:color w:val="112233"/></w:rPr></w:style></w:styles>` }
+    ];
+    const overrides = parts.map((part) => `<Override PartName="/word/${part.name}" ContentType="${part.type}"/>`).join('');
+    const relationships = parts.map((part, index) => `<Relationship Id="rId${String(index + 2)}" Type="${officeRelationshipPrefix}${part.kind}" Target="${part.name}"/>`).join('');
+    const entries: SyntheticZipEntry[] = [
+      { name: '[Content_Types].xml', contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/>${overrides}</Types>` },
+      { name: '_rels/.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>` },
+      { name: 'word/document.xml', contents: documentXml('<w:p><w:r><w:t>safe visible text</w:t></w:r></w:p>') },
+      { name: 'word/_rels/document.xml.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}">${relationships}</Relationships>` },
+      ...parts.map((part) => ({ name: `word/${part.name}`, contents: part.contents }))
+    ];
+    const path = await writeSyntheticDocx(entries);
+    const artifact = await readDocxArtifact(path);
+    expect(artifact.text).toContain('private-settings-canary');
+    expect(artifact.text).toContain('2025550100');
+    expect(artifact.text).toContain('private-style-name-canary');
+    expect(artifact.text).not.toContain('112233');
+    expect(artifact.regions.filter(({ location }) => location.kind === 'DOCX_XML_VALUE').length).toBeGreaterThanOrEqual(3);
+
+    const hidden = entries.map((entry) => entry.name === 'word/styles.xml'
+      ? { ...entry, contents: String(entry.contents).replace('</w:style>', '<w:rPr><w:vanish w:val="private-hidden-canary"/></w:rPr></w:style>') }
+      : entry);
+    try {
+      await readDocxArtifact(await writeSyntheticDocx(hidden));
+      throw new Error('Expected hidden-style rejection.');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'metadata_part' } });
+      expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toContain('private-hidden-canary');
+    }
+
+    const malformedGraphs = [
+      entries.map((entry) => entry.name === 'word/numbering.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:lvl w:ilvl="0">', '<w:lvlText w:val="private-parent-canary"/><w:lvl w:ilvl="0">') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/numbering.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:start w:val="1"/><w:numFmt w:val="decimal"/>', '<w:numFmt w:val="decimal"/><w:start w:val="1"/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/numbering.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:start w:val="1"/>', '<w:start w:val="private-structural-canary"/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/numbering.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:numFmt w:val="decimal"/>', '<w:numFmt w:val="2025550100"/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/styles.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:color w:val="112233"/>', '<w:color w:val="2025550100"/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/styles.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<w:style w:type="paragraph" w:styleId="private-style-canary"><w:name w:val="private-style-name-canary"/><w:rPr><w:color w:val="112233"/></w:rPr></w:style>', '<w:style w:type="paragraph" w:styleId="private-cardinality-canary"/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'word/styles.xml'
+        ? { ...entry, contents: String(entry.contents).replace('w:styleId="private-style-canary"', 'w:styleId=""') }
+        : entry)
+    ];
+    for (const malformed of malformedGraphs) {
+      try {
+        await readDocxArtifact(await writeSyntheticDocx(malformed));
+        throw new Error('Expected support-part graph rejection.');
+      } catch (error: unknown) {
+        expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'metadata_part' } });
+        expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toMatch(/private-structural-canary|2025550100/u);
+      }
+    }
+  });
+
+  it.each([
+    ['paragraph identifier', 'w14:paraId'],
+    ['paragraph text identifier', 'w14:textId'],
+    ['revision identifier', 'w:rsidRDefault']
+  ])('rejects a phone-shaped %s instead of omitting it as structural data', async (_label, attribute) => {
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body><w:p ${attribute}="2025550100"><w:r><w:t>safe</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`;
+    try {
+      await readDocxArtifact(await docxFile(document));
+      throw new Error('Expected malformed generated identifier rejection.');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'unknown_feature' } });
+      expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toContain('2025550100');
+    }
+  });
+
+  it('maps font/property carriers and rejects extra roots, vector mismatches, empty variants, and repeated vectors', async () => {
+    const coreType = 'application/vnd.openxmlformats-package.core-properties+xml';
+    const appType = 'application/vnd.openxmlformats-officedocument.extended-properties+xml';
+    const fontType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml';
+    const entries: SyntheticZipEntry[] = [
+      { name: '[Content_Types].xml', contents: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/fontTable.xml" ContentType="${fontType}"/><Override PartName="/docProps/core.xml" ContentType="${coreType}"/><Override PartName="/docProps/app.xml" ContentType="${appType}"/></Types>` },
+      { name: '_rels/.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${officeRelationshipPrefix}extended-properties" Target="docProps/app.xml"/></Relationships>` },
+      { name: 'word/document.xml', contents: documentXml('<w:p><w:r><w:t>safe</w:t></w:r></w:p>') },
+      { name: 'word/_rels/document.xml.rels', contents: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}fontTable" Target="fontTable.xml"/></Relationships>` },
+      { name: 'word/fontTable.xml', contents: `<w:fonts xmlns:w="${wordNamespace}"><w:font w:name="private-font-canary"><w:altName w:val="private-font-alias-canary"/><w:panose1 w:val="020F0502020204030204"/><w:charset w:val="00"/><w:family w:val="auto"/><w:pitch w:val="default"/></w:font></w:fonts>` },
+      { name: 'docProps/core.xml', contents: '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>private-core-canary</dc:creator></cp:coreProperties>' },
+      { name: 'docProps/app.xml', contents: '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>private-app-canary</Application><HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>private-heading-canary</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs><TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>private-title-canary</vt:lpstr></vt:vector></TitlesOfParts><Company>private-company-canary</Company></Properties>' }
+    ];
+    const artifact = await readDocxArtifact(await writeSyntheticDocx(entries));
+    expect(artifact.text).toContain('private-font-canary');
+    expect(artifact.text).toContain('private-core-canary');
+    expect(artifact.text).toContain('private-app-canary');
+    expect(artifact.regions.some(({ location }) => location.kind === 'DOCX_XML_VALUE' && location.part === 'docProps/app.xml' && location.element === 'Application')).toBe(true);
+
+    const malformedProperties = [
+      entries.map((entry) => entry.name === 'docProps/core.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<cp:coreProperties ', '<cp:coreProperties xmlns:private="https://private-namespace-canary.invalid" ') }
+        : entry),
+      entries.map((entry) => entry.name === 'docProps/app.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<Properties ', '<Properties privateRoot="2025550100" ') }
+        : entry),
+      entries.map((entry) => entry.name === 'docProps/app.xml'
+        ? { ...entry, contents: String(entry.contents).replace('size="2" baseType="variant"', 'size="3" baseType="variant"') }
+        : entry),
+      entries.map((entry) => entry.name === 'docProps/app.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<vt:variant><vt:i4>1</vt:i4></vt:variant>', '<vt:variant/>') }
+        : entry),
+      entries.map((entry) => entry.name === 'docProps/app.xml'
+        ? { ...entry, contents: String(entry.contents).replace('</HeadingPairs>', '<vt:vector size="1" baseType="variant"><vt:variant><vt:lpstr>private-vector-canary</vt:lpstr></vt:variant></vt:vector></HeadingPairs>') }
+        : entry),
+      entries.map((entry) => entry.name === 'docProps/app.xml'
+        ? { ...entry, contents: String(entry.contents).replace('<Application>', '<Application foo="2025550100">') }
+        : entry)
+    ];
+    for (const malformed of malformedProperties) {
+      try {
+        await readDocxArtifact(await writeSyntheticDocx(malformed));
+        throw new Error('Expected property-profile rejection.');
+      } catch (error: unknown) {
+        expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'metadata_part' } });
+        expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toMatch(/private-(?:namespace|vector)-canary|2025550100/u);
+      }
+    }
+  });
+
+  it('accepts only zero-text decorative AlternateContent and maps its retained shape name', async () => {
+    const body = `<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor><wp:docPr id="1" name="private-shape-canary"/><a:graphic><a:graphicData><wps:wsp><wps:spPr><a:prstGeom prst="line"><a:avLst/></a:prstGeom></wps:spPr><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:line wp14:anchorId="00AABBCC"/><w10:wrap/></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>`;
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:mc="${markupCompatibilityNamespace}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:a="${drawingNamespace}" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w10="urn:schemas-microsoft-com:office:word"><w:body>${body}<w:sectPr/></w:body></w:document>`;
+    const artifact = await readDocxArtifact(await docxFile(document));
+    expect(artifact.text).toContain('private-shape-canary');
+    expect(artifact.text).not.toContain('00AABBCC');
+    expect(artifact.regions.some(({ location }) => location.kind === 'DOCX_XML_VALUE' && location.element === 'wp:docPr')).toBe(true);
+
+    try {
+      await readDocxArtifact(await docxFile(document.replace('00AABBCC', 'private-structural-canary')));
+      throw new Error('Expected malformed VML anchor identifier rejection.');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'FORMAT_UNSUPPORTED', details: { reason: 'unknown_feature' } });
+      expect(JSON.stringify({ message: (error as Error).message, details: (error as { details?: unknown }).details })).not.toContain('private-structural-canary');
+    }
   });
 
   it.each([
@@ -541,6 +710,7 @@ describe('DOCX adapter', () => {
     ['drawing', '<w:p><w:r><w:drawing/></w:r></w:p>', [], 'drawing_or_alternate_content'],
     ['AlternateContent', '<w:p><w:r><mc:AlternateContent><w:t>private-canary</w:t></mc:AlternateContent></w:r></w:p>', [], 'drawing_or_alternate_content'],
     ['unknown Word element', '<w:p><w:unknown><w:r><w:t>private-canary</w:t></w:r></w:unknown></w:p>', [], 'unknown_feature'],
+    ['unknown numeric-looking paragraph attribute', '<w:p w:val="2025550100"><w:r><w:t>private-canary</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['invalid known-element nesting', '<w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>private-canary</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:p>', [], 'unknown_feature'],
     ['character data outside w:t', '<w:p>private-canary<w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['XML comment', '<!-- private-canary --><w:p><w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],

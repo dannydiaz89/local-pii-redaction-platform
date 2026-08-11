@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { deterministicDetectorBundleVersion } from '@local-pii/detectors';
 import { batchScanReportSchemaId, batchScanReportV2SchemaId, validateContract } from '@local-pii/contracts';
+import { SafeError } from '@local-pii/domain';
 
 import { assertBatchFileUnchanged, discoverBatchFiles, matchesBatchPattern } from '../src/batch.js';
+import { mustAbortBatchRedaction } from '../src/batch-redact.js';
 import { executeCli, type CliIo } from '../src/commands.js';
 
 const roots: string[] = [];
@@ -398,5 +400,202 @@ describe('bounded batch scan', () => {
       outcome: 'NEEDS_REVIEW',
       manifest: { ...emptyManifest, conflictCount: 1 }
     }).valid).toBe(false);
+  });
+});
+
+describe('bounded batch redact', () => {
+  it.each([
+    'stage_cleanup_failed_after_publication',
+    'publication_state_unknown'
+  ])('aborts the batch for indeterminate commit-barrier failure %s', (reason) => {
+    const error = new SafeError({
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The publication operation failed safely.',
+      retryable: false,
+      correlationId: 'cor_cli_batch_redact',
+      details: { reason }
+    });
+
+    expect(mustAbortBatchRedaction(error, false)).toBe(true);
+  });
+
+  it('aborts on every post-return assertion failure but retains safe pre-publication continuation', () => {
+    const error = new SafeError({
+      code: 'JOB_CONFLICT',
+      message: 'The selected artifact changed.',
+      retryable: true,
+      correlationId: 'cor_cli_batch_redact'
+    });
+
+    expect(mustAbortBatchRedaction(error, true)).toBe(true);
+    expect(mustAbortBatchRedaction(error, false)).toBe(false);
+  });
+
+  it('maps nested supported files into a separate output tree and publishes verified redactions', async () => {
+    const input = await temporaryRoot('batch-redact-input-private-');
+    const output = await temporaryRoot('batch-redact-output-private-');
+    await mkdir(join(input, 'nested'));
+    const first = 'Contact alpha@example.test';
+    const second = '{"contact":"beta@example.test"}';
+    const third = 'Contact gamma@example.test';
+    const fourth = 'contact\ndelta@example.test\n';
+    await writeFile(join(input, 'one.txt'), first);
+    await writeFile(join(input, 'nested', 'two.json'), second);
+    await writeFile(join(input, 'three.md'), third);
+    await writeFile(join(input, 'nested', 'four.csv'), fourth);
+    const inputMetadata = await Promise.all([
+      stat(join(input, 'one.txt')),
+      stat(join(input, 'nested', 'two.json')),
+      stat(join(input, 'three.md')),
+      stat(join(input, 'nested', 'four.csv'))
+    ]);
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'redact', input, '--output', output, '--json'], stream.io)).toBe(0);
+
+    const reportText = stream.stdout.join('');
+    expect(JSON.parse(reportText)).toMatchObject({
+      schemaVersion: '1.0.0',
+      operation: 'BATCH_REDACT',
+      outcome: 'SUCCEEDED',
+      completionPolicy: 'REQUIRE_COMPLETE',
+      manifest: {
+        complete: true,
+        selectedFileCount: 4,
+        publishedFileCount: 4,
+        failedFileCount: 0,
+        replacementCount: 4,
+        failuresByCode: {}
+      }
+    });
+    expect(stream.stderr).toEqual([]);
+    expect(reportText).not.toContain(input);
+    expect(reportText).not.toContain(output);
+    expect(reportText).not.toContain('one.txt');
+    expect(reportText).not.toContain('two.json');
+    expect(reportText).not.toContain('three.md');
+    expect(reportText).not.toContain('four.csv');
+    expect(reportText).not.toContain('alpha@example.test');
+    expect(reportText).not.toContain('beta@example.test');
+    expect(await readFile(join(input, 'one.txt'), 'utf8')).toBe(first);
+    expect(await readFile(join(input, 'nested', 'two.json'), 'utf8')).toBe(second);
+    expect(await readFile(join(input, 'three.md'), 'utf8')).toBe(third);
+    expect(await readFile(join(input, 'nested', 'four.csv'), 'utf8')).toBe(fourth);
+    const inputMetadataAfter = await Promise.all([
+      stat(join(input, 'one.txt')),
+      stat(join(input, 'nested', 'two.json')),
+      stat(join(input, 'three.md')),
+      stat(join(input, 'nested', 'four.csv'))
+    ]);
+    expect(inputMetadataAfter.map(({ dev, ino, mode, size, mtimeMs, ctimeMs }) => ({
+      dev, ino, mode, size, mtimeMs, ctimeMs
+    }))).toEqual(inputMetadata.map(({ dev, ino, mode, size, mtimeMs, ctimeMs }) => ({
+      dev, ino, mode, size, mtimeMs, ctimeMs
+    })));
+    expect(await readFile(join(output, 'one.txt'), 'utf8')).not.toContain('alpha@example.test');
+    expect(await readFile(join(output, 'nested', 'two.json'), 'utf8')).not.toContain('beta@example.test');
+    expect(await readFile(join(output, 'three.md'), 'utf8')).not.toContain('gamma@example.test');
+    expect(await readFile(join(output, 'nested', 'four.csv'), 'utf8')).not.toContain('delta@example.test');
+    expect((await stat(join(output, 'one.txt'))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(output, 'nested'))).mode & 0o777).toBe(0o700);
+    expect(await relativeInventory(output)).toEqual([
+      'nested', 'nested/four.csv', 'nested/two.json', 'one.txt', 'three.md'
+    ]);
+  });
+
+  it('preflights every target before publishing any output', async () => {
+    const input = await temporaryRoot();
+    const output = await temporaryRoot();
+    await writeFile(join(input, 'a.txt'), 'alpha@example.test');
+    await writeFile(join(input, 'b.txt'), 'beta@example.test');
+    await writeFile(join(output, 'b.txt'), 'existing-output-canary');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'redact', input, '--output', output, '--json'], stream.io)).toBe(6);
+
+    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'OUTPUT_COLLISION' } });
+    expect(await relativeInventory(output)).toEqual(['b.txt']);
+    expect(await readFile(join(output, 'b.txt'), 'utf8')).toBe('existing-output-canary');
+    expect(stream.stderr.join('')).not.toContain('existing-output-canary');
+  });
+
+  it('rejects nested, identical, and symbolic output roots before processing', async () => {
+    const input = await temporaryRoot();
+    await writeFile(join(input, 'a.txt'), 'alpha@example.test');
+    const nested = join(input, 'nested-output');
+    await mkdir(nested);
+    const external = await temporaryRoot();
+    const link = join(await temporaryRoot(), 'output-link');
+    await symlink(external, link, 'dir');
+
+    for (const output of [input, nested, link]) {
+      const stream = capture();
+      expect(await executeCli(['batch', 'redact', input, '--output', output, '--json'], stream.io)).toBe(3);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    }
+    expect(await relativeInventory(external)).toEqual([]);
+  });
+
+  it('rejects an observed symbolic parent in the mapped output tree', async () => {
+    const input = await temporaryRoot();
+    const output = await temporaryRoot();
+    const external = await temporaryRoot('batch-output-parent-external-');
+    await mkdir(join(input, 'nested'));
+    await writeFile(join(input, 'nested', 'private-name.txt'), 'private-value@example.test');
+    await symlink(external, join(output, 'nested'), 'dir');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'redact', input, '--output', output, '--json'], stream.io)).toBe(3);
+    const error = stream.stderr.join('');
+    expect(JSON.parse(error)).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+    expect(error).not.toContain(input);
+    expect(error).not.toContain(output);
+    expect(error).not.toContain(external);
+    expect(error).not.toContain('private-name');
+    expect(error).not.toContain('private-value');
+    expect(await relativeInventory(external)).toEqual([]);
+  });
+
+  it('returns a privacy-safe nonzero partial manifest when a later file cannot be redacted', async () => {
+    const input = await temporaryRoot('batch-partial-input-private-');
+    const output = await temporaryRoot('batch-partial-output-private-');
+    await writeFile(join(input, 'a.txt'), 'alpha@example.test');
+    await writeFile(join(input, 'z.json'), '{"private-value-canary":');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'redact', input, '--output', output, '--json'], stream.io)).toBe(3);
+
+    const reportText = stream.stdout.join('');
+    expect(JSON.parse(reportText)).toMatchObject({
+      operation: 'BATCH_REDACT',
+      outcome: 'PARTIAL',
+      completionPolicy: 'REQUIRE_COMPLETE',
+      manifest: {
+        complete: false,
+        selectedFileCount: 2,
+        publishedFileCount: 1,
+        failedFileCount: 1,
+        failuresByCode: { FORMAT_CORRUPT: 1 }
+      }
+    });
+    expect(stream.stderr).toEqual([]);
+    expect(reportText).not.toContain(input);
+    expect(reportText).not.toContain(output);
+    expect(reportText).not.toContain('a.txt');
+    expect(reportText).not.toContain('z.json');
+    expect(reportText).not.toContain('alpha@example.test');
+    expect(reportText).not.toContain('private-value-canary');
+    expect(await relativeInventory(output)).toEqual(['a.txt']);
+  });
+
+  it('keeps partial-success policy unavailable for publication batches', async () => {
+    const input = await temporaryRoot();
+    const output = await temporaryRoot();
+    const stream = capture();
+
+    expect(await executeCli([
+      'batch', 'redact', input, '--output', output, '--allow-partial', '--json'
+    ], stream.io)).toBe(2);
+    expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
   });
 });

@@ -5,7 +5,7 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
 
 ## Responsibilities
 
-- Implements `inspect`, `scan`, bounded rules-only `batch scan`, `redact`, `verify`, `capabilities`,
+- Implements `inspect`, `scan`, bounded rules-only `batch scan` and `batch redact`, `redact`, `verify`, `capabilities`,
   policy inspection, and bounded staged-artifact cleanup commands.
 - Converts canonical application results and safe errors into stable human or JSON output and
   documented exit codes. Exit zero includes an explicitly accepted conflict-free partial batch;
@@ -23,7 +23,11 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
   one file completed and no completed result needs review; an all-failed batch remains nonzero. The
   canonical report binds that choice as `completionPolicy`, including on complete and failed
   attempts. The deadline is cooperative; hard isolation of synchronous parsers remains future sandbox work.
-  Recursive redaction and output mapping are intentionally not exposed yet.
+  `batch redact` adds strict rules-only verified publication to an explicit, separate, pre-existing
+  output root. It preflights every deterministic relative target before processing, never
+  overwrites, rejects `--allow-partial`, and returns nonzero for partial publication while exposing
+  only aggregate counts and safe error codes. Verified outputs published before a later safe
+  failure remain present; resumability and rollback are not claimed.
 - Selects the native JSON adapter for `.json`; keys remain outside detection and only string values
   may be transformed.
 - Selects the native CSV adapter for `.csv`; an explicit v2 policy may select its delimiter and

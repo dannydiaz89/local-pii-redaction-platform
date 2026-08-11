@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 
 import {
   assertValidSpan,
-  isNativeLocationV1,
+  isNativeLocationV2,
   nativeLocationIdentity,
   parseSha256Digest,
   type DetectionEvidence,
   type EntityType,
-  type NativeLocationV1,
+  type NativeLocationV2,
   type Sha256Digest
 } from '@local-pii/domain';
 
@@ -18,7 +18,7 @@ export interface ResolvedSpan {
   readonly end: number;
   readonly confidence: number;
   readonly evidenceIds: readonly string[];
-  readonly nativeLocations?: readonly NativeLocationV1[];
+  readonly nativeLocations?: readonly NativeLocationV2[];
 }
 
 export interface SpanConflict {
@@ -30,7 +30,7 @@ export interface SpanConflict {
 
 export interface ResolutionSet {
   readonly extractionRevision: Sha256Digest;
-  readonly algorithmVersion: '0.2.0';
+  readonly algorithmVersion: '0.3.0';
   readonly digest: Sha256Digest;
   readonly spans: readonly ResolvedSpan[];
   readonly conflicts: readonly SpanConflict[];
@@ -46,15 +46,15 @@ function canonicalJson(value: unknown): string {
 }
 
 function normalizedLocations(
-  locations: readonly NativeLocationV1[] | undefined
-): readonly NativeLocationV1[] | undefined {
+  locations: readonly NativeLocationV2[] | undefined
+): readonly NativeLocationV2[] | undefined {
   if (locations === undefined) return undefined;
   if (!Array.isArray(locations) || locations.length === 0 || locations.length > 64) {
     throw new Error('Evidence native locations are invalid');
   }
   const identities = new Set<string>();
   const copied = locations.map((location) => {
-    if (!isNativeLocationV1(location)) throw new Error('Evidence native locations are invalid');
+    if (!isNativeLocationV2(location)) throw new Error('Evidence native locations are invalid');
     const identity = nativeLocationIdentity(location);
     if (identities.has(identity)) throw new Error('Evidence native locations are invalid');
     identities.add(identity);
@@ -68,15 +68,15 @@ function normalizedLocations(
 }
 
 function sameLocations(
-  left: readonly NativeLocationV1[] | undefined,
-  right: readonly NativeLocationV1[] | undefined
+  left: readonly NativeLocationV2[] | undefined,
+  right: readonly NativeLocationV2[] | undefined
 ): boolean {
   return left === undefined
     ? right === undefined
     : right !== undefined
       && left.length === right.length
       && left.every((location, index) =>
-        nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as NativeLocationV1));
+        nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as NativeLocationV2));
 }
 
 function frozenResolvedSpan(span: ResolvedSpan): Readonly<ResolvedSpan> {
@@ -124,7 +124,7 @@ function resolutionDigest(
         : { nativeLocations: normalizedLocations(item.nativeLocations) })
     }));
   const canonical = canonicalJson({
-    algorithmVersion: '0.2.0',
+    algorithmVersion: '0.3.0',
     extractionRevision,
     evidence: evidenceSnapshot,
     spans,
@@ -246,7 +246,7 @@ export function resolveEvidence(
   const digest = resolutionDigest(extractionRevision, evidence, accepted, conflicts, suppressedEvidenceIds);
   return Object.freeze({
     extractionRevision,
-    algorithmVersion: '0.2.0',
+    algorithmVersion: '0.3.0',
     digest,
     spans: Object.freeze(accepted.map(frozenResolvedSpan)),
     conflicts: Object.freeze(conflicts.map((conflict) => Object.freeze({

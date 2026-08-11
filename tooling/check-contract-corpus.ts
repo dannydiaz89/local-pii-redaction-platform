@@ -6,6 +6,10 @@ import {
   batchScanReportSchemaIds,
   batchScanReportSemanticErrors
 } from '../packages/contracts/src/batch-scan-report.js';
+import {
+  batchRedactReportSchemaId,
+  batchRedactReportSemanticErrors
+} from '../packages/contracts/src/batch-redact-report.js';
 import { isCanonicalUuid, isRfc3339DateTime } from '../packages/contracts/src/formats.js';
 
 import { loadJson, loadSchemas, repositoryRoot } from './schema-utils.js';
@@ -65,11 +69,12 @@ for (const testCase of manifest.cases) {
   if (validate === undefined) throw new Error(`Unknown corpus schema: ${testCase.schemaId}`);
   const value = loadJson(resolve(corpusRoot, testCase.file));
   const schemaValid = validate(value) === true;
-  const semanticValid = !batchScanReportSchemaIds.has(testCase.schemaId)
-    || !schemaValid
-    || batchScanReportSemanticErrors(
-      value as Parameters<typeof batchScanReportSemanticErrors>[0]
-    ).length === 0;
+  const semanticValid = !schemaValid
+    || (batchScanReportSchemaIds.has(testCase.schemaId)
+      ? batchScanReportSemanticErrors(value as Parameters<typeof batchScanReportSemanticErrors>[0]).length === 0
+      : testCase.schemaId === batchRedactReportSchemaId
+        ? batchRedactReportSemanticErrors(value as Parameters<typeof batchRedactReportSemanticErrors>[0]).length === 0
+        : true);
   const actualValid = schemaValid && semanticValid;
   if (actualValid !== testCase.valid) {
     throw new Error(`${testCase.file}: expected valid=${String(testCase.valid)}, got ${String(actualValid)}: ${JSON.stringify(validate.errors)}`);
