@@ -95,6 +95,24 @@ describe('span resolution', () => {
     expect(moved.digest).not.toBe(original.digest);
   });
 
+  it('normalizes value-free PDF text-item locations into resolved evidence', () => {
+    const text = 'alpha@example.test';
+    const first = detectDeterministic(text, revision)[0];
+    if (first === undefined) throw new Error('Synthetic detector fixture produced no evidence');
+    const location = {
+      schemaVersion: '3.0.0' as const,
+      kind: 'PDF_TEXT_ITEM' as const,
+      page: 1,
+      pageObject: 4,
+      contentObject: 5,
+      fontObject: 3,
+      textItem: 1,
+      glyphCount: text.length
+    };
+    const result = resolveEvidence([{ ...first, nativeLocations: [location] }], revision, unicodeCodePointLength(text));
+    expect(result.spans[0]?.nativeLocations).toEqual([location]);
+  });
+
   it('rejects same-span supporting evidence with inconsistent native locations', () => {
     const text = 'alpha@example.test';
     const first = detectDeterministic(text, revision)[0];

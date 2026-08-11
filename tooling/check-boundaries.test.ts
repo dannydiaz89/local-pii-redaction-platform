@@ -178,7 +178,7 @@ describe('boundary checker', () => {
   it('keeps the browser SDK on generated contract types without external runtime modules', () => {
     expect(checkPackageManifest('packages/sdk/package.json', 'sdk', {
       name: '@local-pii/sdk',
-      exports: { '.': './dist/index.js' },
+      exports: { '.': { types: './dist/index.d.ts', default: './dist/index.js' } },
       dependencies: { '@local-pii/contracts': 'workspace:*' }
     })).toEqual([]);
 

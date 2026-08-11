@@ -1165,12 +1165,14 @@ describe('CLI TXT vertical slice', () => {
     const before = await stat(path, { bigint: true });
     const stream = capture();
     expect(await executeCli(['inspect', path, '--json'], stream.io), stream.stderr.join('')).toBe(0);
-    expect(JSON.parse(stream.stdout.join(''))).toMatchObject({
+    const report = JSON.parse(stream.stdout.join()) as unknown;
+    expect(report).toMatchObject({
       operation: 'INSPECT',
       outcome: 'SUCCEEDED',
       artifact: { mediaType: 'application/pdf' },
       capability: { adapter: 'pdf', operations: ['INSPECT'] }
     });
+    expect(report).not.toHaveProperty('artifact.regions');
     const after = await stat(path, { bigint: true });
     expect({ ino: after.ino, size: after.size, mode: after.mode, mtimeNs: after.mtimeNs }).toEqual({
       ino: before.ino, size: before.size, mode: before.mode, mtimeNs: before.mtimeNs

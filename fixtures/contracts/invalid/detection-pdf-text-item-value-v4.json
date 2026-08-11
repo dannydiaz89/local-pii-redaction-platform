@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "4.0.0",
+  "id": "D9B8A330-8D9A-4F6F-8F11-5B2F10E53967",
+  "entityType": "EMAIL",
+  "span": {
+    "start": 0,
+    "end": 12,
+    "offsetUnit": "UNICODE_CODE_POINT",
+    "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "confidence": 0.99,
+  "source": "REGEX",
+  "detector": { "id": "email-pattern", "version": "0.1.0", "ruleId": "email-v1" },
+  "nativeLocations": [{
+    "schemaVersion": "3.0.0",
+    "kind": "PDF_TEXT_ITEM",
+    "page": 1,
+    "pageObject": 4,
+    "contentObject": 5,
+    "fontObject": 3,
+    "textItem": 1,
+    "glyphCount": 12,
+    "value": "forbidden"
+  }]
+}

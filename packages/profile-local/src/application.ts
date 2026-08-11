@@ -119,7 +119,7 @@ export function pdfCapabilityRequirement(operation: CapabilityOperation): Capabi
     detectorIds: [],
     detectorKinds: [],
     transformationActions: [],
-    verificationProfile: 'pdf-literal-extract-v1',
+    verificationProfile: 'pdf-literal-extract-v2',
     maximumInputBytes: defaultMaximumPdfInputBytes,
     minimumQualification: 'EXPERIMENTAL'
   };

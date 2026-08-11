@@ -305,6 +305,59 @@ describe('TextProcessingApplication', () => {
     }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
   });
 
+  it('binds a PDF text item only through a closed v3 canonical region', async () => {
+    const sourceText = 'ada@example.test';
+    const location = {
+      schemaVersion: '3.0.0' as const,
+      kind: 'PDF_TEXT_ITEM' as const,
+      page: 1,
+      pageObject: 4,
+      contentObject: 5,
+      fontObject: 3,
+      textItem: 1,
+      glyphCount: 16
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '3.0.0' as const,
+        start: 0,
+        end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const,
+        role: 'VALUE' as const,
+        location
+      }]
+    };
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+    expect(result.evidence[0]?.nativeLocations).toEqual([location]);
+
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve({
+        ...source,
+        regions: [{ ...source.regions[0], schemaVersion: '2.0.0' as const }]
+      } as unknown as TextArtifact) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve({
+        ...source,
+        regions: [{
+          schemaVersion: '3.0.0' as const,
+          start: 0,
+          end: 16,
+          offsetUnit: 'UNICODE_CODE_POINT' as const,
+          role: 'VALUE' as const,
+          location: { ...location, glyphCount: location.glyphCount - 1 }
+        }]
+      }) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
   it('binds exact unprefixed DOCX XML element and attribute names without inventing prefixes', async () => {
     const sourceText = 'ada@example.test';
     const location = {

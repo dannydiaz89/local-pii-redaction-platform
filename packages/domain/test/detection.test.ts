@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isNativeLocationV1, isNativeLocationV2, nativeLocationIdentity } from '../src/index.js';
+import { isNativeLocationV1, isNativeLocationV2, isNativeLocationV3, nativeLocationIdentity } from '../src/index.js';
 
 describe('typed native locations', () => {
   it('accepts bounded JSON Pointer, CSV cell, and DOCX paragraph locations', () => {
@@ -51,6 +51,24 @@ describe('typed native locations', () => {
     })).toBe(true);
     expect(isNativeLocationV1(relationship)).toBe(false);
     expect(nativeLocationIdentity(relationship)).toBe('DOCX_RELATIONSHIP\0word/header1.xml\0rId42\0TARGET');
+  });
+
+  it('accepts only closed value-free PDF text-item coordinates in v3', () => {
+    const location = {
+      schemaVersion: '3.0.0' as const,
+      kind: 'PDF_TEXT_ITEM' as const,
+      page: 1,
+      pageObject: 4,
+      contentObject: 5,
+      fontObject: 3,
+      textItem: 2,
+      glyphCount: 17
+    };
+    expect(isNativeLocationV3(location)).toBe(true);
+    expect(isNativeLocationV2(location)).toBe(false);
+    expect(nativeLocationIdentity(location)).toBe('PDF_TEXT_ITEM\0' + ['1', '4', '5', '3', '2', '17'].join('\0'));
+    expect(isNativeLocationV3({ ...location, value: 'forbidden' })).toBe(false);
+    expect(isNativeLocationV3({ ...location, glyphCount: 0 })).toBe(false);
   });
 
   it.each([

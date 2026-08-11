@@ -7,9 +7,15 @@ import {
   type TextArtifactFileSystem,
   type TextArtifactPublication
 } from '@local-pii/adapter-text';
-import { parseSha256Digest, SafeError, type Sha256Digest } from '@local-pii/domain';
+import {
+  parseSha256Digest,
+  SafeError,
+  type CanonicalRegionV3,
+  type PdfTextItemLocationV3,
+  type Sha256Digest
+} from '@local-pii/domain';
 
-export const pdfAdapterVersion = '0.1.0';
+export const pdfAdapterVersion = '0.2.0';
 export const defaultMaximumPdfInputBytes = 8 * 1024 * 1024;
 const maximumPdfObjects = 205;
 const maximumPdfPages = 100;
@@ -21,7 +27,7 @@ const pageBoundary = '\n\u0000PDF-PAGE\u0000\n';
 export const pdfWriterDescriptor = Object.freeze({
   id: 'pdf-extract-adapter',
   version: pdfAdapterVersion,
-  digest: parseSha256Digest('sha256:f54028ca23b25966ca4bdcd63704723bd9bcb62b497a391df6de37f51d8249a8')
+  digest: parseSha256Digest('sha256:4b213fa1393ed70ca31e4751ca3f22abda78f1620c4c50d9ca8b97545568e259')
 });
 
 export const pdfAdapterCapabilityDescriptor = {
@@ -38,6 +44,7 @@ export const pdfAdapterCapabilityDescriptor = {
     { id: 'visible-ascii-literal-text', status: 'SUPPORTED' },
     { id: 'page-and-operator-reading-order', status: 'SUPPORTED' },
     { id: 'bounded-position-validation', status: 'SUPPORTED' },
+    { id: 'typed-page-object-text-item-source-map', status: 'SUPPORTED' },
     { id: 'encrypted-and-incremental-pdf', status: 'BLOCKED' },
     { id: 'compressed-object-and-content-streams', status: 'BLOCKED' },
     { id: 'metadata-actions-forms-annotations-attachments', status: 'BLOCKED' },
@@ -48,16 +55,16 @@ export const pdfAdapterCapabilityDescriptor = {
     { id: 'symbolic-links', status: 'BLOCKED' },
     { id: 'sandboxed-worker-isolation', status: 'BLOCKED' }
   ],
-  verificationProfiles: ['pdf-literal-extract-v1'],
+  verificationProfiles: ['pdf-literal-extract-v2'],
   limits: { maximumInputBytes: defaultMaximumPdfInputBytes }
 } as const;
 
 /** Extraction-conformance evidence only; never authorizes PDF publication. */
 export const pdfExtractionVerificationCapabilityDescriptor = {
-  id: 'pdf-literal-extract-v1',
+  id: 'pdf-literal-extract-v2',
   version: pdfAdapterVersion,
   formats: ['pdf'],
-  checks: ['CLASSIC_XREF', 'CLOSED_OBJECT_GRAPH', 'CLOSED_TEXT_OPERATOR_SET']
+  checks: ['CLASSIC_XREF', 'CLOSED_OBJECT_GRAPH', 'CLOSED_TEXT_OPERATOR_SET', 'COMPLETE_TEXT_ITEM_SOURCE_MAP']
 } as const;
 
 export interface PdfArtifact {
@@ -71,6 +78,7 @@ export interface PdfArtifact {
   readonly text: string;
   readonly hasUtf8Bom: false;
   readonly pageCount: number;
+  readonly regions: readonly CanonicalRegionV3[];
 }
 
 type UnsupportedPdfReason =
@@ -269,7 +277,7 @@ function integer(value: string, minimum: number, maximum: number): number {
   return parsed;
 }
 
-function extractContent(body: string, page: PageDefinition): string {
+function extractContent(body: string, page: PageDefinition): readonly string[] {
   const prefix = /^<< \/Length ([1-9][0-9]*) >>\nstream\n/u.exec(body);
   if (prefix === null || !body.endsWith('\nendstream\n')) unsupported();
   const content = body.slice(prefix[0].length, -'\nendstream\n'.length);
@@ -304,10 +312,14 @@ function extractContent(body: string, page: PageDefinition): string {
     expectText = !expectText;
   }
   if (expectText || text.length < 1) unsupported();
-  return text.join('\n');
+  return Object.freeze(text);
 }
 
-function parsePdfText(bytes: Uint8Array): { readonly text: string; readonly pageCount: number } {
+function parsePdfText(bytes: Uint8Array): {
+  readonly text: string;
+  readonly pageCount: number;
+  readonly regions: readonly CanonicalRegionV3[];
+} {
   const source = Buffer.from(bytes).toString('latin1');
   if (!source.startsWith('%PDF-1.4\n') || !source.endsWith('%%EOF\n')) formatCorrupt();
   for (let index = 0; index < source.length; index += 1) {
@@ -329,7 +341,9 @@ function parsePdfText(bytes: Uint8Array): { readonly text: string; readonly page
 
   const used = new Set<number>([parsed.root, pagesNumber]);
   const pageTexts: string[] = [];
-  for (const pageNumber of pageRefs) {
+  const regions: CanonicalRegionV3[] = [];
+  let canonicalOffset = 0;
+  for (const [pageIndex, pageNumber] of pageRefs.entries()) {
     const match = /^<< \/Type \/Page \/Parent ([1-9][0-9]*) 0 R \/MediaBox \[0 0 ([1-9][0-9]*) ([1-9][0-9]*)\] \/Resources << \/Font << \/F1 ([1-9][0-9]*) 0 R >> >> \/Contents ([1-9][0-9]*) 0 R >>\n$/u.exec(byNumber.get(pageNumber) ?? '');
     if (match === null) unsupported(unsupportedReason(source));
     const page: PageDefinition = {
@@ -346,7 +360,32 @@ function parsePdfText(bytes: Uint8Array): { readonly text: string; readonly page
     }
     const contentBody = byNumber.get(page.contents);
     if (contentBody === undefined) formatCorrupt();
-    pageTexts.push(extractContent(contentBody, page));
+    const textItems = extractContent(contentBody, page);
+    const pageText = textItems.join('\n');
+    for (const [textItemIndex, item] of textItems.entries()) {
+      const location: PdfTextItemLocationV3 = Object.freeze({
+        schemaVersion: '3.0.0',
+        kind: 'PDF_TEXT_ITEM',
+        page: pageIndex + 1,
+        pageObject: pageNumber,
+        contentObject: page.contents,
+        fontObject: page.font,
+        textItem: textItemIndex + 1,
+        glyphCount: item.length
+      });
+      regions.push(Object.freeze({
+        schemaVersion: '3.0.0',
+        start: canonicalOffset,
+        end: canonicalOffset + item.length,
+        offsetUnit: 'UNICODE_CODE_POINT',
+        role: 'VALUE',
+        location
+      }));
+      canonicalOffset += item.length;
+      if (textItemIndex < textItems.length - 1) canonicalOffset += 1;
+    }
+    pageTexts.push(pageText);
+    if (pageIndex < pageRefs.length - 1) canonicalOffset += pageBoundary.length;
     used.add(pageNumber);
     used.add(page.font);
     used.add(page.contents);
@@ -356,7 +395,9 @@ function parsePdfText(bytes: Uint8Array): { readonly text: string; readonly page
   }
   const text = pageTexts.join(pageBoundary);
   if (text.length > maximumCanonicalCodePoints) formatCorrupt();
-  return Object.freeze({ text, pageCount });
+  if (regions.length < 1 || canonicalOffset !== text.length
+    || regions.some((region) => region.end > text.length)) formatCorrupt();
+  return Object.freeze({ text, pageCount, regions: Object.freeze(regions) });
 }
 
 export function probePdfBytes(bytes: Uint8Array): boolean {
@@ -365,7 +406,11 @@ export function probePdfBytes(bytes: Uint8Array): boolean {
     && Buffer.from(bytes.subarray(bytes.length - 6)).toString('ascii') === '%%EOF\n';
 }
 
-export function extractPdfBytes(bytes: Uint8Array): Readonly<{ text: string; pageCount: number }> {
+export function extractPdfBytes(bytes: Uint8Array): Readonly<{
+  text: string;
+  pageCount: number;
+  regions: readonly CanonicalRegionV3[];
+}> {
   if (bytes.length < 1 || bytes.length > defaultMaximumPdfInputBytes) formatCorrupt();
   return parsePdfText(bytes);
 }
@@ -381,22 +426,27 @@ export async function readPdfArtifact(
   }
   if (extname(inputPath).toLowerCase() !== '.pdf') unsupported();
   const source = await readPdfBytes(inputPath, maximumInputBytes, fileSystem);
-  const extracted = extractPdfBytes(source.bytes);
-  const digest = digestBytes(source.bytes);
-  const extractionRevision = parseSha256Digest(`sha256:${createHash('sha256')
-    .update('pdf-literal-extract-v1\0').update(digest).update('\0').update(extracted.text).digest('hex')}`);
-  return Object.freeze({
-    reference: source.path,
-    path: source.path,
-    displayName: basename(source.path),
-    mediaType: pdfMediaType,
-    byteLength: source.bytes.byteLength,
-    digest,
-    extractionRevision,
-    text: extracted.text,
-    hasUtf8Bom: false,
-    pageCount: extracted.pageCount
-  });
+  try {
+    const extracted = extractPdfBytes(source.bytes);
+    const digest = digestBytes(source.bytes);
+    const extractionRevision = parseSha256Digest(`sha256:${createHash('sha256')
+      .update('pdf-literal-extract-v2\0').update(digest).update('\0').update(extracted.text).digest('hex')}`);
+    return Object.freeze({
+      reference: source.path,
+      path: source.path,
+      displayName: basename(source.path),
+      mediaType: pdfMediaType,
+      byteLength: source.bytes.byteLength,
+      digest,
+      extractionRevision,
+      text: extracted.text,
+      hasUtf8Bom: false,
+      pageCount: extracted.pageCount,
+      regions: extracted.regions
+    });
+  } finally {
+    source.bytes.fill(0);
+  }
 }
 
 function redactionUnsupportedError(): SafeError {

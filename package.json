@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check && pnpm fixtures:check && pnpm taxonomy:check && pnpm adr:check && pnpm privacy:check && pnpm ephemeral:check",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm python:check && pnpm contracts:check && pnpm sdk:api:check && pnpm fixtures:check && pnpm taxonomy:check && pnpm adr:check && pnpm privacy:check && pnpm ephemeral:check",
     "adr:check": "node --import tsx tooling/check-adr-controls.ts",
     "contracts:check": "node --import tsx tooling/check-schema-governance.ts && node --import tsx tooling/check-contract-corpus.ts && .venv/bin/python services/inference-python/scripts/check_contracts.py && node --import tsx tooling/check-domain-contract-drift.ts && node --import tsx tooling/check-generated.ts",
     "ephemeral:check": "pnpm build && node --import tsx tooling/check-ephemeral-profile-gate.ts",
@@ -22,6 +22,7 @@
     "lint": "eslint . && node --import tsx tooling/check-boundaries.ts",
     "pii-redact": "node apps/cli/dist/index.js",
     "python:check": ".venv/bin/ruff check services/inference-python && .venv/bin/pytest",
+    "sdk:api:check": "node --import tsx tooling/check-sdk-public-api.ts",
     "privacy:check": "node --import tsx tooling/check-privacy-canaries.ts",
     "privacy:scan": "node --import tsx tooling/check-privacy-canaries.ts",
     "start:local": "pnpm build && node apps/api/dist/main.js",

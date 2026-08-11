@@ -10,6 +10,8 @@ import type { EntityType, Sha256Digest } from '@local-pii/domain';
 import { entityTypes, parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
 import { resolveEvidence } from '@local-pii/span-resolution';
 
+export * from './docx.js';
+
 export const textVerificationCapabilityDescriptor = {
   id: 'text-rescan-v1',
   version: '0.1.0',

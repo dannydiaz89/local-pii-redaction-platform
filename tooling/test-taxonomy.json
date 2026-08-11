@@ -49,9 +49,12 @@
     "packages/provider-ollama/test/provider-ollama.test.ts": ["unit", "integration", "security-privacy"],
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
     "packages/sdk/test/sdk.test.ts": ["unit", "contract", "security-privacy"],
+    "packages/sdk/test/public-api-compatibility.test.ts": ["contract", "governance"],
+    "tooling/check-sdk-public-api.test.ts": ["unit", "contract", "governance"],
     "packages/span-resolution/test/resolver.test.ts": ["unit", "integration"],
     "packages/ui/test/ui.test.tsx": ["unit", "accessibility"],
     "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],
+    "packages/verification/test/docx.test.ts": ["unit", "integration", "format-conformance", "security-privacy"],
     "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"],
     "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
@@ -60,7 +63,7 @@
     "tooling/check-linux-syscall-gate.test.ts": ["unit", "security-privacy"]
   },
   "executableGates": {
-    "contract": ["pnpm contracts:check"],
+    "contract": ["pnpm contracts:check", "pnpm sdk:api:check"],
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
     "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check", "pnpm ephemeral:filesystem-failure:check", "pnpm ephemeral:resource:check"],

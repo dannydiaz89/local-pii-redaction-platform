@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 
 import {
   assertValidSpan,
-  isNativeLocationV2,
+  isNativeLocationV3,
   nativeLocationIdentity,
   parseSha256Digest,
   type DetectionEvidence,
   type EntityType,
-  type NativeLocationV2,
+  type NativeLocationV3,
   type Sha256Digest
 } from '@local-pii/domain';
 
@@ -18,7 +18,7 @@ export interface ResolvedSpan {
   readonly end: number;
   readonly confidence: number;
   readonly evidenceIds: readonly string[];
-  readonly nativeLocations?: readonly NativeLocationV2[];
+  readonly nativeLocations?: readonly NativeLocationV3[];
 }
 
 export interface SpanConflict {
@@ -46,15 +46,15 @@ function canonicalJson(value: unknown): string {
 }
 
 function normalizedLocations(
-  locations: readonly NativeLocationV2[] | undefined
-): readonly NativeLocationV2[] | undefined {
+  locations: readonly NativeLocationV3[] | undefined
+): readonly NativeLocationV3[] | undefined {
   if (locations === undefined) return undefined;
   if (!Array.isArray(locations) || locations.length === 0 || locations.length > 64) {
     throw new Error('Evidence native locations are invalid');
   }
   const identities = new Set<string>();
   const copied = locations.map((location) => {
-    if (!isNativeLocationV2(location)) throw new Error('Evidence native locations are invalid');
+    if (!isNativeLocationV3(location)) throw new Error('Evidence native locations are invalid');
     const identity = nativeLocationIdentity(location);
     if (identities.has(identity)) throw new Error('Evidence native locations are invalid');
     identities.add(identity);
@@ -68,15 +68,15 @@ function normalizedLocations(
 }
 
 function sameLocations(
-  left: readonly NativeLocationV2[] | undefined,
-  right: readonly NativeLocationV2[] | undefined
+  left: readonly NativeLocationV3[] | undefined,
+  right: readonly NativeLocationV3[] | undefined
 ): boolean {
   return left === undefined
     ? right === undefined
     : right !== undefined
       && left.length === right.length
       && left.every((location, index) =>
-        nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as NativeLocationV2));
+        nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as NativeLocationV3));
 }
 
 function frozenResolvedSpan(span: ResolvedSpan): Readonly<ResolvedSpan> {

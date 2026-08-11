@@ -20,6 +20,13 @@ A bounded adapter-local reconciliation foundation binds the immutable plan and w
 
 The capability descriptor therefore continues to advertise only probe, inspect, extract, and scan with `EXTRACT_ONLY` assurance. Its `docx-extract-v1` profile attests only ZIP structure, the feature allowlist, and native source mapping; it is not redaction verification and cannot authorize publication. Redaction and verification must not be exposed by a composition root until a separate `docx-redact-v1` route independently enumerates and rescans all retained parts/carriers and fidelity evidence exists. Independent Office-renderer fidelity, sandboxed worker isolation, metadata sanitization policies, malicious-corpus qualification, and broader DOCX parts remain Milestone 4 work.
 
+`@local-pii/verification` now contains a separate-parser, no-write DOCX reconciliation foundation.
+It is complementary evidence only: it independently parses bounded ZIP/XML graphs, enumerates generic
+retained carriers, checks exact declared native deltas and writer-receipt binding, and performs canary
+and deterministic residual scans. It explicitly cannot authorize publication because complete
+independent accepted-carrier classification, extraction-revision reproduction, application attestation,
+review semantics, renderer fidelity, sandboxing, and malicious-corpus qualification remain open.
+
 Hard limits currently include 25 MiB compressed input, 256 ZIP entries, 50 MiB total expanded content, 10 MiB per entry, 100× maximum compression ratio, 100,000 text nodes, 50,000 paragraphs, 10,000 XML/relationship carrier regions, 2,048 code points per carrier, 10 million canonical code points, and 100,000 plan actions. Parsing is bounded but whole-document.
 
 The implementation uses only Node built-ins for ZIP/DEFLATE handling; it introduces no parser or network dependency.

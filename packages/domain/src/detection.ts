@@ -70,6 +70,24 @@ export interface DocxXmlValueLocationV2 {
 /** Append-only native-location v2: every v1 location remains valid. */
 export type NativeLocationV2 = NativeLocationV1 | DocxRelationshipLocationV2 | DocxXmlValueLocationV2;
 
+/** Value-free coordinates for one completely extracted PDF text-showing operator. */
+export interface PdfTextItemLocationV3 {
+  readonly schemaVersion: '3.0.0';
+  readonly kind: 'PDF_TEXT_ITEM';
+  /** One-based page position in canonical reading order. */
+  readonly page: number;
+  readonly pageObject: number;
+  readonly contentObject: number;
+  readonly fontObject: number;
+  /** One-based text-showing operator within the page content stream. */
+  readonly textItem: number;
+  /** Exact number of decoded glyphs/code points owned by this item. */
+  readonly glyphCount: number;
+}
+
+/** Append-only native-location v3: every v1/v2 location remains valid. */
+export type NativeLocationV3 = NativeLocationV2 | PdfTextItemLocationV3;
+
 /** One canonical text region and its exact adapter-owned native location. */
 export interface CanonicalRegionV1 {
   readonly schemaVersion: '1.0.0';
@@ -93,7 +111,17 @@ export interface CanonicalRegionV2 {
   readonly selector?: Readonly<{ readonly csvHeader: string }>;
 }
 
-export type CanonicalRegion = CanonicalRegionV1 | CanonicalRegionV2;
+/** Canonical wrapper required when a source map uses a v3 native location. */
+export interface CanonicalRegionV3 {
+  readonly schemaVersion: '3.0.0';
+  readonly start: number;
+  readonly end: number;
+  readonly offsetUnit: 'UNICODE_CODE_POINT';
+  readonly role: 'VALUE';
+  readonly location: NativeLocationV3;
+}
+
+export type CanonicalRegion = CanonicalRegionV1 | CanonicalRegionV2 | CanonicalRegionV3;
 
 export function isNativeLocationV1(value: unknown): value is NativeLocationV1 {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -164,7 +192,34 @@ export function isNativeLocationV2(value: unknown): value is NativeLocationV2 {
     && docxQNamePattern.test(location.attribute);
 }
 
-export function nativeLocationIdentity(location: NativeLocationV2): string {
+export function isNativeLocationV3(value: unknown): value is NativeLocationV3 {
+  if (isNativeLocationV2(value)) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const location = value as Readonly<Record<string, unknown>>;
+  return Object.keys(location).length === 8
+    && location.schemaVersion === '3.0.0'
+    && location.kind === 'PDF_TEXT_ITEM'
+    && Number.isSafeInteger(location.page)
+    && (location.page as number) >= 1
+    && (location.page as number) <= 10_000
+    && Number.isSafeInteger(location.pageObject)
+    && (location.pageObject as number) >= 1
+    && (location.pageObject as number) <= 1_000_000
+    && Number.isSafeInteger(location.contentObject)
+    && (location.contentObject as number) >= 1
+    && (location.contentObject as number) <= 1_000_000
+    && Number.isSafeInteger(location.fontObject)
+    && (location.fontObject as number) >= 1
+    && (location.fontObject as number) <= 1_000_000
+    && Number.isSafeInteger(location.textItem)
+    && (location.textItem as number) >= 1
+    && (location.textItem as number) <= 1_000_000
+    && Number.isSafeInteger(location.glyphCount)
+    && (location.glyphCount as number) >= 1
+    && (location.glyphCount as number) <= 4_096;
+}
+
+export function nativeLocationIdentity(location: NativeLocationV3): string {
   if (location.kind === 'JSON_POINTER') return `JSON_POINTER\u0000${location.pointer}`;
   if (location.kind === 'CSV_CELL') {
     return `CSV_CELL\u0000${String(location.row)}\u0000${String(location.column)}`;
@@ -175,7 +230,10 @@ export function nativeLocationIdentity(location: NativeLocationV2): string {
   if (location.kind === 'DOCX_RELATIONSHIP') {
     return `DOCX_RELATIONSHIP\u0000${location.sourcePart}\u0000${location.relationshipId}\u0000TARGET`;
   }
-  return `DOCX_XML_VALUE\u0000${location.part}\u0000${location.element}\u0000${String(location.elementOrdinal)}\u0000${location.carrier}${location.attribute === undefined ? '' : `\u0000${location.attribute}`}`;
+  if (location.kind === 'DOCX_XML_VALUE') {
+    return `DOCX_XML_VALUE\u0000${location.part}\u0000${location.element}\u0000${String(location.elementOrdinal)}\u0000${location.carrier}${location.attribute === undefined ? '' : `\u0000${location.attribute}`}`;
+  }
+  return `PDF_TEXT_ITEM\u0000${String(location.page)}\u0000${String(location.pageObject)}\u0000${String(location.contentObject)}\u0000${String(location.fontObject)}\u0000${String(location.textItem)}\u0000${String(location.glyphCount)}`;
 }
 
 export interface DetectionEvidence {
@@ -185,7 +243,7 @@ export interface DetectionEvidence {
   readonly confidence: number;
   readonly source: DetectorSource;
   readonly detector: DetectorReference;
-  readonly nativeLocations?: readonly NativeLocationV2[];
+  readonly nativeLocations?: readonly NativeLocationV3[];
 }
 
 export interface DetectionSet {

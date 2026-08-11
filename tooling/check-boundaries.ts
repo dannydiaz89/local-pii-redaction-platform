@@ -444,7 +444,9 @@ export function checkPackageManifest(
   }
   const expectedExports = packageName === 'ui'
     ? { '.': './dist/index.js', './styles.css': './styles.css' }
-    : { '.': './dist/index.js' };
+    : packageName === 'sdk'
+      ? { '.': { types: './dist/index.d.ts', default: './dist/index.js' } }
+      : { '.': './dist/index.js' };
   if (manifest.exports === null || typeof manifest.exports !== 'object' || Array.isArray(manifest.exports)
     || JSON.stringify(manifest.exports) !== JSON.stringify(expectedExports)) {
     violations.push(violation(path, 'must expose only the public package root'));

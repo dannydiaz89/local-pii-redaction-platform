@@ -1,0 +1,294 @@
+{
+  "schemaVersion": "1.0.0",
+  "package": "@local-pii/sdk",
+  "exports": [
+    {
+      "name": "assertLocalApiSession",
+      "kind": "value",
+      "declaration": "export declare function assertLocalApiSession(session: LocalApiSession): URL;",
+      "resolvedType": "(session: LocalApiSession) => URL"
+    },
+    {
+      "name": "CapabilityClient",
+      "kind": "type",
+      "declaration": "export interface CapabilityClient {\n    load(signal: AbortSignal): Promise<CapabilitySummary>;\n}",
+      "resolvedType": "CapabilityClient"
+    },
+    {
+      "name": "capabilityRequestTimeoutMs",
+      "kind": "value",
+      "declaration": "export declare const capabilityRequestTimeoutMs = 5000;",
+      "resolvedType": "5000"
+    },
+    {
+      "name": "CapabilitySummary",
+      "kind": "type",
+      "declaration": "export interface CapabilitySummary {\n    readonly schemaVersion: '1.0.0';\n    readonly supportedContractVersions: readonly [\n        '1.0.0',\n        ...string[]\n    ];\n    readonly engineMode: LocalEngineMode;\n    readonly formatCount: number;\n    readonly availableDetectorCount: number;\n    readonly maximumInputBytes: number;\n    readonly supportedFiles: readonly SupportedFileFormat[];\n    readonly supportedEntityTypes: readonly CommonEntityTypeContract.EntityType[];\n}",
+      "resolvedType": "CapabilitySummary"
+    },
+    {
+      "name": "createCapabilityClient",
+      "kind": "value",
+      "declaration": "export declare function createCapabilityClient(session: LocalApiSession, fetchImplementation?: typeof fetch, timeoutMs?: number): CapabilityClient;",
+      "resolvedType": "(session: LocalApiSession, fetchImplementation?: typeof fetch, timeoutMs?: number) => CapabilityClient"
+    },
+    {
+      "name": "createDisconnectedCapabilityClient",
+      "kind": "value",
+      "declaration": "export declare function createDisconnectedCapabilityClient(): CapabilityClient;",
+      "resolvedType": "() => CapabilityClient"
+    },
+    {
+      "name": "createDisconnectedLocalSessionClient",
+      "kind": "value",
+      "declaration": "export declare function createDisconnectedLocalSessionClient(): LocalSessionClient;",
+      "resolvedType": "() => LocalSessionClient"
+    },
+    {
+      "name": "createLocalSessionClient",
+      "kind": "value",
+      "declaration": "export declare function createLocalSessionClient(session: LocalApiSession, fetchImplementation?: typeof fetch): LocalSessionClient;",
+      "resolvedType": "(session: LocalApiSession, fetchImplementation?: typeof fetch) => LocalSessionClient"
+    },
+    {
+      "name": "DetectionPageSummary",
+      "kind": "type",
+      "declaration": "export interface DetectionPageSummary {\n    readonly jobId: string;\n    readonly jobRevision: number;\n    readonly detections: number;\n    readonly conflicts: number;\n    readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;\n    readonly cursor: number;\n    readonly nextCursor: number | null;\n    readonly details: readonly JobDetectionSummary[];\n    readonly conflictDetails: readonly PreviewConflictSummary[];\n    readonly conflictDetailsLimited: boolean;\n}",
+      "resolvedType": "DetectionPageSummary"
+    },
+    {
+      "name": "EngineMode",
+      "kind": "type",
+      "declaration": "export type EngineMode = CapabilitiesCapabilityManifestContract.CapabilityManifest['engineMode'];",
+      "resolvedType": "\"RULES_ONLY\" | \"LOCAL_HYBRID\" | \"REMOTE\""
+    },
+    {
+      "name": "JobDetectionSummary",
+      "kind": "type",
+      "declaration": "export interface JobDetectionSummary extends PreviewDetectionSummary {\n    readonly id: string;\n}",
+      "resolvedType": "JobDetectionSummary"
+    },
+    {
+      "name": "JobEventPageSummary",
+      "kind": "type",
+      "declaration": "export interface JobEventPageSummary {\n    readonly jobId: string;\n    readonly nextCursor: number;\n    readonly events: readonly JobEventSummary[];\n}",
+      "resolvedType": "JobEventPageSummary"
+    },
+    {
+      "name": "JobEventSummary",
+      "kind": "type",
+      "declaration": "export interface JobEventSummary {\n    readonly id: string;\n    readonly cursor: number;\n    readonly revision: number;\n    readonly type: JobEventType;\n    readonly occurredAt: string;\n    readonly counts?: Readonly<Record<string, number>>;\n}",
+      "resolvedType": "JobEventSummary"
+    },
+    {
+      "name": "JobEventType",
+      "kind": "type",
+      "declaration": "export type JobEventType = JobsJobEventPageContract.JobEvent['type'];",
+      "resolvedType": "\"JOB_CREATED\" | \"STATE_CHANGED\" | \"REVIEW_REQUIRED\" | \"JOB_COMPLETED\" | \"JOB_FAILED\" | \"CANCELLATION_REQUESTED\""
+    },
+    {
+      "name": "JobOperation",
+      "kind": "type",
+      "declaration": "export type JobOperation = JobsJobContract.Job['operation'];",
+      "resolvedType": "\"SCAN\" | \"REDACT\" | \"VERIFY\" | \"INSPECT\""
+    },
+    {
+      "name": "jobRequestTimeoutMs",
+      "kind": "value",
+      "declaration": "export declare const jobRequestTimeoutMs = 5000;",
+      "resolvedType": "5000"
+    },
+    {
+      "name": "JobState",
+      "kind": "type",
+      "declaration": "export type JobState = JobsJobContract.Job['state'];",
+      "resolvedType": "\"QUEUED\" | \"VALIDATING\" | \"EXTRACTING\" | \"DETECTING\" | \"RESOLVING\" | \"NEEDS_REVIEW\" | \"REDACTING\" | \"VERIFYING\" | \"CANCELLING\" | \"VERIFIED\" | \"SUCCEEDED\" | \"FAILED\" | \"CANCELLED\" | \"EXPIRED\""
+    },
+    {
+      "name": "JobStatusSummary",
+      "kind": "type",
+      "declaration": "export interface JobStatusSummary {\n    readonly id: string;\n    readonly operation: JobOperation;\n    readonly state: JobState;\n    readonly revision: number;\n    readonly policy: Readonly<Pick<PolicyReference, 'id' | 'version' | 'digest'>>;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}",
+      "resolvedType": "JobStatusSummary"
+    },
+    {
+      "name": "LocalApiSession",
+      "kind": "type",
+      "declaration": "export interface LocalApiSession {\n    readonly apiOrigin: string;\n    readonly bearerToken: string;\n}",
+      "resolvedType": "LocalApiSession"
+    },
+    {
+      "name": "localClientMaximumConflictDetails",
+      "kind": "value",
+      "declaration": "export declare const localClientMaximumConflictDetails = 100;",
+      "resolvedType": "100"
+    },
+    {
+      "name": "localClientMaximumDetectionDetails",
+      "kind": "value",
+      "declaration": "export declare const localClientMaximumDetectionDetails = 100;",
+      "resolvedType": "100"
+    },
+    {
+      "name": "localClientMaximumInputBytes",
+      "kind": "value",
+      "declaration": "export declare const localClientMaximumInputBytes: number;",
+      "resolvedType": "number"
+    },
+    {
+      "name": "localClientMaximumOutputBytes",
+      "kind": "value",
+      "declaration": "export declare const localClientMaximumOutputBytes: number;",
+      "resolvedType": "number"
+    },
+    {
+      "name": "LocalEngineMode",
+      "kind": "type",
+      "declaration": "export type LocalEngineMode = Exclude<EngineMode, 'REMOTE'>;",
+      "resolvedType": "\"RULES_ONLY\" | \"LOCAL_HYBRID\""
+    },
+    {
+      "name": "LocalJobClient",
+      "kind": "type",
+      "declaration": "export interface LocalJobClient {\n    loadPolicies(signal: AbortSignal): Promise<PolicyCatalogSummary>;\n    scan(file: File, policy: PolicyReference, onProgress: (state: ScanProgressState) => void, signal: AbortSignal): Promise<ProcessingScanSummary>;\n    redact(file: File, policy: PolicyReference, review: ReviewSetSummary, onProgress: (state: ScanProgressState) => void, signal: AbortSignal): Promise<ProcessingRedactionSummary>;\n    listDetections(jobId: string, cursor: number, limit: number, signal: AbortSignal): Promise<DetectionPageSummary>;\n    getReviewSet(jobId: string, signal: AbortSignal): Promise<ReviewSetSummary>;\n    appendReviewDecisions(jobId: string, expectedJobRevision: number, expectedExtractionRevision: string, expectedReviewRevision: number, decisions: readonly ReviewDecisionInput[], signal: AbortSignal): Promise<ReviewSetSummary>;\n    scanPreview(file: File, signal: AbortSignal): Promise<PreviewScanSummary>;\n    create(operation: JobOperation, policy: PolicyReference, idempotencyKey: string, signal: AbortSignal): Promise<JobStatusSummary>;\n    get(jobId: string, signal: AbortSignal): Promise<JobStatusSummary>;\n    listEvents(jobId: string, afterCursor: number, limit: number, signal: AbortSignal): Promise<JobEventPageSummary>;\n    cancel(jobId: string, expectedRevision: number, signal: AbortSignal): Promise<JobStatusSummary>;\n    expire(jobId: string, signal: AbortSignal): Promise<void>;\n}",
+      "resolvedType": "LocalJobClient"
+    },
+    {
+      "name": "LocalSessionClient",
+      "kind": "type",
+      "declaration": "export interface LocalSessionClient {\n    readonly capabilities: CapabilityClient;\n    readonly jobs: LocalJobClient;\n}",
+      "resolvedType": "LocalSessionClient"
+    },
+    {
+      "name": "PolicyCatalogSummary",
+      "kind": "type",
+      "declaration": "export interface PolicyCatalogSummary {\n    readonly defaultPolicy: PolicyReference;\n    readonly policies: readonly PolicyReference[];\n}",
+      "resolvedType": "PolicyCatalogSummary"
+    },
+    {
+      "name": "PolicyReference",
+      "kind": "type",
+      "declaration": "export interface PolicyReference {\n    readonly id: string;\n    readonly version: string;\n    readonly digest: string;\n    readonly riskTier: 'LOW' | 'MODERATE' | 'HIGH';\n    readonly example: boolean;\n}",
+      "resolvedType": "PolicyReference"
+    },
+    {
+      "name": "PreviewConflictSummary",
+      "kind": "type",
+      "declaration": "export interface PreviewConflictSummary {\n    readonly code: 'INCOMPATIBLE_OVERLAP';\n    readonly start: number;\n    readonly end: number;\n    readonly entityTypes: readonly PreviewEntityType[];\n    readonly sources: readonly PreviewDetectionSource[];\n}",
+      "resolvedType": "PreviewConflictSummary"
+    },
+    {
+      "name": "PreviewDetectionSource",
+      "kind": "type",
+      "declaration": "export type PreviewDetectionSource = JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['detections'][number]['sources'][number];",
+      "resolvedType": "\"REGEX\" | \"CHECKSUM\" | \"STRUCTURED\" | \"DICTIONARY\" | \"MODEL\" | \"MANUAL\""
+    },
+    {
+      "name": "PreviewDetectionSummary",
+      "kind": "type",
+      "declaration": "export interface PreviewDetectionSummary {\n    readonly entityType: PreviewEntityType;\n    readonly start: number;\n    readonly end: number;\n    readonly confidence: number;\n    readonly sources: readonly PreviewDetectionSource[];\n}",
+      "resolvedType": "PreviewDetectionSummary"
+    },
+    {
+      "name": "PreviewEntityType",
+      "kind": "type",
+      "declaration": "export type PreviewEntityType = CommonEntityTypeContract.EntityType;",
+      "resolvedType": "\"PERSON\" | \"EMAIL\" | \"PHONE\" | \"ADDRESS\" | \"LOCATION\" | \"ORGANIZATION\" | \"DATE_OF_BIRTH\" | \"SSN\" | \"NATIONAL_ID\" | \"PASSPORT\" | \"DRIVER_LICENSE\" | \"CREDIT_CARD\" | \"BANK_ACCOUNT\" | \"ROUTING_NUMBER\" | \"MEDICAL_RECORD\" | \"HEALTH_PLAN_ID\" | \"ACCOUNT_ID\" | \"USERNAME\" | \"IP_ADDRESS\" | \"MAC_ADDRESS\" | \"API_KEY\" | \"ACCESS_TOKEN\" | \"PASSWORD\" | \"CUSTOM\""
+    },
+    {
+      "name": "PreviewOutcome",
+      "kind": "type",
+      "declaration": "export type PreviewOutcome = JobsPreviewScanReportContract.EphemeralPreviewScanReport['outcome'];",
+      "resolvedType": "\"NEEDS_REVIEW\" | \"SUCCEEDED\""
+    },
+    {
+      "name": "PreviewScanSummary",
+      "kind": "type",
+      "declaration": "export interface PreviewScanSummary {\n    readonly outcome: PreviewOutcome;\n    readonly detections: number;\n    readonly conflicts: number;\n    readonly byEntity: Readonly<Partial<Record<PreviewEntityType, number>>>;\n    readonly details: readonly PreviewDetectionSummary[];\n    readonly detailsLimited: boolean;\n    readonly conflictDetails: readonly PreviewConflictSummary[];\n    readonly conflictDetailsLimited: boolean;\n}",
+      "resolvedType": "PreviewScanSummary"
+    },
+    {
+      "name": "ProcessingRedactionSummary",
+      "kind": "type",
+      "declaration": "export interface ProcessingRedactionSummary {\n    readonly job: JobStatusSummary;\n    readonly output: RedactedOutputSummary;\n}",
+      "resolvedType": "ProcessingRedactionSummary"
+    },
+    {
+      "name": "ProcessingScanSummary",
+      "kind": "type",
+      "declaration": "export interface ProcessingScanSummary extends DetectionPageSummary {\n    readonly outcome: PreviewOutcome;\n    readonly job: JobStatusSummary;\n    readonly events: readonly JobEventSummary[];\n    readonly review: ReviewSetSummary;\n}",
+      "resolvedType": "ProcessingScanSummary"
+    },
+    {
+      "name": "projectCapabilitySummary",
+      "kind": "value",
+      "declaration": "export declare function projectCapabilitySummary(value: unknown): CapabilitySummary;",
+      "resolvedType": "(value: unknown) => CapabilitySummary"
+    },
+    {
+      "name": "projectDetectionPage",
+      "kind": "value",
+      "declaration": "export declare function projectDetectionPage(value: unknown, expectedJobId: string): DetectionPageSummary;",
+      "resolvedType": "(value: unknown, expectedJobId: string) => DetectionPageSummary"
+    },
+    {
+      "name": "projectPolicyCatalog",
+      "kind": "value",
+      "declaration": "export declare function projectPolicyCatalog(value: unknown): PolicyCatalogSummary;",
+      "resolvedType": "(value: unknown) => PolicyCatalogSummary"
+    },
+    {
+      "name": "projectPreviewScan",
+      "kind": "value",
+      "declaration": "export declare function projectPreviewScan(value: unknown): PreviewScanSummary;",
+      "resolvedType": "(value: unknown) => PreviewScanSummary"
+    },
+    {
+      "name": "projectReviewSet",
+      "kind": "value",
+      "declaration": "export declare function projectReviewSet(value: unknown, expectedJobId: string): ReviewSetSummary;",
+      "resolvedType": "(value: unknown, expectedJobId: string) => ReviewSetSummary"
+    },
+    {
+      "name": "RedactedOutputSummary",
+      "kind": "type",
+      "declaration": "export interface RedactedOutputSummary {\n    readonly id: string;\n    readonly mediaType: 'text/plain' | 'text/markdown';\n    readonly byteLength: number;\n    readonly digest: string;\n    readonly displayName: 'document.redacted.txt' | 'document.redacted.md';\n    readonly bytes: Uint8Array;\n}",
+      "resolvedType": "RedactedOutputSummary"
+    },
+    {
+      "name": "ReviewDecisionInput",
+      "kind": "type",
+      "declaration": "export type ReviewDecisionInput = Readonly<JobsReviewDecisionRequestContract.Decision>;",
+      "resolvedType": "Readonly<{ clientDecisionId: string; targetDetectionId: string; action: \"ACCEPT\"; reasonCode: \"CONFIRMED_BY_REVIEWER\"; }> | Readonly<{ clientDecisionId: string; targetDetectionId: string; action: \"REJECT\"; reasonCode: \"FALSE_POSITIVE\"; }> | Readonly<{ clientDecisionId: string; targetDetectionId: string; action: \"RETYPE\"; entityType: JobsReviewDecisionRequestContract.EntityType; reasonCode: \"INCORRECT_ENTITY_TYPE\"; }>"
+    },
+    {
+      "name": "ReviewDecisionSummary",
+      "kind": "type",
+      "declaration": "export type ReviewDecisionSummary = Readonly<JobsReviewSetContract.DecisionRecord>;",
+      "resolvedType": "Readonly<{ revision: number; clientDecisionId: string; targetDetectionId: string; action: \"ACCEPT\"; reasonCode: \"CONFIRMED_BY_REVIEWER\"; principal: \"LOCAL_SESSION\"; occurredAt: string; }> | Readonly<{ revision: number; clientDecisionId: string; targetDetectionId: string; action: \"REJECT\"; reasonCode: \"FALSE_POSITIVE\"; principal: \"LOCAL_SESSION\"; occurredAt: string; }> | Readonly<{ revision: number; clientDecisionId: string; targetDetectionId: string; action: \"RETYPE\"; entityType: JobsReviewSetContract.EntityType; reasonCode: \"INCORRECT_ENTITY_TYPE\"; principal: \"LOCAL_SESSION\"; occurredAt: string; }>"
+    },
+    {
+      "name": "ReviewSetSummary",
+      "kind": "type",
+      "declaration": "export interface ReviewSetSummary {\n    readonly schemaVersion: '1.0.0';\n    readonly jobId: string;\n    readonly jobRevision: number;\n    readonly extractionRevision: string;\n    readonly reviewRevision: number;\n    readonly digest: string;\n    readonly decisions: readonly ReviewDecisionSummary[];\n}",
+      "resolvedType": "ReviewSetSummary"
+    },
+    {
+      "name": "ScanProgressState",
+      "kind": "type",
+      "declaration": "export type ScanProgressState = 'UPLOADING' | JobState;",
+      "resolvedType": "\"QUEUED\" | \"VALIDATING\" | \"EXTRACTING\" | \"DETECTING\" | \"RESOLVING\" | \"NEEDS_REVIEW\" | \"REDACTING\" | \"VERIFYING\" | \"CANCELLING\" | \"VERIFIED\" | \"SUCCEEDED\" | \"FAILED\" | \"CANCELLED\" | \"EXPIRED\" | \"UPLOADING\""
+    },
+    {
+      "name": "scanWorkflowTimeoutMs",
+      "kind": "value",
+      "declaration": "export declare const scanWorkflowTimeoutMs = 30000;",
+      "resolvedType": "30000"
+    },
+    {
+      "name": "SupportedFileFormat",
+      "kind": "type",
+      "declaration": "export interface SupportedFileFormat {\n    readonly extension: string;\n    readonly maximumInputBytes: number;\n    readonly supportsRedaction: boolean;\n}",
+      "resolvedType": "SupportedFileFormat"
+    }
+  ]
+}

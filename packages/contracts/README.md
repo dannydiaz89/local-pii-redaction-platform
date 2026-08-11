@@ -13,8 +13,9 @@ Canonical, language-neutral data contracts for every process and package boundar
   ceilings for the ephemeral local preview boundary.
 - Defines the bounded append-only review request/set contracts used for value-free optimistic
   decision replay without changing the immutable detector evidence contracts.
-- Retains detection v1/v2 and native-location/canonical-region v1, then adds detection v3 and
-  location/region v2 for bounded value-free DOCX relationship and XML carrier provenance.
+- Retains detection v1/v2 and native-location/canonical-region v1, adds detection v3 and
+  location/region v2 for bounded value-free DOCX relationship and XML carrier provenance, then adds
+  detection v4 and location/region v3 for value-free PDF page/object/text-item/glyph provenance.
 - Retains redaction-policy v1 and adds redaction-policy v2 for exact JSON Pointer classification,
   explicit CSV delimiter/header behavior, and exact CSV index/header classification.
 - Adds policy-bound CLI scan-report v2 and redaction-report v3 contracts without loosening the

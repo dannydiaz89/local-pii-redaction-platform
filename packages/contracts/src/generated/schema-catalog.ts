@@ -4033,6 +4033,94 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/native-location/3.0.0",
+    "title": "Native structured location v3",
+    "description": "An append-only, value-free native location. PDF text-item coordinates identify only bounded structural ordinals and never contain extracted glyph values.",
+    "schemaVersion": "3.0.0",
+    "oneOf": [
+      {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/2.0.0"
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "page",
+          "pageObject",
+          "contentObject",
+          "fontObject",
+          "textItem",
+          "glyphCount"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "3.0.0"
+          },
+          "kind": {
+            "const": "PDF_TEXT_ITEM"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "pageObject": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "contentObject": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "fontObject": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "textItem": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "glyphCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "1.0.0",
+        "kind": "JSON_POINTER",
+        "pointer": "/profile/name"
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "kind": "DOCX_RELATIONSHIP",
+        "sourcePart": "word/document.xml",
+        "relationshipId": "rId1",
+        "field": "TARGET"
+      },
+      {
+        "schemaVersion": "3.0.0",
+        "kind": "PDF_TEXT_ITEM",
+        "page": 1,
+        "pageObject": 4,
+        "contentObject": 5,
+        "fontObject": 3,
+        "textItem": 1,
+        "glyphCount": 12
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/native-location/1.0.0",
     "title": "Native structured location",
     "description": "A versioned value-free native location owned by a structured format adapter.",
@@ -4668,6 +4756,150 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detection/4.0.0",
+    "title": "Detection evidence with PDF text-item locations",
+    "description": "One value-free detector assertion anchored to an extraction revision and optional append-only typed native locations.",
+    "schemaVersion": "4.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "entityType",
+      "span",
+      "confidence",
+      "source",
+      "detector"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "4.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+      },
+      "entityType": {
+        "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+      },
+      "span": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "offsetUnit",
+          "extractionRevision"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offsetUnit": {
+            "const": "UNICODE_CODE_POINT"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "source": {
+        "enum": [
+          "REGEX",
+          "CHECKSUM",
+          "STRUCTURED",
+          "DICTIONARY",
+          "MODEL",
+          "MANUAL"
+        ]
+      },
+      "detector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "nativeLocations": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/native-location/3.0.0"
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "4.0.0",
+        "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "entityType": "EMAIL",
+        "span": {
+          "start": 0,
+          "end": 12,
+          "offsetUnit": "UNICODE_CODE_POINT",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": 0.99,
+        "source": "REGEX",
+        "detector": {
+          "id": "email-pattern",
+          "version": "0.1.0",
+          "ruleId": "email-v1"
+        },
+        "nativeLocations": [
+          {
+            "schemaVersion": "3.0.0",
+            "kind": "PDF_TEXT_ITEM",
+            "page": 1,
+            "pageObject": 4,
+            "contentObject": 5,
+            "fontObject": 3,
+            "textItem": 1,
+            "glyphCount": 12
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
     "title": "Detection evidence",
     "description": "One value-free detector assertion anchored to an extraction revision.",
@@ -4913,6 +5145,66 @@ export const schemaCatalog = [
           "sourcePart": "word/document.xml",
           "relationshipId": "rId1",
           "field": "TARGET"
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/extraction/canonical-region/3.0.0",
+    "title": "Canonical structured region v3",
+    "description": "One canonical Unicode code-point region and its exact value-free native location, including a bounded PDF text item.",
+    "schemaVersion": "3.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "start",
+      "end",
+      "offsetUnit",
+      "role",
+      "location"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "3.0.0"
+      },
+      "start": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "end": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000
+      },
+      "offsetUnit": {
+        "const": "UNICODE_CODE_POINT"
+      },
+      "role": {
+        "const": "VALUE"
+      },
+      "location": {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/3.0.0"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "3.0.0",
+        "start": 0,
+        "end": 12,
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "role": "VALUE",
+        "location": {
+          "schemaVersion": "3.0.0",
+          "kind": "PDF_TEXT_ITEM",
+          "page": 1,
+          "pageObject": 4,
+          "contentObject": 5,
+          "fontObject": 3,
+          "textItem": 1,
+          "glyphCount": 12
         }
       }
     ]

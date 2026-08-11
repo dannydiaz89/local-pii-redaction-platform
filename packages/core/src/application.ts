@@ -2,6 +2,7 @@ import {
   SafeError,
   isNativeLocationV1,
   isNativeLocationV2,
+  isNativeLocationV3,
   nativeLocationIdentity,
   parseCorrelationId,
   parseSha256Digest,
@@ -169,7 +170,9 @@ function validatedRegions(
     const candidate = region as Readonly<Record<string, unknown>>;
     if (
       (Object.keys(candidate).length !== 6 && Object.keys(candidate).length !== 7)
-      || (candidate.schemaVersion !== '1.0.0' && candidate.schemaVersion !== '2.0.0')
+      || (candidate.schemaVersion !== '1.0.0'
+        && candidate.schemaVersion !== '2.0.0'
+        && candidate.schemaVersion !== '3.0.0')
       || candidate.offsetUnit !== 'UNICODE_CODE_POINT'
       || candidate.role !== 'VALUE'
       || !Number.isSafeInteger(candidate.start)
@@ -179,8 +182,13 @@ function validatedRegions(
       || (candidate.end as number) > textLength
     ) return sourceMapInvalid(requestCorrelationId);
     const location = candidate.location;
-    if (!isNativeLocationV2(location)
-      || (candidate.schemaVersion === '1.0.0' && !isNativeLocationV1(location))) {
+    if (!isNativeLocationV3(location)
+      || (candidate.schemaVersion === '1.0.0' && !isNativeLocationV1(location))
+      || (candidate.schemaVersion === '2.0.0' && !isNativeLocationV2(location))) {
+      return sourceMapInvalid(requestCorrelationId);
+    }
+    if (location.kind === 'PDF_TEXT_ITEM'
+      && (candidate.end as number) - (candidate.start as number) !== location.glyphCount) {
       return sourceMapInvalid(requestCorrelationId);
     }
     if (candidate.selector !== undefined) {
@@ -232,7 +240,7 @@ function sameNativeLocations(
 ): boolean {
   return left === undefined || (
     left.length === right.length
-    && left.every((location, index) => isNativeLocationV2(location)
+    && left.every((location, index) => isNativeLocationV3(location)
       && nativeLocationIdentity(location) === nativeLocationIdentity(right[index] as CanonicalRegion['location']))
   );
 }

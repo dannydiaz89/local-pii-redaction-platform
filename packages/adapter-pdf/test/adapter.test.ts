@@ -96,10 +96,34 @@ describe('strict extraction-only PDF adapter', () => {
       ['Second page']
     ]);
     expect(probePdfBytes(bytes)).toBe(true);
-    expect(extractPdfBytes(bytes)).toEqual({
-      text: 'alpha@example.test\nCall 202-555-0198\n\u0000PDF-PAGE\u0000\nSecond page',
-      pageCount: 2
-    });
+    const extracted = extractPdfBytes(bytes);
+    expect(extracted.text).toBe('alpha@example.test\nCall 202-555-0198\n\u0000PDF-PAGE\u0000\nSecond page');
+    expect(extracted.pageCount).toBe(2);
+    expect(extracted.regions).toEqual([
+      {
+        schemaVersion: '3.0.0', start: 0, end: 18, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: {
+          schemaVersion: '3.0.0', kind: 'PDF_TEXT_ITEM', page: 1, pageObject: 4,
+          contentObject: 5, fontObject: 3, textItem: 1, glyphCount: 18
+        }
+      },
+      {
+        schemaVersion: '3.0.0', start: 19, end: 36, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: {
+          schemaVersion: '3.0.0', kind: 'PDF_TEXT_ITEM', page: 1, pageObject: 4,
+          contentObject: 5, fontObject: 3, textItem: 2, glyphCount: 17
+        }
+      },
+      {
+        schemaVersion: '3.0.0', start: 48, end: 59, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: {
+          schemaVersion: '3.0.0', kind: 'PDF_TEXT_ITEM', page: 2, pageObject: 6,
+          contentObject: 7, fontObject: 3, textItem: 1, glyphCount: 11
+        }
+      }
+    ]);
+    expect(Object.isFrozen(extracted.regions)).toBe(true);
+    expect(extracted.regions.every((region) => Object.isFrozen(region) && Object.isFrozen(region.location))).toBe(true);
     expect(pdfAdapterCapabilityDescriptor.operations).toEqual(['PROBE', 'INSPECT']);
     expect(pdfAdapterCapabilityDescriptor.assurance).toBe('EXTRACT_ONLY');
   });
@@ -114,10 +138,23 @@ describe('strict extraction-only PDF adapter', () => {
     const after = await stat(path, { bigint: true });
     expect(artifact.text).toBe('person@example.test');
     expect(artifact.pageCount).toBe(1);
+    expect(artifact.regions).toHaveLength(1);
     expect(await readFile(path)).toEqual(bytes);
     expect({ ino: after.ino, mode: after.mode, size: after.size, mtimeNs: after.mtimeNs }).toEqual({
       ino: before.ino, mode: before.mode, size: before.size, mtimeNs: before.mtimeNs
     });
+  });
+
+  it('maps decoded glyph counts rather than escaped PDF source bytes', () => {
+    const extracted = extractPdfBytes(syntheticPdf([['A(B)\\C']]));
+    expect(extracted.text).toBe('A(B)\\C');
+    expect(extracted.regions).toEqual([{
+      schemaVersion: '3.0.0', start: 0, end: 6, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+      location: {
+        schemaVersion: '3.0.0', kind: 'PDF_TEXT_ITEM', page: 1, pageObject: 4,
+        contentObject: 5, fontObject: 3, textItem: 1, glyphCount: 6
+      }
+    }]);
   });
 
   it.each([

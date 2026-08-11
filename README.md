@@ -192,7 +192,10 @@ in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not r
 secrets, local/session storage, cookies, or remote catalogs. The browser consumes the public root
 of [`@local-pii/sdk`](./packages/sdk). Its bounded session client denies redirects, credentials,
 referrers, and caching, rejects incompatible capability-contract versions before any upload, then
-projects only aggregate values from the capability response. The same typed client discovers the pinned policy catalog, creates a
+projects only aggregate values from the capability response. Its root-only package exports and
+fresh declaration-emit baseline make every public runtime or type change an explicit compatibility
+review without claiming that this private package is already published or semantically versioned.
+The same typed client discovers the pinned policy catalog, creates a
 process-local artifact and real asynchronous rules-scan job, observes its state/events, and requests
 value-free detection pages. Once connected, document intake admits TXT/Markdown files up to 8 MiB.
 The UI displays the server-owned completion state/event count plus aggregate categories and a
@@ -362,8 +365,14 @@ targets and the complete OOXML package before staging, and reconciles the exact 
 deterministic staged bytes, native reopen, canonical replacements, retained carrier inventory,
 untouched decompressed parts, and uniquely planted planned-source canaries on synthetic packages.
 The reconciliation deliberately reuses the extraction parser and reports no independent or fidelity
-qualification. DOCX redaction and standalone verification therefore remain unexposed: an independent
-native leakage verifier, broader feature coverage,
+qualification. A separate non-authorizing foundation in `@local-pii/verification` now uses its own
+bounded ZIP/XML/content-type/relationship parser, independently enumerates retained XML carriers,
+reconciles exact per-carrier native deltas with the plan and writer receipt, rejects unplanned package
+or carrier changes, and runs privacy-safe unique-canary plus deterministic residual scans. It never
+imports the DOCX adapter, writes or publishes a file, and always reports fidelity and publication as
+unverified. DOCX redaction and standalone verification therefore remain unexposed: complete independent
+classification of the adapter's accepted carrier surface, a core-bound verification attestation,
+broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
 
@@ -371,13 +380,18 @@ The rules-only CLI also has an experimental, synthetic-only `.pdf` inspection fo
 [`@local-pii/adapter-pdf`](./packages/adapter-pdf). It accepts only PDF 1.4 files with one complete
 classic xref revision, a closed catalog/flat-page graph, one uncompressed content stream per page,
 and bounded visible ASCII literal text using built-in Helvetica/WinAnsi and a closed `BT`/`Tf`/`Td`/
-`Tj`/`ET` operator set. Canonical reading order is page order followed by operator order. Unknown or
-unused objects, operators, encodings, filters, or dictionaries fail closed, as do encryption,
+`Tj`/`ET` operator set. Canonical reading order is page order followed by operator order. Version
+0.2 emits a complete frozen source map for that accepted surface: each canonical text item has a
+value-free v3 location containing page, page/content/font object numbers, text-item ordinal, and
+exact glyph count. Unknown or unused objects, operators, encodings, filters, or dictionaries fail
+closed, as do encryption,
 incremental updates, metadata, actions/JavaScript, forms/XFA, annotations, attachments, optional
 content, images, XObjects, alternate fonts, scanned/mixed pages, and selected-file symlinks. The
 capability is `EXPERIMENTAL`, `EXTRACT_ONLY`, and advertises only probe/inspect. Scan is blocked
-because there is no complete typed page/object/glyph source map or qualified Unicode mapping;
-redaction, verification, rendering/preview, and OCR are also unavailable. This does not resolve
+pending end-to-end admission/security qualification of the new strict-profile source map, while
+real-world scanning remains blocked on compressed content, tagging/metadata coverage, fonts,
+operators, and qualified Unicode mapping; redaction, verification, rendering/preview, and OCR are
+also unavailable. This does not resolve
 OQ-009: production PDF parser/writer/verifier selection, licensing, independent extraction, native
 search/copy checks, renderer canaries, fidelity, and sandbox qualification remain open.
 

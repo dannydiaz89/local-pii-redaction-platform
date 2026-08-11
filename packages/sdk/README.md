@@ -23,11 +23,16 @@ dependency is limited to `@local-pii/contracts`, used only for generated TypeScr
 The current transport deliberately supports numeric loopback HTTP only; a future authenticated
 remote SDK requires a separate threat model and must not weaken this local-session boundary.
 
-The root export is the supported public surface. Internal modules are not package exports.
+The root export is the supported public surface. Internal modules are not package exports. A fresh
+declaration emit is compared with a committed, human-reviewable package-root baseline; removals,
+renames, type/value changes, and additive or signature drift require an explicit compatibility
+review. This detects public change but does not by itself promise semantic-version compatibility or
+published-package stability.
 
 ## Development
 
 ```sh
 pnpm --filter @local-pii/sdk typecheck
 pnpm exec vitest run packages/sdk/test
+pnpm sdk:api:check
 ```
