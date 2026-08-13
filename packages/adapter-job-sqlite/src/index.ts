@@ -15,16 +15,23 @@ import {
   prepareJobTransition,
   validateJobEventQuery,
   validateJobLookup,
+  validateJobOutboxAcknowledgement,
+  validateJobOutboxQuery,
+  type AcknowledgeJobOutboxCommand,
   type CreateJobCommand,
   type Job,
   type JobEvent,
   type JobMetadataStore,
   type JobMutationResult,
+  type JobOutboxAcknowledgement,
+  type JobOutboxMessage,
+  type JobOutboxStore,
+  type ListJobOutboxQuery,
   type ListJobEventsQuery,
   type TransitionJobCommand
 } from '@local-pii/job-store';
 
-export interface SqliteJobMetadataStore extends JobMetadataStore {
+export interface SqliteJobMetadataStore extends JobMetadataStore, JobOutboxStore {
   close(): void;
 }
 
@@ -49,9 +56,21 @@ interface IdempotencyRow {
   readonly event_body: string;
 }
 
+interface OutboxRow {
+  readonly cursor: number;
+  readonly event_id: string;
+  readonly job_id: string;
+  readonly revision: number;
+  readonly event_cursor: number;
+  readonly event_type: string;
+  readonly occurred_at: string;
+  readonly acknowledged_at: string | null;
+  readonly event_body: string;
+}
+
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const jobEventSchemaId = 'https://local-pii.dev/schemas/jobs/job-event/1.0.0';
-const schemaVersion = 1;
+const schemaVersion = 2;
 const applicationId = 0x4c504949;
 const defaultBusyTimeoutMs = 2_000;
 
@@ -102,6 +121,30 @@ function idempotencyRow(value: unknown): IdempotencyRow | undefined {
     : undefined;
 }
 
+function outboxRow(value: unknown): OutboxRow | undefined {
+  if (!isRecord(value)
+    || !safeStoredInteger(value.cursor)
+    || typeof value.event_id !== 'string'
+    || typeof value.job_id !== 'string'
+    || !safeStoredInteger(value.revision)
+    || !safeStoredInteger(value.event_cursor)
+    || typeof value.event_type !== 'string'
+    || typeof value.occurred_at !== 'string'
+    || (value.acknowledged_at !== null && typeof value.acknowledged_at !== 'string')
+    || typeof value.event_body !== 'string') return undefined;
+  return {
+    cursor: value.cursor,
+    event_id: value.event_id,
+    job_id: value.job_id,
+    revision: value.revision,
+    event_cursor: value.event_cursor,
+    event_type: value.event_type,
+    occurred_at: value.occurred_at,
+    acknowledged_at: value.acknowledged_at,
+    event_body: value.event_body
+  };
+}
+
 function decodeCanonical(body: string, schemaId: string, correlationId: string): Readonly<Record<string, unknown>> {
   try {
     const value: unknown = JSON.parse(body);
@@ -128,6 +171,34 @@ function decodeEvent(body: string, correlationId: string): JobEvent {
   return Object.freeze({
     ...event,
     ...(event.counts === undefined ? {} : { counts: Object.freeze({ ...event.counts }) })
+  });
+}
+
+function decodeOutboxMessage(row: OutboxRow, correlationId: string): JobOutboxMessage {
+  const event = decodeEvent(row.event_body, correlationId);
+  if (event.id !== row.event_id
+    || event.jobId !== row.job_id
+    || event.revision !== row.revision
+    || event.cursor !== row.event_cursor
+    || event.type !== row.event_type
+    || event.occurredAt !== row.occurred_at
+    || row.revision !== row.event_cursor
+    || !Number.isFinite(Date.parse(row.occurred_at))
+    || (row.acknowledged_at !== null
+      && (!Number.isFinite(Date.parse(row.acknowledged_at))
+        || Date.parse(row.acknowledged_at) < Date.parse(row.occurred_at)))) {
+    storageFailure(correlationId);
+  }
+  return Object.freeze({
+    schemaVersion: '1.0.0',
+    cursor: row.cursor,
+    eventId: event.id,
+    jobId: event.jobId,
+    revision: event.revision,
+    eventCursor: event.cursor,
+    eventType: event.type,
+    occurredAt: event.occurredAt,
+    deduplicationKey: `${event.id}:${String(event.revision)}`
   });
 }
 
@@ -216,7 +287,8 @@ function initializeSchema(database: DatabaseSync): void {
   const observedVersion = Number(Object.values(version)[0]);
   if ((observedVersion === 0 && observedApplication !== 0)
     || (observedVersion !== 0
-      && (observedApplication !== applicationId || observedVersion !== schemaVersion))) {
+      && (observedApplication !== applicationId
+        || (observedVersion !== 1 && observedVersion !== schemaVersion)))) {
     throw new Error('The SQLite job metadata schema is unsupported.');
   }
   if (observedVersion === 0) {
@@ -242,8 +314,52 @@ function initializeSchema(database: DatabaseSync): void {
           event_body TEXT NOT NULL CHECK (json_valid(event_body)),
           PRIMARY KEY (scope, key)
         ) STRICT;
+        CREATE TABLE job_outbox (
+          cursor INTEGER PRIMARY KEY AUTOINCREMENT CHECK (cursor >= 1),
+          event_id TEXT NOT NULL UNIQUE REFERENCES job_events(id) ON DELETE CASCADE,
+          job_id TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          event_cursor INTEGER NOT NULL CHECK (event_cursor >= 1),
+          event_type TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          UNIQUE (job_id, revision),
+          CHECK (revision = event_cursor)
+        ) STRICT;
         CREATE INDEX job_events_page ON job_events(job_id, cursor);
+        CREATE INDEX job_outbox_pending ON job_outbox(acknowledged_at, cursor);
         PRAGMA application_id = ${String(applicationId)};
+        PRAGMA user_version = ${String(schemaVersion)};
+      `);
+    });
+  } else if (observedVersion === 1) {
+    inTransaction(database, () => {
+      database.exec(`
+        CREATE TABLE job_outbox (
+          cursor INTEGER PRIMARY KEY AUTOINCREMENT CHECK (cursor >= 1),
+          event_id TEXT NOT NULL UNIQUE REFERENCES job_events(id) ON DELETE CASCADE,
+          job_id TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          event_cursor INTEGER NOT NULL CHECK (event_cursor >= 1),
+          event_type TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          UNIQUE (job_id, revision),
+          CHECK (revision = event_cursor)
+        ) STRICT;
+        CREATE INDEX job_outbox_pending ON job_outbox(acknowledged_at, cursor);
+        INSERT INTO job_outbox (
+          event_id, job_id, revision, event_cursor, event_type, occurred_at
+        )
+        SELECT
+          id,
+          job_id,
+          json_extract(body, '$.revision'),
+          json_extract(body, '$.cursor'),
+          json_extract(body, '$.type'),
+          json_extract(body, '$.occurredAt')
+        FROM job_events
+        ORDER BY rowid ASC;
         PRAGMA user_version = ${String(schemaVersion)};
       `);
     });
@@ -255,7 +371,9 @@ function initializeSchema(database: DatabaseSync): void {
   for (const query of [
     'SELECT id, revision, body FROM jobs LIMIT 0',
     'SELECT id, job_id, cursor, body FROM job_events LIMIT 0',
-    'SELECT scope, key, request_digest, job_body, event_body FROM job_idempotency LIMIT 0'
+    'SELECT scope, key, request_digest, job_body, event_body FROM job_idempotency LIMIT 0',
+    `SELECT cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at,
+      acknowledged_at FROM job_outbox LIMIT 0`
   ]) database.prepare(query).all();
 }
 
@@ -271,6 +389,36 @@ function findJob(database: DatabaseSync, jobId: string, correlationId: string): 
 
 function eventIdentifierExists(database: DatabaseSync, eventId: string): boolean {
   return database.prepare('SELECT 1 AS found FROM job_events WHERE id = ?').get(eventId) !== undefined;
+}
+
+function insertOutbox(database: DatabaseSync, event: JobEvent): void {
+  database.prepare(`
+    INSERT INTO job_outbox (
+      event_id, job_id, revision, event_cursor, event_type, occurred_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(event.id, event.jobId, event.revision, event.cursor, event.type, event.occurredAt);
+}
+
+function findOutboxRow(database: DatabaseSync, eventId: string, correlationId: string): OutboxRow | undefined {
+  const value = database.prepare(`
+    SELECT
+      outbox.cursor,
+      outbox.event_id,
+      outbox.job_id,
+      outbox.revision,
+      outbox.event_cursor,
+      outbox.event_type,
+      outbox.occurred_at,
+      outbox.acknowledged_at,
+      events.body AS event_body
+    FROM job_outbox AS outbox
+    INNER JOIN job_events AS events ON events.id = outbox.event_id
+    WHERE outbox.event_id = ?
+  `).get(eventId);
+  if (value === undefined) return undefined;
+  const row = outboxRow(value);
+  if (row === undefined) storageFailure(correlationId);
+  return row;
 }
 
 /**
@@ -353,6 +501,7 @@ export function openSqliteJobMetadataStore(
             .run(prepared.job.id, prepared.job.revision, jobBody);
           openedDatabase.prepare('INSERT INTO job_events (id, job_id, cursor, body) VALUES (?, ?, ?, ?)')
             .run(prepared.event.id, prepared.job.id, prepared.event.cursor, eventBody);
+          insertOutbox(openedDatabase, prepared.event);
           openedDatabase.prepare(`
             INSERT INTO job_idempotency (scope, key, request_digest, job_body, event_body)
             VALUES (?, ?, ?, ?, ?)
@@ -406,6 +555,7 @@ export function openSqliteJobMetadataStore(
               prepared.event.cursor,
               JSON.stringify(prepared.event)
             );
+          insertOutbox(openedDatabase, prepared.event);
           return Object.freeze({ job: prepared.job, event: prepared.event, replayed: false });
         });
       } catch (error: unknown) {
@@ -454,6 +604,93 @@ export function openSqliteJobMetadataStore(
       } catch (error: unknown) {
         if (error instanceof SafeError || error instanceof DOMException) throw error;
         storageFailure(query.correlationId);
+      }
+    },
+
+    async listPendingOutbox(
+      query: ListJobOutboxQuery,
+      signal?: AbortSignal
+    ): Promise<readonly JobOutboxMessage[]> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxQuery(query);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(query.correlationId);
+      try {
+        const rows = openedDatabase.prepare(`
+          SELECT
+            outbox.cursor,
+            outbox.event_id,
+            outbox.job_id,
+            outbox.revision,
+            outbox.event_cursor,
+            outbox.event_type,
+            outbox.occurred_at,
+            outbox.acknowledged_at,
+            events.body AS event_body
+          FROM job_outbox AS outbox
+          INNER JOIN job_events AS events ON events.id = outbox.event_id
+          WHERE outbox.acknowledged_at IS NULL AND outbox.cursor > ?
+          ORDER BY outbox.cursor ASC
+          LIMIT ?
+        `).all(validated.afterCursor, validated.limit);
+        return Object.freeze(rows.map((value) => {
+          const row = outboxRow(value);
+          if (row === undefined) storageFailure(query.correlationId);
+          return decodeOutboxMessage(row, query.correlationId);
+        }));
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(query.correlationId);
+      }
+    },
+
+    async acknowledgeOutbox(
+      command: AcknowledgeJobOutboxCommand,
+      signal?: AbortSignal
+    ): Promise<JobOutboxAcknowledgement> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxAcknowledgement(command);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(command.correlationId);
+      try {
+        return inTransaction(openedDatabase, () => {
+          signal?.throwIfAborted();
+          const row = findOutboxRow(openedDatabase, validated.eventId, command.correlationId);
+          if (row === undefined) {
+            fail('JOB_CONFLICT', 'The outbox event does not exist.', false, command.correlationId);
+          }
+          const message = decodeOutboxMessage(row, command.correlationId);
+          if (message.revision !== validated.revision) {
+            fail('JOB_CONFLICT', 'The outbox event revision changed.', false, command.correlationId);
+          }
+          if (Date.parse(validated.acknowledgedAt) < Date.parse(message.occurredAt)) {
+            fail('SCHEMA_INVALID', 'The outbox acknowledgement is invalid.', false, command.correlationId);
+          }
+          if (row.acknowledged_at !== null) {
+            return Object.freeze({
+              message,
+              acknowledgedAt: row.acknowledged_at,
+              replayed: true
+            });
+          }
+          const update = openedDatabase.prepare(`
+            UPDATE job_outbox SET acknowledged_at = ?
+            WHERE event_id = ? AND revision = ? AND acknowledged_at IS NULL
+          `).run(validated.acknowledgedAt, validated.eventId, validated.revision);
+          if (Number(update.changes) !== 1) {
+            fail('JOB_CONFLICT', 'The outbox event changed.', true, command.correlationId);
+          }
+          return Object.freeze({
+            message,
+            acknowledgedAt: validated.acknowledgedAt,
+            replayed: false
+          });
+        });
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(command.correlationId);
       }
     },
 

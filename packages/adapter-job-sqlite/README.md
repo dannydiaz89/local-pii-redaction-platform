@@ -7,7 +7,10 @@ SQLite prototype for the storage-neutral `JobMetadataStore` boundary.
 - Persists only canonical, minimized job aggregates, value-free events, and creation-idempotency
   snapshots.
 - Commits each revision change and event append in one SQLite transaction.
+- Appends one value-free outbox message in that same transaction, exposes bounded pending pages,
+  and acknowledges deliveries idempotently by event ID plus aggregate revision.
 - Replays idempotent creation across process restarts and rejects stale compare-and-swap updates.
+- Migrates the synthetic schema-v1 event history into deterministic pending schema-v2 outbox rows.
 - Requires an owner-only database directory, creates a new database file with owner-only
   permissions, and rejects symlinks, non-files, or group/other-accessible database files on POSIX
   hosts.
@@ -17,9 +20,9 @@ SQLite prototype for the storage-neutral `JobMetadataStore` boundary.
 
 This is a development evidence adapter, not an activated durable product profile. It never stores
 document bytes, filenames, paths, extracted text, detections, or review content. The default CLI and
-the browser launcher continue to use no SQLite database. Retention, encryption/key recovery,
-backup/restore, multiprocess lease/outbox behavior, and production migration qualification remain
-open before the opt-in durable profile can ship.
+the browser launcher continue to use no SQLite database. Production dispatch, claim leases,
+retry/dead-letter policy, retention, encryption/key recovery, backup/restore, multiprocess behavior,
+and migration qualification remain open before the opt-in durable profile can ship.
 
 Filesystem evidence currently covers a trusted owner-only POSIX directory. Replacement races by an
 adversarial process running as that same owner, Windows permission semantics, journal/sidecar crash

@@ -3,6 +3,8 @@ import { SafeError } from '@local-pii/domain';
 
 import {
   createVolatileJobMetadataStore,
+  validateJobOutboxAcknowledgement,
+  validateJobOutboxQuery,
   type CreateJobCommand,
   type JobMetadataStore
 } from '../src/index.js';
@@ -44,6 +46,17 @@ async function expectSafeError(operation: Promise<unknown>, code: SafeError['cod
   } catch (error: unknown) {
     expect(error).toBeInstanceOf(SafeError);
     expect(error).toMatchObject({ code, retryable, correlationId });
+    return;
+  }
+  throw new Error(`Expected ${code}`);
+}
+
+function expectSynchronousSafeError(operation: () => unknown, code: SafeError['code']): void {
+  try {
+    operation();
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(SafeError);
+    expect(error).toMatchObject({ code, retryable: false, correlationId });
     return;
   }
   throw new Error(`Expected ${code}`);
@@ -251,6 +264,31 @@ describe('volatile job metadata store conformance', () => {
       policy: { id: 'development labels', version: 'not-semver', digest: requestDigest }
     })), 'SCHEMA_INVALID', false);
     await expectSafeError(store.listEvents({ jobId, limit: 101, correlationId }), 'SCHEMA_INVALID', false);
+  });
+
+  it('validates bounded outbox pagination and event-revision acknowledgements', () => {
+    expect(validateJobOutboxQuery({ afterCursor: 4, limit: 25, correlationId }))
+      .toEqual({ afterCursor: 4, limit: 25 });
+    expect(validateJobOutboxAcknowledgement({
+      eventId: firstEventId,
+      revision: 1,
+      acknowledgedAt: '2026-08-09T18:02:00Z',
+      correlationId
+    })).toEqual({
+      eventId: firstEventId,
+      revision: 1,
+      acknowledgedAt: '2026-08-09T18:02:00Z'
+    });
+    expectSynchronousSafeError(
+      () => validateJobOutboxQuery({ limit: 101, correlationId }),
+      'SCHEMA_INVALID'
+    );
+    expectSynchronousSafeError(() => validateJobOutboxAcknowledgement({
+      eventId: firstEventId,
+      revision: 0,
+      acknowledgedAt: '2026-08-09T18:02:00Z',
+      correlationId
+    }), 'SCHEMA_INVALID');
   });
 
   it('does not expose mutable references to stored metadata', async () => {

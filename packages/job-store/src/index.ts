@@ -79,6 +79,46 @@ export interface JobMetadataStore {
   listEvents(query: ListJobEventsQuery, signal?: AbortSignal): Promise<readonly JobEvent[]>;
 }
 
+export interface JobOutboxMessage {
+  readonly schemaVersion: '1.0.0';
+  readonly cursor: number;
+  readonly eventId: string;
+  readonly jobId: string;
+  readonly revision: number;
+  readonly eventCursor: number;
+  readonly eventType: JobEvent['type'];
+  readonly occurredAt: string;
+  /** Value-free consumer deduplication identity. */
+  readonly deduplicationKey: string;
+}
+
+export interface ListJobOutboxQuery {
+  readonly afterCursor?: number;
+  readonly limit?: number;
+  readonly correlationId: string;
+}
+
+export interface AcknowledgeJobOutboxCommand {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly acknowledgedAt: string;
+  readonly correlationId: string;
+}
+
+export interface JobOutboxAcknowledgement {
+  readonly message: JobOutboxMessage;
+  readonly acknowledgedAt: string;
+  readonly replayed: boolean;
+}
+
+export interface JobOutboxStore {
+  listPendingOutbox(query: ListJobOutboxQuery, signal?: AbortSignal): Promise<readonly JobOutboxMessage[]>;
+  acknowledgeOutbox(
+    command: AcknowledgeJobOutboxCommand,
+    signal?: AbortSignal
+  ): Promise<JobOutboxAcknowledgement>;
+}
+
 /** Canonical, validated creation material used by storage adapters. */
 export interface PreparedJobCreation {
   readonly job: Job;
@@ -98,6 +138,17 @@ export interface ValidatedJobEventQuery {
   readonly limit: number;
 }
 
+export interface ValidatedJobOutboxQuery {
+  readonly afterCursor: number;
+  readonly limit: number;
+}
+
+export interface ValidatedJobOutboxAcknowledgement {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly acknowledgedAt: string;
+}
+
 interface IdempotencyRecord {
   readonly requestDigest: string;
   readonly job: Job;
@@ -109,6 +160,7 @@ const jobEventSchemaId = 'https://local-pii.dev/schemas/jobs/job-event/1.0.0';
 const tokenPattern = /^[A-Za-z0-9._:-]+$/u;
 const operations = new Set<JobOperation>(['SCAN', 'REDACT', 'VERIFY', 'INSPECT']);
 const maximumEventPageSize = 100;
+const maximumOutboxPageSize = 100;
 
 function fail(code: ErrorCode, message: string, retryable: boolean, correlationId: string): never {
   throw new SafeError({ code, message, retryable, correlationId });
@@ -362,6 +414,29 @@ export function validateJobEventQuery(query: ListJobEventsQuery): ValidatedJobEv
     fail('SCHEMA_INVALID', 'The event query is invalid.', false, query.correlationId);
   }
   return Object.freeze({ jobId, afterCursor, limit });
+}
+
+/** Validates value-free pending-delivery pagination before an adapter touches storage. */
+export function validateJobOutboxQuery(query: ListJobOutboxQuery): ValidatedJobOutboxQuery {
+  parseCorrelationId(query.correlationId);
+  const afterCursor = query.afterCursor ?? 0;
+  const limit = query.limit ?? maximumOutboxPageSize;
+  if (!Number.isSafeInteger(afterCursor) || afterCursor < 0
+    || !Number.isSafeInteger(limit) || limit < 1 || limit > maximumOutboxPageSize) {
+    fail('SCHEMA_INVALID', 'The outbox query is invalid.', false, query.correlationId);
+  }
+  return Object.freeze({ afterCursor, limit });
+}
+
+/** Validates the consumer's idempotent event/revision acknowledgement identity. */
+export function validateJobOutboxAcknowledgement(
+  command: AcknowledgeJobOutboxCommand
+): ValidatedJobOutboxAcknowledgement {
+  parseCorrelationId(command.correlationId);
+  const eventId = validateEventId(command.eventId, command.correlationId);
+  const revision = validateRevision(command.revision, command.correlationId);
+  const acknowledgedAt = validateDateTime(command.acknowledgedAt, command.correlationId);
+  return Object.freeze({ eventId, revision, acknowledgedAt });
 }
 
 /**

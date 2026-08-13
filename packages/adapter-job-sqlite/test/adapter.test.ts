@@ -67,9 +67,96 @@ describe('SQLite job metadata adapter', () => {
       });
       expect(await store.get(jobId, correlationId)).toEqual(result.job);
       expect(await store.listEvents({ jobId, correlationId })).toEqual([result.event]);
+      expect(await store.listPendingOutbox({ correlationId })).toEqual([{
+        schemaVersion: '1.0.0',
+        cursor: 1,
+        eventId: firstEventId,
+        jobId,
+        revision: 1,
+        eventCursor: 1,
+        eventType: 'JOB_CREATED',
+        occurredAt: '2026-08-09T18:00:00Z',
+        deduplicationKey: `${firstEventId}:1`
+      }]);
       expect((await lstat(path)).mode & 0o777).toBe(0o600);
     } finally {
       store.close();
+    }
+  });
+
+  it('persists ordered outbox messages and idempotent acknowledgements across restart', async () => {
+    const path = await databasePath();
+    const first = openSqliteJobMetadataStore(path);
+    await first.create(createCommand());
+    await first.transition({
+      jobId,
+      expectedRevision: 1,
+      to: 'VALIDATING',
+      now: '2026-08-09T18:01:00Z',
+      eventId: secondEventId,
+      correlationId
+    });
+    const messages = await first.listPendingOutbox({ correlationId, limit: 2 });
+    expect(messages.map(({ cursor, eventId, revision, deduplicationKey }) => ({
+      cursor, eventId, revision, deduplicationKey
+    }))).toEqual([
+      { cursor: 1, eventId: firstEventId, revision: 1, deduplicationKey: `${firstEventId}:1` },
+      { cursor: 2, eventId: secondEventId, revision: 2, deduplicationKey: `${secondEventId}:2` }
+    ]);
+    const acknowledged = await first.acknowledgeOutbox({
+      eventId: firstEventId,
+      revision: 1,
+      acknowledgedAt: '2026-08-09T18:02:00Z',
+      correlationId
+    });
+    expect(acknowledged).toMatchObject({ replayed: false, acknowledgedAt: '2026-08-09T18:02:00Z' });
+    expect((await first.listPendingOutbox({ correlationId })).map(({ eventId }) => eventId))
+      .toEqual([secondEventId]);
+    first.close();
+
+    const restarted = openSqliteJobMetadataStore(path);
+    try {
+      expect((await restarted.listPendingOutbox({ correlationId })).map(({ eventId }) => eventId))
+        .toEqual([secondEventId]);
+      expect(await restarted.acknowledgeOutbox({
+        eventId: firstEventId,
+        revision: 1,
+        acknowledgedAt: '2026-08-09T19:00:00Z',
+        correlationId
+      })).toMatchObject({
+        replayed: true,
+        acknowledgedAt: '2026-08-09T18:02:00Z',
+        message: { deduplicationKey: `${firstEventId}:1` }
+      });
+    } finally {
+      restarted.close();
+    }
+  });
+
+  it('migrates schema v1 events into a deterministic pending outbox', async () => {
+    const path = await databasePath();
+    const original = openSqliteJobMetadataStore(path);
+    await original.create(createCommand());
+    original.close();
+
+    const legacy = new DatabaseSync(path);
+    legacy.exec('DROP TABLE job_outbox; PRAGMA user_version = 1;');
+    legacy.close();
+
+    const migrated = openSqliteJobMetadataStore(path);
+    try {
+      expect(await migrated.listPendingOutbox({ correlationId })).toMatchObject([{
+        cursor: 1,
+        eventId: firstEventId,
+        revision: 1,
+        eventCursor: 1
+      }]);
+      const raw = new DatabaseSync(path);
+      const version = raw.prepare('PRAGMA user_version').get() as Record<string, unknown>;
+      raw.close();
+      expect(Number(Object.values(version)[0])).toBe(2);
+    } finally {
+      migrated.close();
     }
   });
 
@@ -205,6 +292,55 @@ describe('SQLite job metadata adapter', () => {
     }
   });
 
+  it('rolls back the aggregate and event when the atomic outbox append fails', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    try {
+      await store.create(createCommand());
+      const faultConnection = new DatabaseSync(path);
+      faultConnection.exec(`
+        CREATE TRIGGER synthetic_outbox_insert_failure
+        BEFORE INSERT ON job_outbox
+        WHEN NEW.revision = 2
+        BEGIN
+          SELECT RAISE(ABORT, 'synthetic outbox insert failure');
+        END;
+      `);
+      faultConnection.close();
+
+      await expectSafeError(store.transition({
+        jobId,
+        expectedRevision: 1,
+        to: 'VALIDATING',
+        now: '2026-08-09T18:01:00Z',
+        eventId: secondEventId,
+        correlationId
+      }), 'STORAGE_UNAVAILABLE', true);
+      expect(await store.get(jobId, correlationId)).toMatchObject({ state: 'QUEUED', revision: 1 });
+      expect(await store.listEvents({ jobId, correlationId })).toHaveLength(1);
+      expect(await store.listPendingOutbox({ correlationId })).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('rejects mismatched acknowledgement revisions without consuming the outbox message', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    try {
+      await store.create(createCommand());
+      await expectSafeError(store.acknowledgeOutbox({
+        eventId: firstEventId,
+        revision: 2,
+        acknowledgedAt: '2026-08-09T18:02:00Z',
+        correlationId
+      }), 'JOB_CONFLICT', false);
+      expect(await store.listPendingOutbox({ correlationId })).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it('does not mutate storage when cancellation is already requested', async () => {
     const path = await databasePath();
     const store = openSqliteJobMetadataStore(path);
@@ -267,6 +403,28 @@ describe('SQLite job metadata adapter', () => {
     try {
       await expectSafeError(
         reopened.listEvents({ jobId, correlationId }),
+        'STORAGE_UNAVAILABLE',
+        true
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it('fails closed when stored outbox metadata disagrees with its canonical event', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    await store.create(createCommand());
+    store.close();
+
+    const raw = new DatabaseSync(path);
+    raw.prepare('UPDATE job_outbox SET event_type = ? WHERE event_id = ?')
+      .run('PLANTED_PRIVATE_VALUE', firstEventId);
+    raw.close();
+    const reopened = openSqliteJobMetadataStore(path);
+    try {
+      await expectSafeError(
+        reopened.listPendingOutbox({ correlationId }),
         'STORAGE_UNAVAILABLE',
         true
       );
