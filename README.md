@@ -187,6 +187,11 @@ RTL pseudolocales remain test-only layout gates. The shell uses native landmarks
 reduced-motion and forced-colors accommodations, and automated axe checks. Manual keyboard,
 screen-reader, zoom/reflow, and contrast review remain required before accessibility qualification.
 
+The default screen is deliberately tool-first: choose a file, scan it, review the findings, then
+create and download a redacted copy. Successful startup diagnostics no longer occupy a separate
+preflight panel. Session, capability, policy, and privacy details remain available through a
+collapsed native disclosure, while connection failures stay visible with a retry action.
+
 The capability preflight accepts only a numeric-loopback API origin and a per-launch bearer token
 in the in-memory `window.__LOCAL_PII_BOOTSTRAP__` launcher object. It does not read build-time
 secrets, local/session storage, cookies, or remote catalogs. The browser consumes the public root

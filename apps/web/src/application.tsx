@@ -382,71 +382,17 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
       </header>
 
       <main id="main" className="app-main">
-        <section className="hero" aria-labelledby="privacy-title">
-          <div>
-            <p className="eyebrow">{t('privacy.eyebrow')}</p>
-            <h1 id="privacy-title">{t('privacy.title')}</h1>
-            <p className="hero-copy">{t('privacy.body')}</p>
-          </div>
-          <ul className="privacy-list" aria-label={t('privacy.eyebrow')}>
-            <li><span aria-hidden="true">✓</span>{t('privacy.network')}</li>
-            <li><span aria-hidden="true">✓</span>{t('privacy.storage')}</li>
-          </ul>
+        <section className="tool-intro" aria-labelledby="tool-title">
+          <h1 id="tool-title">{t('tool.title')}</h1>
+          <p>{t('tool.body')}</p>
         </section>
 
         <div className={`workspace-grid${scan.kind === 'complete' ? ' has-results' : ''}`}>
-          <Card aria-labelledby="preflight-title">
-            <div className="card-heading">
-              <div>
-                <p className="section-number" aria-hidden="true">01</p>
-                <h2 id="preflight-title">{t('preflight.title')}</h2>
-              </div>
-              <StatusBadge tone={preflight.kind === 'ready' ? 'positive' : 'warning'}>{status}</StatusBadge>
-            </div>
-            <p className="muted">{t('preflight.body')}</p>
-
-            <div role={preflight.kind === 'unavailable' ? 'alert' : 'status'} aria-live="polite">
-              {preflight.kind === 'ready' ? (
-                <>
-                  <dl className="metrics">
-                    <Metric label={t('capability.mode')} value={t(engineModeMessage(preflight.summary.engineMode))} />
-                    <Metric label={t('capability.formats')} value={formatInteger(locale, preflight.summary.formatCount)} />
-                    <Metric label={t('capability.detectors')} value={formatInteger(locale, preflight.summary.availableDetectorCount)} />
-                    <Metric
-                      label={t('policy.default')}
-                      value={t(policyMessage(preflight.policyCatalog.defaultPolicy.id))}
-                    />
-                    <Metric
-                      label={t('capability.inputLimit')}
-                      value={message(locale, 'units.mebibytes', {
-                        count: formatInteger(locale, Math.floor(maximumPreviewBytes / 1024 / 1024))
-                      })}
-                    />
-                  </dl>
-                  <Callout tone="positive">{t('preflight.connectedHint')}</Callout>
-                </>
-              ) : preflight.kind === 'checking' ? (
-                <div className="checking-line"><span className="activity-dot" aria-hidden="true" />{status}</div>
-              ) : (
-                <Callout tone={preflight.kind === 'unavailable' ? 'critical' : 'neutral'}>
-                  <p>{preflight.kind === 'disconnected' ? t('preflight.disconnectedHint') : status}</p>
-                  <Button onClick={() => { setAttempt((value) => value + 1); }}>{t('preflight.retry')}</Button>
-                </Callout>
-              )}
-            </div>
-          </Card>
-
           <Card aria-labelledby="intake-title" className="intake-card">
             <div className="card-heading">
-              <div>
-                <p className="section-number" aria-hidden="true">02</p>
-                <h2 id="intake-title">{t('intake.title')}</h2>
-              </div>
-              <StatusBadge tone={preflight.kind === 'ready' ? 'positive' : 'warning'}>
-                {preflight.kind === 'ready' ? t('status.available') : t('status.waiting')}
-              </StatusBadge>
+              <h2 id="intake-title">{t('intake.title')}</h2>
             </div>
-            <p className="muted">{t('intake.body')}</p>
+            <div className="visually-hidden" role="status" aria-live="polite">{status}</div>
             {preflight.kind === 'ready' ? (
               <FileField
                 key={fileInputKey}
@@ -477,10 +423,15 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setWorkflowClearState('idle');
                 }}
               />
+            ) : preflight.kind === 'checking' ? (
+              <div className="checking-line"><span className="activity-dot" aria-hidden="true" />{status}</div>
             ) : (
-              <Callout>{t('intake.waiting')}</Callout>
+              <Callout tone={preflight.kind === 'unavailable' ? 'critical' : 'neutral'}>
+                <p>{preflight.kind === 'disconnected' ? t('preflight.disconnectedHint') : status}</p>
+                <Button onClick={() => { setAttempt((value) => value + 1); }}>{t('preflight.retry')}</Button>
+              </Callout>
             )}
-            {preflight.kind === 'ready' ? (
+            {preflight.kind === 'ready' && filePreflight.kind !== 'none' ? (
               <div
                 className="intake-result"
                 role={filePreflight.kind === 'unsupported' || filePreflight.kind === 'too-large' ? 'alert' : 'status'}
@@ -488,9 +439,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
               >
                 <Callout tone={filePreflight.kind === 'ready'
                   ? 'positive'
-                  : filePreflight.kind === 'unsupported' || filePreflight.kind === 'too-large'
-                    ? 'critical'
-                    : 'neutral'}>{intakeMessage}</Callout>
+                  : 'critical'}>{intakeMessage}</Callout>
               </div>
             ) : null}
             {selectedFile !== undefined && filePreflight.kind === 'ready' && defaultPolicy !== undefined ? (
@@ -1137,8 +1086,29 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
             {workflowClearState === 'cleared' ? (
               <div role="status" aria-live="polite"><Callout tone="positive">{t('workflow.cleared')}</Callout></div>
             ) : null}
-            <p className="intake-privacy">{t('intake.privacy')}</p>
-            <p className="coming-soon">{t('intake.next')}</p>
+            {preflight.kind === 'ready' ? (
+              <details className="technical-details">
+                <summary>{t('details.summary')}</summary>
+                <div className="technical-details-body">
+                  <dl className="metrics">
+                    <Metric label={t('capability.mode')} value={t(engineModeMessage(preflight.summary.engineMode))} />
+                    <Metric label={t('capability.formats')} value={formatInteger(locale, preflight.summary.formatCount)} />
+                    <Metric label={t('capability.detectors')} value={formatInteger(locale, preflight.summary.availableDetectorCount)} />
+                    <Metric
+                      label={t('policy.default')}
+                      value={t(policyMessage(preflight.policyCatalog.defaultPolicy.id))}
+                    />
+                    <Metric
+                      label={t('capability.inputLimit')}
+                      value={message(locale, 'units.mebibytes', {
+                        count: formatInteger(locale, Math.floor(maximumPreviewBytes / 1024 / 1024))
+                      })}
+                    />
+                  </dl>
+                  <p>{t('intake.privacy')}</p>
+                </div>
+              </details>
+            ) : null}
           </Card>
         </div>
       </main>

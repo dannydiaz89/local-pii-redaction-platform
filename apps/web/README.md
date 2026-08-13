@@ -1,10 +1,14 @@
 # `@local-pii/web`
 
-Accessible, localized React shell for the future local review workflow.
+Accessible, localized React application for the local review workflow.
 
 ## Responsibilities
 
-- Renders the capability, pinned-policy, and local file-metadata preflight plus the local-processing disclosure.
+- Leads with a compact choose-file → scan → review → redact workflow instead of a marketing or
+  diagnostics screen.
+- Checks capability, policy, and session readiness during startup without making successful
+  preflight data part of the primary workflow; failures remain actionable and successful technical
+  details remain available through a collapsed native disclosure.
 - Consumes the bounded public `@local-pii/sdk` session client for process-local artifact
   creation/upload, real asynchronous job state/events, cancellation, and value-free detection pagination.
 - Runs the authenticated rules-only job and renders localized status, aggregate counts, a bounded

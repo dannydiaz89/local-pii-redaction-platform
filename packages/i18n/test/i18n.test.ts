@@ -24,7 +24,7 @@ describe('localization foundation', () => {
     expect(message('en', 'units.mebibytes', { count: '100' })).toBe('100 MiB');
     expect(message('en-XA', 'units.mebibytes', { count: '100' })).toContain('100');
     expect(message('en', 'intake.ready', { format: 'TXT', size: '1 KiB' }))
-      .toBe('TXT file, 1 KiB, passes the local preflight checks.');
+      .toBe('TXT · 1 KiB · Ready to scan');
   });
 
   it('formats numbers with the active presentation locale without changing canonical values', () => {

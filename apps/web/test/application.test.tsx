@@ -139,13 +139,21 @@ describe('web application foundation', () => {
     });
   });
 
-  it('renders the capability preflight as an accessible local-first journey', async () => {
+  it('renders a tool-first accessible journey with diagnostics behind disclosure', async () => {
+    const user = userEvent.setup();
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
 
     expect(await screen.findByText('Local engine is ready')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1, name: 'Your document stays under your control.' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Scan a document' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Choose a file' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'System preflight' })).toBeNull();
+    expect(screen.queryByText('Your document stays under your control.')).toBeNull();
+    const disclosure = screen.getByText('Privacy and technical details').closest('details');
+    expect(disclosure?.hasAttribute('open')).toBe(false);
     expect(screen.getByText('8 MiB')).toBeTruthy();
     expect(screen.getByText('Development labels')).toBeTruthy();
+    await user.click(screen.getByText('Privacy and technical details'));
+    expect(disclosure?.hasAttribute('open')).toBe(true);
     expect(screen.getByLabelText('Document file')).toBeTruthy();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(document.documentElement.lang).toBe('en');
@@ -161,7 +169,7 @@ describe('web application foundation', () => {
 
     await user.upload(input, selected);
 
-    expect(screen.getByText('MD file, 1 KiB, passes the local preflight checks.')).toBeTruthy();
+    expect(screen.getByText('MD · 1 KiB · Ready to scan')).toBeTruthy();
     expect(screen.queryByText('private-customer-record.md')).toBeNull();
     expect(screen.getByText(/Browser persistence and durable artifact storage remain disabled/u)).toBeTruthy();
   });
@@ -175,7 +183,7 @@ describe('web application foundation', () => {
     });
 
     await user.upload(screen.getByLabelText('Document file'), selected);
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
 
     expect(await screen.findByText('1 potential item found.')).toBeTruthy();
     expect(screen.getByText('Job activity')).toBeTruthy();
@@ -223,8 +231,8 @@ describe('web application foundation', () => {
     });
     const localRead = vi.spyOn(selected, 'arrayBuffer');
     await user.upload(screen.getByLabelText('Document file'), selected);
-    expect(screen.getByText(/JSON file.+passes the local preflight checks/u)).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    expect(screen.getByText(/JSON · .+ · Ready to scan/u)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     expect(await screen.findByText('1 potential item found.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Show detected text' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'View source context' })).toBeNull();
@@ -251,7 +259,7 @@ describe('web application foundation', () => {
       screen.getByLabelText('Document file'),
       new File([`Synthetic contact: ${sourceValue}`], 'private-source.txt', { type: 'text/plain' })
     );
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     await screen.findByText('1 potential item found.');
     await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
 
@@ -294,7 +302,7 @@ describe('web application foundation', () => {
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
     await screen.findByText('Local engine is ready');
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     await screen.findByText('1 potential item found.');
     await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
     await screen.findByRole('link', { name: 'Download verified redacted copy' });
@@ -309,7 +317,7 @@ describe('web application foundation', () => {
     await user.click(screen.getByRole('button', { name: 'Clear now' }));
     expect(await screen.findByText('The current workflow was cleared from this application session.')).toBeTruthy();
     expect(expire.mock.calls.map(([jobId]) => jobId)).toEqual([redactionJobId, scanJobId]);
-    expect(screen.getByText('No document is selected.')).toBeTruthy();
+    expect(screen.queryByText('No document is selected.')).toBeNull();
     const resetFileInput = screen.getByLabelText('Document file');
     if (!(resetFileInput instanceof HTMLInputElement)) throw new TypeError('The file control is unavailable.');
     expect(resetFileInput.files?.length).toBe(0);
@@ -342,7 +350,7 @@ describe('web application foundation', () => {
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
     await screen.findByText('Local engine is ready');
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     await screen.findByText('Characters 6–12');
     expect(screen.getByText('Characters 21–30')).toBeTruthy();
     const tableRegion = screen.getByRole('region', { name: 'Detection details' });
@@ -388,7 +396,7 @@ describe('web application foundation', () => {
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
     await screen.findByText('Local engine is ready');
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     await screen.findByText('Characters 20–46');
 
     await user.selectOptions(screen.getByLabelText('Review decision: Characters 20–46'), 'RETYPE');
@@ -431,7 +439,7 @@ describe('web application foundation', () => {
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
     await screen.findByText('Local engine is ready');
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
     await screen.findByText('Characters 20–46');
     await user.selectOptions(screen.getByLabelText('Review decision: Characters 20–46'), 'REJECT');
     await user.click(screen.getByRole('button', { name: 'Save review decisions' }));
@@ -473,7 +481,7 @@ describe('web application foundation', () => {
     render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
     await screen.findByText('Local engine is ready');
     await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
 
     expect(await screen.findByText('Showing 1–1 of 2')).toBeTruthy();
     expect(screen.getByRole('table')).toBeTruthy();
@@ -519,7 +527,7 @@ describe('web application foundation', () => {
       screen.getByLabelText('Document file'),
       new File([`Synthetic card-like contact: ${plantedValue}`], 'synthetic.txt')
     );
-    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
 
     expect(await screen.findByRole('heading', { level: 3, name: 'Conflicts requiring review' })).toBeTruthy();
     expect(screen.getByText('No automatic decision was made for these overlapping detections.')).toBeTruthy();
@@ -577,6 +585,6 @@ describe('web application foundation', () => {
     render(<WebApplication capabilityClient={disconnected} jobClient={disconnectedJobs} />);
     expect(await screen.findByText('Local API session is not connected')).toBeTruthy();
     expect(screen.queryByLabelText('Document file')).toBeNull();
-    expect(screen.getByText('Connect to the local engine before choosing a document.')).toBeTruthy();
+    expect(screen.getByText('Start the application launcher to create a private, in-memory browser session.')).toBeTruthy();
   });
 });

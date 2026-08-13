@@ -28,30 +28,31 @@
 .brand-mark { display: grid; place-items: center; inline-size: 2.35rem; block-size: 2.35rem; border-radius: .7rem; color: white; background: var(--color-accent); }
 
 .app-main { max-inline-size: 76rem; margin-inline: auto; padding: clamp(1rem, 4vw, 3rem); }
-.hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(15rem, .7fr); gap: clamp(2rem, 7vw, 6rem); align-items: end; padding-block: clamp(2rem, 8vw, 6.5rem); }
-.eyebrow, .section-number { margin: 0 0 var(--space-2); color: var(--color-accent); font-size: .74rem; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
-h1, h2 { margin-block: 0; text-wrap: balance; }
-h1 { max-inline-size: 13ch; font-family: Georgia, 'Times New Roman', serif; font-size: clamp(2.7rem, 8vw, 6.6rem); line-height: .98; letter-spacing: -.045em; }
+.tool-intro { max-inline-size: 54rem; margin-inline: auto; padding-block: clamp(1.5rem, 4vw, 3rem) var(--space-5); }
+.tool-intro h1, h2 { margin-block: 0; text-wrap: balance; }
+.tool-intro h1 { font-size: clamp(2.2rem, 5vw, 3.8rem); line-height: 1.05; letter-spacing: -.035em; }
+.tool-intro p { max-inline-size: 42rem; margin-block: var(--space-3) 0; color: var(--color-muted); font-size: clamp(1rem, 2vw, 1.15rem); line-height: 1.6; }
 h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
-.hero-copy { max-inline-size: 48rem; margin-block: var(--space-4) 0; color: var(--color-muted); font-size: clamp(1.05rem, 2vw, 1.3rem); line-height: 1.65; }
-.privacy-list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; color: var(--color-muted); }
-.privacy-list li { display: flex; gap: .75rem; align-items: flex-start; }
-.privacy-list span { color: var(--color-positive); font-weight: 900; }
 
-.workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(17rem, .65fr); gap: var(--space-4); align-items: stretch; }
-.workspace-grid.has-results { grid-template-columns: 1fr; align-items: start; }
+.workspace-grid { display: grid; max-inline-size: 54rem; margin-inline: auto; }
+.workspace-grid.has-results { max-inline-size: 76rem; }
 .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .muted, .coming-soon { color: var(--color-muted); line-height: 1.6; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(7rem, 1fr)); gap: var(--space-4); margin-block: var(--space-5); }
-.checking-line { display: flex; align-items: center; gap: .7rem; min-block-size: 4rem; color: var(--color-muted); }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(7rem, 1fr)); gap: var(--space-4); margin: 0; }
+.checking-line { display: flex; align-items: center; gap: .7rem; min-block-size: 3rem; color: var(--color-muted); }
 .activity-dot { inline-size: .65rem; block-size: .65rem; border-radius: 50%; background: var(--color-warning); animation: pulse 1.5s ease-in-out infinite; }
 .ui-callout p:first-child { margin-block-start: 0; }
 .ui-callout .ui-button { margin-block-start: var(--space-2); }
 
-.intake-card { display: grid; align-content: start; gap: var(--space-3); }
+.intake-card { display: grid; align-content: start; gap: var(--space-4); }
 .intake-card > .muted, .intake-card > .coming-soon, .intake-card > .intake-privacy { margin-block: 0; }
-.intake-result { min-block-size: 3.5rem; }
+.intake-card > .ui-button { justify-self: start; }
+.intake-result { min-block-size: 0; }
 .intake-privacy { color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
+.technical-details { border-block-start: 1px solid var(--color-border); padding-block-start: var(--space-3); }
+.technical-details summary { cursor: pointer; color: var(--color-muted); font-weight: 700; }
+.technical-details-body { display: grid; gap: var(--space-4); padding-block-start: var(--space-4); }
+.technical-details-body p { max-inline-size: 70ch; margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.6; }
 .job-status-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-block-end: var(--space-3); }
 .job-status-line > span:last-child { color: var(--color-muted); font-size: .9rem; }
 .job-activity { margin-block-end: var(--space-4); }
@@ -123,7 +124,6 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 @keyframes pulse { 50% { opacity: .35; scale: .75; } }
 
 @media (max-width: 52rem) {
-  .hero, .workspace-grid { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, minmax(7rem, 1fr)); }
 }
 
