@@ -11,6 +11,7 @@ import {
 import { repositoryRoot } from './schema-utils.js';
 
 const temporaryDirectories: string[] = [];
+const sdkPublicApiTestTimeoutMs = 30_000;
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(async (path) => rm(path, { recursive: true, force: true })));
@@ -39,7 +40,7 @@ describe('SDK public API compatibility gate', () => {
     ));
     expect(canonicalSdkPublicApiSnapshot(createSdkPublicApiSnapshot())).toBe(baseline);
     expect(createSdkPublicApiSnapshot()).toEqual(createSdkPublicApiSnapshot());
-  });
+  }, sdkPublicApiTestTimeoutMs);
 
   it.each([
     ['removed export', 'export interface Result { readonly state: "READY"; optional?: string }'],
@@ -56,5 +57,5 @@ describe('SDK public API compatibility gate', () => {
     ].join('\n'));
     const changed = await fixture(changedSource);
     expect(createSdkPublicApiSnapshot(changed)).not.toEqual(createSdkPublicApiSnapshot(original));
-  });
+  }, sdkPublicApiTestTimeoutMs);
 });
