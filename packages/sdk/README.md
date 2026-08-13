@@ -13,6 +13,8 @@ Browser-safe TypeScript client for the authenticated local PII HTTP API.
   upload bytes, and checks the advertised extension, size ceiling, and redaction operation.
 - Keeps source filenames and detected values out of API JSON. Artifact uploads contain only the
   selected file bytes; verified downloads are checked against their advertised digest and length.
+- Transports only `.txt`, `.md`, `.markdown`, `.json`, and `.csv`; structured initiation uses the
+  append-only artifact-request v2 contract. DOCX/PDF stay excluded until their API routes qualify.
 - Clears copied upload bytes after use and exposes an explicit disconnected client for browser
   development without a trusted launcher session.
 

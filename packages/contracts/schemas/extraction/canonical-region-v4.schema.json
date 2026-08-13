@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/extraction/canonical-region/4.0.0",
+  "title": "Canonical structured region v4",
+  "description": "One canonical Unicode code-point region and its exact value-free native location, including bounded PDF metadata.",
+  "schemaVersion": "4.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "start", "end", "offsetUnit", "role", "location"],
+  "properties": {
+    "schemaVersion": { "const": "4.0.0" },
+    "start": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "end": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "offsetUnit": { "const": "UNICODE_CODE_POINT" },
+    "role": { "const": "VALUE" },
+    "location": { "$ref": "https://local-pii.dev/schemas/common/native-location/4.0.0" }
+  },
+  "examples": [{
+    "schemaVersion": "4.0.0", "start": 5, "end": 12,
+    "offsetUnit": "UNICODE_CODE_POINT", "role": "VALUE",
+    "location": { "schemaVersion": "4.0.0", "kind": "PDF_METADATA_VALUE", "carrier": "XMP", "object": 7, "field": "DC_CREATOR", "occurrence": 1 }
+  }]
+}

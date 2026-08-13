@@ -89,6 +89,50 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/artifacts/create-artifact-request/2.0.0",
+    "title": "Create local artifact request v2",
+    "description": "Initiates one bounded process-local text or structured artifact without accepting a filename or locator.",
+    "schemaVersion": "2.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "mediaType",
+      "byteLength",
+      "digest"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "2.0.0"
+      },
+      "mediaType": {
+        "enum": [
+          "text/plain",
+          "text/markdown",
+          "application/json",
+          "text/csv"
+        ]
+      },
+      "byteLength": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8388608
+      },
+      "digest": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "2.0.0",
+        "mediaType": "application/json",
+        "byteLength": 42,
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/artifacts/create-artifact-request/1.0.0",
     "title": "Create local artifact request",
     "description": "Initiates one bounded process-local input artifact without accepting a filename or locator.",
@@ -4121,6 +4165,102 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/common/native-location/4.0.0",
+    "title": "Native structured location v4",
+    "description": "An append-only, value-free native location, including a bounded PDF Info or XMP metadata value.",
+    "schemaVersion": "4.0.0",
+    "oneOf": [
+      {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/3.0.0"
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "kind",
+          "carrier",
+          "object",
+          "field",
+          "occurrence"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "4.0.0"
+          },
+          "kind": {
+            "const": "PDF_METADATA_VALUE"
+          },
+          "carrier": {
+            "enum": [
+              "INFO",
+              "XMP"
+            ]
+          },
+          "object": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "field": {
+            "enum": [
+              "TITLE",
+              "AUTHOR",
+              "SUBJECT",
+              "KEYWORDS",
+              "CREATOR",
+              "PRODUCER",
+              "CREATION_DATE",
+              "MODIFICATION_DATE",
+              "TRAPPED",
+              "XMP_TOOLKIT",
+              "DC_FORMAT",
+              "DC_TITLE",
+              "DC_CREATOR",
+              "DC_DESCRIPTION",
+              "DC_SUBJECT",
+              "DC_DATE",
+              "XMP_CREATOR_TOOL",
+              "XMP_CREATE_DATE",
+              "XMP_MODIFY_DATE",
+              "XMP_METADATA_DATE",
+              "PDF_PRODUCER",
+              "PDF_KEYWORDS",
+              "PDF_VERSION",
+              "XML_LANGUAGE"
+            ]
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          }
+        }
+      }
+    ],
+    "examples": [
+      {
+        "schemaVersion": "3.0.0",
+        "kind": "PDF_TEXT_ITEM",
+        "page": 1,
+        "pageObject": 4,
+        "contentObject": 5,
+        "fontObject": 3,
+        "textItem": 1,
+        "glyphCount": 4
+      },
+      {
+        "schemaVersion": "4.0.0",
+        "kind": "PDF_METADATA_VALUE",
+        "carrier": "INFO",
+        "object": 6,
+        "field": "AUTHOR",
+        "occurrence": 1
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/common/native-location/1.0.0",
     "title": "Native structured location",
     "description": "A versioned value-free native location owned by a structured format adapter.",
@@ -4900,6 +5040,147 @@ export const schemaCatalog = [
   },
   {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/detection/detection/5.0.0",
+    "title": "Detection evidence with PDF metadata locations",
+    "description": "One value-free detector assertion with optional append-only typed native locations.",
+    "schemaVersion": "5.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "id",
+      "entityType",
+      "span",
+      "confidence",
+      "source",
+      "detector"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "5.0.0"
+      },
+      "id": {
+        "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/DetectionId"
+      },
+      "entityType": {
+        "$ref": "https://local-pii.dev/schemas/common/entity-type/1.0.0"
+      },
+      "span": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "offsetUnit",
+          "extractionRevision"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offsetUnit": {
+            "const": "UNICODE_CODE_POINT"
+          },
+          "extractionRevision": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Digest"
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "source": {
+        "enum": [
+          "REGEX",
+          "CHECKSUM",
+          "STRUCTURED",
+          "DICTIONARY",
+          "MODEL",
+          "MANUAL"
+        ]
+      },
+      "detector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "version": {
+            "$ref": "https://local-pii.dev/schemas/common/identifiers/1.0.0#/$defs/Semver"
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "nativeLocations": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": {
+          "$ref": "https://local-pii.dev/schemas/common/native-location/4.0.0"
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "maxProperties": 32,
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "5.0.0",
+        "id": "d9b8a330-8d9a-4f6f-8f11-5b2f10e53967",
+        "entityType": "EMAIL",
+        "span": {
+          "start": 5,
+          "end": 12,
+          "offsetUnit": "UNICODE_CODE_POINT",
+          "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": 0.99,
+        "source": "REGEX",
+        "detector": {
+          "id": "email-pattern",
+          "version": "0.1.0"
+        },
+        "nativeLocations": [
+          {
+            "schemaVersion": "4.0.0",
+            "kind": "PDF_METADATA_VALUE",
+            "carrier": "INFO",
+            "object": 6,
+            "field": "AUTHOR",
+            "occurrence": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://local-pii.dev/schemas/detection/detection/1.0.0",
     "title": "Detection evidence",
     "description": "One value-free detector assertion anchored to an extraction revision.",
@@ -5205,6 +5486,64 @@ export const schemaCatalog = [
           "fontObject": 3,
           "textItem": 1,
           "glyphCount": 12
+        }
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local-pii.dev/schemas/extraction/canonical-region/4.0.0",
+    "title": "Canonical structured region v4",
+    "description": "One canonical Unicode code-point region and its exact value-free native location, including bounded PDF metadata.",
+    "schemaVersion": "4.0.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schemaVersion",
+      "start",
+      "end",
+      "offsetUnit",
+      "role",
+      "location"
+    ],
+    "properties": {
+      "schemaVersion": {
+        "const": "4.0.0"
+      },
+      "start": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000000
+      },
+      "end": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000
+      },
+      "offsetUnit": {
+        "const": "UNICODE_CODE_POINT"
+      },
+      "role": {
+        "const": "VALUE"
+      },
+      "location": {
+        "$ref": "https://local-pii.dev/schemas/common/native-location/4.0.0"
+      }
+    },
+    "examples": [
+      {
+        "schemaVersion": "4.0.0",
+        "start": 5,
+        "end": 12,
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "role": "VALUE",
+        "location": {
+          "schemaVersion": "4.0.0",
+          "kind": "PDF_METADATA_VALUE",
+          "carrier": "XMP",
+          "object": 7,
+          "field": "DC_CREATOR",
+          "occurrence": 1
         }
       }
     ]

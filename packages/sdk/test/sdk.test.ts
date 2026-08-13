@@ -66,6 +66,18 @@ function capabilityResponse(): Readonly<Record<string, unknown>> {
       {
         id: 'markdown', extensions: ['.md', '.markdown'], operations: ['SCAN'],
         limits: { maximumInputBytes: 52_428_800 }
+      },
+      {
+        id: 'json', extensions: ['.json'], operations: ['SCAN', 'REDACT'],
+        limits: { maximumInputBytes: 104_857_600 }
+      },
+      {
+        id: 'csv', extensions: ['.csv'], operations: ['SCAN', 'REDACT'],
+        limits: { maximumInputBytes: 104_857_600 }
+      },
+      {
+        id: 'docx', extensions: ['.docx'], operations: ['SCAN'],
+        limits: { maximumInputBytes: 52_428_800 }
       }
     ],
     detectors: [
@@ -116,10 +128,12 @@ describe('browser capability client', () => {
       schemaVersion: '1.0.0',
       supportedContractVersions: ['1.0.0'],
       engineMode: 'RULES_ONLY',
-      formatCount: 2,
+      formatCount: 5,
       availableDetectorCount: 1,
       maximumInputBytes: localClientMaximumInputBytes,
       supportedFiles: [
+        { extension: '.csv', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: true },
+        { extension: '.json', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: true },
         { extension: '.markdown', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false },
         { extension: '.md', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false },
         { extension: '.txt', maximumInputBytes: localClientMaximumInputBytes, supportsRedaction: false }
@@ -349,22 +363,26 @@ describe('browser policy and job client', () => {
     const artifactId = 'art_01J4M91NJK8WAPJ7J95K73CB2M';
     let jobReads = 0;
     let declaredDigest = '';
+    let declaredLength = 0;
+    let artifactRequest: unknown;
     const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
       const url = requestUrl(input);
       if (url.pathname === '/v1/artifacts' && init?.method === 'POST') {
         if (typeof init.body !== 'string') throw new TypeError('The artifact request was not serialized.');
         const request = JSON.parse(init.body) as { byteLength: number; digest: string };
+        artifactRequest = request;
         declaredDigest = request.digest;
+        declaredLength = request.byteLength;
         return Promise.resolve(jsonResponse({
-          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'text/plain',
-          byteLength: request.byteLength, digest: request.digest, displayName: 'document.txt',
+          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'application/json',
+          byteLength: request.byteLength, digest: request.digest, displayName: 'document.json',
           publicationState: 'STAGED', createdAt: '2026-08-09T18:00:00Z'
         }));
       }
       if (url.pathname === `/v1/artifacts/${artifactId}/content`) {
         return Promise.resolve(jsonResponse({
-          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'text/plain',
-          byteLength: 38, digest: declaredDigest, displayName: 'document.txt',
+          schemaVersion: '1.0.0', id: artifactId, kind: 'INPUT', mediaType: 'application/json',
+          byteLength: declaredLength, digest: declaredDigest, displayName: 'document.json',
           publicationState: 'IMMUTABLE', createdAt: '2026-08-09T18:00:00Z'
         }));
       }
@@ -406,10 +424,11 @@ describe('browser policy and job client', () => {
     });
     const client = createLocalJobClient(session, fetchImplementation);
     const signal = new AbortController().signal;
-    const privateName = 'private-customer-list.txt';
+    const privateName = 'private-customer-list.json';
+    const fileContents = '{"contact":"person@example.test"}';
     const states: string[] = [];
     const result = await client.scan(
-      new File(['Synthetic contact: person@example.test'], privateName, { type: 'text/plain' }),
+      new File([fileContents], privateName, { type: 'application/json' }),
       policy,
       (state) => { states.push(state); },
       signal
@@ -418,6 +437,9 @@ describe('browser policy and job client', () => {
     expect(result).toMatchObject({ outcome: 'SUCCEEDED', detections: 1, details: [{ entityType: 'EMAIL' }] });
     expect(states).toEqual(['UPLOADING', 'QUEUED', 'SUCCEEDED']);
     expect(jobReads).toBe(1);
+    expect(artifactRequest).toMatchObject({
+      schemaVersion: '2.0.0', mediaType: 'application/json', byteLength: fileContents.length
+    });
     expect(fetchImplementation.mock.calls.map(([input]) => requestUrl(input).pathname)).toEqual([
       '/v1/artifacts', `/v1/artifacts/${artifactId}/content`, '/v1/jobs',
       `/v1/jobs/${jobId}`, `/v1/jobs/${jobId}/events`, `/v1/jobs/${jobId}/detections`,
@@ -429,6 +451,32 @@ describe('browser policy and job client', () => {
     expect(fetchImplementation.mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
     });
+  });
+
+  it('rejects input artifact responses that reflect a filename instead of the generic media name', async () => {
+    const privateName = 'private-record.csv';
+    const fetchImplementation = vi.fn<typeof fetch>((input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname !== '/v1/artifacts' || init?.method !== 'POST' || typeof init.body !== 'string') {
+        return Promise.reject(new Error('UNEXPECTED_REQUEST'));
+      }
+      const request = JSON.parse(init.body) as { readonly byteLength: number; readonly digest: string };
+      return Promise.resolve(jsonResponse({
+        schemaVersion: '1.0.0', id: 'art_01J4M91NJK8WAPJ7J95K73CB2M', kind: 'INPUT', mediaType: 'text/csv',
+        byteLength: request.byteLength, digest: request.digest, displayName: privateName,
+        publicationState: 'STAGED', createdAt: '2026-08-09T18:00:00Z'
+      }));
+    });
+    const client = createLocalJobClient(session, fetchImplementation);
+    await expect(client.scan(
+      new File(['kind,value\ncontact,safe\n'], privateName, { type: 'text/csv' }),
+      policy,
+      () => undefined,
+      new AbortController().signal
+    )).rejects.toThrow('ARTIFACT_RESPONSE_INVALID');
+    const serialized = fetchImplementation.mock.calls.map(([input, init]) =>
+      `${requestUrl(input).href}\n${typeof init?.body === 'string' ? init.body : ''}`).join('\n');
+    expect(serialized).not.toContain(privateName);
   });
 
   it('validates and appends value-free review decisions with explicit stale-revision handling', async () => {

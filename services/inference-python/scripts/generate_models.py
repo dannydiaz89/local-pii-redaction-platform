@@ -48,6 +48,7 @@ def normalize_references(
                     "https://local-pii.dev/schemas/common/native-location/1.0.0",
                     "https://local-pii.dev/schemas/common/native-location/2.0.0",
                     "https://local-pii.dev/schemas/common/native-location/3.0.0",
+                    "https://local-pii.dev/schemas/common/native-location/4.0.0",
                 }
             ):
                 target_schema = {

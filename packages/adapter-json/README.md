@@ -13,6 +13,7 @@ deep documents, and inputs beyond the adapter limits fail closed. Publication
 reuses the private same-directory stage and no-clobber hard-link boundary from
 `@local-pii/adapter-text`, then reparses and rescans the staged native JSON.
 
-Current scope is bounded whole-document JSON. JSON Pointer mappings remain
+Filesystem and process-local sessions share the same native parser/writer/reopen semantics; the
+process-local session selects no path and zeroes its owned buffers on disposal. Current scope is bounded whole-document JSON. JSON Pointer mappings remain
 adapter-internal and keys are not redacted. Streaming, key transformation,
 path-aware policies, and JSON Lines are not yet supported.

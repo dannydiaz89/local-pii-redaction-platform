@@ -77,6 +77,7 @@ export const englishCatalog = {
   'review.detectedTextHidden': 'Hidden',
   'review.detectedTextLoading': 'Loading…',
   'review.detectedTextUnavailable': 'Unavailable',
+  'review.structuredRevealUnavailable': 'Detected text and source context stay hidden for JSON and CSV in this version. Review locations remain value-free while native structured location disclosure is still being designed.',
   'review.viewContext': 'View source context',
   'review.closeContext': 'Close source context',
   'review.sourceContextTitle': 'Source context',

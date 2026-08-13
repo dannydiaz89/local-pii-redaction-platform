@@ -3,10 +3,13 @@ import { extname, resolve } from 'node:path';
 
 import {
   defaultTextArtifactFileSystem,
+  createEphemeralNativeArtifactSession,
+  decodeLocalUtf8ArtifactBytes,
   deriveRedactedOutputPath,
   discardStagedTextArtifact,
   publishStagedTextArtifact,
   readLocalUtf8Artifact,
+  encodeLocalUtf8ArtifactText,
   stageTextArtifact,
   type LocalUtf8Artifact,
   type StagedTextArtifact,
@@ -301,6 +304,13 @@ export async function readCsvArtifact(
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'This adapter supports CSV files only.', retryable: false, correlationId: 'cor_csv_adapter' });
   }
   const source = await readLocalUtf8Artifact(inputPath, maximumBytes, fileSystem);
+  return csvArtifactFromUtf8(source, selectedOptions);
+}
+
+function csvArtifactFromUtf8(
+  source: LocalUtf8Artifact,
+  selectedOptions: CsvExtractionOptions
+): CsvArtifact {
   const parsed = parseCsv(source.text, selectedOptions);
   const regions = Object.freeze(parsed.regions.map((region): CanonicalRegionV1 => {
     const headerValue = parsed.headerValues[region.column];
@@ -334,6 +344,21 @@ export async function readCsvArtifact(
   });
   csvArtifactStates.set(artifact, { delimiter: parsed.delimiter, regions: parsed.regions, rawText: source.text });
   return artifact;
+}
+
+/** Parses bounded process-local bytes with the same native CSV grammar as filesystem inputs. */
+export function decodeCsvArtifactBytes(
+  bytes: Uint8Array,
+  maximumBytes = defaultMaximumCsvInputBytes,
+  options: CsvExtractionOptions = defaultCsvExtractionOptions
+): CsvArtifact {
+  const selectedOptions = validatedExtractionOptions(options);
+  const source = decodeLocalUtf8ArtifactBytes(
+    bytes,
+    { reference: 'ephemeral:input', displayName: 'document.csv' },
+    maximumBytes
+  );
+  return csvArtifactFromUtf8(source, selectedOptions);
 }
 
 function transformValue(value: string, actions: readonly TypedLabelAction[], regionStart: number): string {
@@ -462,6 +487,31 @@ function createReceipt(plan: TypedLabelPlan, staged: Pick<StagedTextArtifact, 'd
     appliedActionIds: plan.actions.map(({ id }) => id)
   };
   return Object.freeze({ ...unsigned, receiptDigest: parseSha256Digest(computeWriterReceiptDigest(unsigned)) });
+}
+
+/** Creates an in-memory CSV-native stage/reopen/publish session with no path selection. */
+export function createEphemeralCsvArtifactSession(
+  source: CsvArtifact,
+  maximumOutputBytes = defaultMaximumCsvInputBytes,
+  options: CsvExtractionOptions = defaultCsvExtractionOptions
+) {
+  const selectedOptions = validatedExtractionOptions(options);
+  return createEphemeralNativeArtifactSession({
+    source,
+    writer: csvWriterDescriptor,
+    maximumOutputBytes,
+    encodePlan: (artifact, plan) => encodeLocalUtf8ArtifactText(artifact, applyCsvPlan(artifact, plan)),
+    createReceipt,
+    reopen(bytes, staged, signal) {
+      signal?.throwIfAborted();
+      const reopened = decodeCsvArtifactBytes(bytes, maximumOutputBytes, selectedOptions);
+      signal?.throwIfAborted();
+      if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
+        throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged CSV artifact changed before it could be reopened.', retryable: false, correlationId: 'cor_csv_adapter' });
+      }
+      return reopened;
+    }
+  });
 }
 
 export function createLocalCsvArtifactSession(

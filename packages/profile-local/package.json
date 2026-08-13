@@ -18,6 +18,7 @@
     "@local-pii/adapter-json": "workspace:*",
     "@local-pii/adapter-text": "workspace:*",
     "@local-pii/core": "workspace:*",
+    "@local-pii/contracts": "workspace:*",
     "@local-pii/detectors": "workspace:*",
     "@local-pii/domain": "workspace:*",
     "@local-pii/provider-ollama": "workspace:*",

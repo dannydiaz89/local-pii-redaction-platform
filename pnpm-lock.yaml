@@ -304,6 +304,9 @@ importers:
       '@local-pii/core':
         specifier: workspace:*
         version: link:../core
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@local-pii/detectors':
         specifier: workspace:*
         version: link:../detectors

@@ -11,6 +11,7 @@ import { compileTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction
 import { rm } from 'node:fs/promises';
 
 import {
+  createEphemeralNativeArtifactSession,
   createEphemeralTextArtifactSession,
   createLocalTextArtifactSession,
   createTextWriterReceipt,
@@ -132,6 +133,57 @@ describe('text adapter', () => {
 
     handle.dispose();
     expect(handle.publishedBytes()).toBeUndefined();
+  });
+
+  it('zeros adapter-returned and reopen-copy bytes on native-session failures', async () => {
+    const digest = parseSha256Digest(`sha256:${'a'.repeat(64)}`);
+    const source = Object.freeze({
+      reference: 'ephemeral:input', path: 'ephemeral:input', displayName: 'document.native',
+      mediaType: 'application/x-test', byteLength: 4, digest,
+      extractionRevision: digest, text: 'safe', hasUtf8Bom: false
+    });
+    const writer = Object.freeze({ id: 'native-test', version: '0.1.0', digest });
+    const receipt = (staged: Readonly<{ readonly digest: typeof digest; readonly byteLength: number }>) => Object.freeze({
+      schemaVersion: '1.0.0' as const,
+      planDigest: digest,
+      writer: { id: writer.id, version: writer.version },
+      stagedDigest: staged.digest,
+      stagedByteLength: staged.byteLength,
+      expectedActionCount: 0,
+      appliedActionCount: 0,
+      appliedActionIds: [],
+      receiptDigest: digest
+    });
+    const plan = {} as TypedLabelPlan;
+    const rejectedBytes = Buffer.from('private-derived');
+    const rejected = createEphemeralNativeArtifactSession({
+      source, writer, maximumOutputBytes: 1024,
+      encodePlan: () => rejectedBytes,
+      createReceipt: () => { throw new Error('receipt failed'); },
+      reopen: () => source
+    });
+    await expect(rejected.session.stage(plan)).rejects.toThrow('receipt failed');
+    expect([...rejectedBytes]).toEqual(new Array(rejectedBytes.length).fill(0));
+    rejected.dispose();
+
+    const encoded = Buffer.from('native-stage');
+    let reopenCopy: Uint8Array | undefined;
+    const reopened = createEphemeralNativeArtifactSession({
+      source, writer, maximumOutputBytes: 1024,
+      encodePlan: () => encoded,
+      createReceipt: (_plan, staged) => receipt(staged),
+      reopen: (bytes) => {
+        reopenCopy = bytes;
+        throw new Error('reopen failed');
+      }
+    });
+    const staged = await reopened.session.stage(plan);
+    expect([...encoded]).toEqual(new Array(encoded.length).fill(0));
+    await expect(reopened.session.reopen(staged)).rejects.toThrow('reopen failed');
+    expect(reopenCopy).toBeDefined();
+    expect([...(reopenCopy ?? [])]).toEqual(new Array(reopenCopy?.length ?? 0).fill(0));
+    await expect(reopened.session.publish(staged)).rejects.toMatchObject({ code: 'ARTIFACT_DIGEST_MISMATCH' });
+    reopened.dispose();
   });
 
   it('matches fixed SHA-256 vectors for artifact bytes and canonical extraction revisions', async () => {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -11,7 +11,13 @@ import {
   validateContract
 } from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
-import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profile-local';
+import {
+  createLocalPolicyCatalog,
+  createProcessLocalApiPolicyCatalog,
+  localApiApplication,
+  localTextApplication,
+  resolveLocalPolicy
+} from '@local-pii/profile-local';
 
 import {
   apiDefaultHandlerTimeoutMs,
@@ -116,10 +122,17 @@ afterEach(async () => {
 });
 
 describe('local API composition', () => {
-  it('keeps the browser/API capability projection text-only until structured intake is composed', async () => {
-    const manifest = await localTextApplication.getCapabilities({ correlationId: 'cor_api_format_scope' });
-    expect(manifest.formats.map(({ id }) => id)).toEqual(['text']);
-    expect(manifest.verificationProfiles.every(({ formats }) => formats.every((format) => format === 'text'))).toBe(true);
+  it('composes the current local file manifest while the SDK limits browser transport formats', async () => {
+    const manifest = await localApiApplication.getCapabilities({ correlationId: 'cor_api_format_scope' });
+    expect(manifest.formats.map(({ id }) => id)).toEqual(['text', 'json', 'csv']);
+    expect(manifest.formats.map(({ id }) => id)).not.toEqual(expect.arrayContaining(['docx', 'pdf']));
+    expect(manifest.limits.maximumInputBytes).toBe(localPreviewMaximumInputBytes);
+    expect(manifest.formats.every(({ limits }) => limits.maximumInputBytes === localPreviewMaximumInputBytes)).toBe(true);
+    const catalog = createProcessLocalApiPolicyCatalog();
+    const policy = resolveLocalPolicy(catalog.policies[0]);
+    expect(catalog.policies).toHaveLength(1);
+    expect(policy?.limits.maximumInputBytes).toBe(localPreviewMaximumInputBytes);
+    expect(policy?.requirements.maximumInputBytes).toBe(localPreviewMaximumInputBytes);
   });
 
   it('builds unlistened with bounded parser, connection, request, and shutdown settings', async () => {
@@ -249,10 +262,10 @@ describe('local API composition', () => {
     expect(response.body).not.toContain('description');
   });
 
-  it('scans bounded preview bytes through the real core without returning source values', async () => {
+  it('scans bounded preview bytes through the exact process-local application without returning source values', async () => {
     const plantedValue = 'preview-canary@example.test';
     const response = await server(dependencies({
-      preview: createLocalPreviewScan(localTextApplication)
+      preview: createLocalPreviewScan(localApiApplication)
     })).inject({
       method: 'POST',
       url: '/v1/preview/scan?format=text',
@@ -796,6 +809,144 @@ describe('local API composition', () => {
       method: 'GET', url: `/v1/artifacts/${outputArtifactId}/content`, headers: authorization()
     })).statusCode).toBe(404);
     expect(`${expired.body}${lifecycleEvidence.body}`).not.toContain(sourceValue);
+  });
+
+  it.each([
+    {
+      mediaType: 'application/json' as const,
+      displayName: 'document.redacted.json',
+      sourceValue: 'structured-json@example.test',
+      input: '{\n  "contact": "structured-json@example.test",\n  "kept": true\n}\n',
+      expected: '{\n  "contact": "[EMAIL_1]",\n  "kept": true\n}\n'
+    },
+    {
+      mediaType: 'text/csv' as const,
+      displayName: 'document.redacted.csv',
+      sourceValue: 'structured-csv@example.test',
+      input: 'kind,value\r\ncontact,structured-csv@example.test\r\n',
+      expected: 'kind,value\r\ncontact,[EMAIL_1]\r\n'
+    }
+  ])('natively scans, redacts, reopens, verifies, and downloads $mediaType', async (fixture) => {
+    const bytes = Buffer.from(fixture.input, 'utf8');
+    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    const catalog = createProcessLocalApiPolicyCatalog();
+    const processing = createVolatileProcessingControl(localApiApplication, catalog.policies);
+    const instance = server(dependencies({
+      application: localApiApplication,
+      jobs: processing,
+      processing,
+      policies: { get: () => Promise.resolve(catalog) }
+    }));
+    const initiated = await instance.inject({
+      method: 'POST', url: '/v1/artifacts', headers: authorization(),
+      payload: { schemaVersion: '2.0.0', mediaType: fixture.mediaType, byteLength: bytes.length, digest }
+    });
+    expect(initiated.statusCode).toBe(201);
+    const artifactId = initiated.json<{ readonly id: string }>().id;
+    expect((await instance.inject({
+      method: 'PUT', url: `/v1/artifacts/${artifactId}/content`,
+      headers: { ...authorization(), 'content-type': 'application/octet-stream' }, payload: bytes
+    })).statusCode).toBe(200);
+    const created = await instance.inject({
+      method: 'POST', url: '/v1/jobs',
+      headers: { ...authorization(), 'idempotency-key': randomUUID() },
+      payload: {
+        schemaVersion: '3.0.0', operation: 'REDACT', inputArtifactId: artifactId,
+        policy: {
+          id: catalog.defaultPolicyId,
+          version: catalog.policies[0].version,
+          digest: catalog.policies[0].digest
+        }
+      }
+    });
+    expect(created.statusCode).toBe(201);
+    const jobId = created.json<{ readonly id: string }>().id;
+    let job = created.json<{ readonly state: string }>();
+    for (let attempt = 0; attempt < 20 && job.state !== 'VERIFIED'; attempt += 1) {
+      job = (await instance.inject({
+        method: 'GET', url: `/v1/jobs/${jobId}`, headers: authorization()
+      })).json<typeof job>();
+    }
+    expect(job.state).toBe('VERIFIED');
+    const output = (await instance.inject({
+      method: 'GET', url: `/v1/jobs/${jobId}/output`, headers: authorization()
+    })).json<{ readonly id: string; readonly displayName: string }>();
+    expect(output.displayName).toBe(fixture.displayName);
+    const downloaded = await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${output.id}/content`, headers: authorization()
+    });
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers['content-type']).toContain(fixture.mediaType);
+    expect(downloaded.body).toBe(fixture.expected);
+    expect(`${initiated.body}${created.body}${downloaded.headers['content-disposition'] ?? ''}`).not.toContain(fixture.sourceValue);
+  });
+
+  it('isolates malformed structured jobs, releases their input, and continues processing', async () => {
+    const catalog = createProcessLocalApiPolicyCatalog();
+    const processing = createVolatileProcessingControl(localApiApplication, catalog.policies);
+    const instance = server(dependencies({
+      application: localApiApplication, jobs: processing, processing,
+      policies: { get: () => Promise.resolve(catalog) }
+    }));
+    const policy = {
+      id: catalog.defaultPolicyId,
+      version: catalog.policies[0].version,
+      digest: catalog.policies[0].digest
+    };
+    const upload = async (content: string): Promise<string> => {
+      const bytes = Buffer.from(content, 'utf8');
+      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      const initiated = await instance.inject({
+        method: 'POST', url: '/v1/artifacts', headers: authorization(),
+        payload: { schemaVersion: '2.0.0', mediaType: 'application/json', byteLength: bytes.length, digest }
+      });
+      const id = initiated.json<{ readonly id: string }>().id;
+      expect((await instance.inject({
+        method: 'PUT', url: `/v1/artifacts/${id}/content`,
+        headers: { ...authorization(), 'content-type': 'application/octet-stream' }, payload: bytes
+      })).statusCode).toBe(200);
+      return id;
+    };
+    const runScan = async (artifactId: string): Promise<{ readonly id: string; readonly state: string }> => {
+      const created = await instance.inject({
+        method: 'POST', url: '/v1/jobs',
+        headers: { ...authorization(), 'idempotency-key': randomUUID() },
+        payload: { schemaVersion: '2.0.0', operation: 'SCAN', inputArtifactId: artifactId, policy }
+      });
+      let job = created.json<{ readonly id: string; readonly state: string }>();
+      for (let attempt = 0; attempt < 20 && !['FAILED', 'SUCCEEDED', 'NEEDS_REVIEW'].includes(job.state); attempt += 1) {
+        job = (await instance.inject({
+          method: 'GET', url: `/v1/jobs/${job.id}`, headers: authorization()
+        })).json<typeof job>();
+      }
+      return job;
+    };
+    const canary = 'malformed-private@example.test';
+    const malformedArtifact = await upload(`{"contact":"${canary}"`);
+    const failed = await runScan(malformedArtifact);
+    expect(failed.state).toBe('FAILED');
+    expect((await instance.inject({
+      method: 'GET', url: `/v1/artifacts/${malformedArtifact}/content`, headers: authorization()
+    })).statusCode).toBe(404);
+    const succeeded = await runScan(await upload('{"contact":"later-valid@example.test"}'));
+    expect(succeeded.state).toBe('SUCCEEDED');
+    expect(JSON.stringify({ failed, succeeded })).not.toContain(canary);
+  });
+
+  it('keeps artifact request v1 immutable and requires v2 for structured media', async () => {
+    const catalog = createProcessLocalApiPolicyCatalog();
+    const processing = createVolatileProcessingControl(localApiApplication, catalog.policies);
+    const instance = server(dependencies({ processing }));
+    const response = await instance.inject({
+      method: 'POST', url: '/v1/artifacts', headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', mediaType: 'application/json', byteLength: 2,
+        digest: `sha256:${'a'.repeat(64)}`
+      }
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+    expectCanonicalError(response);
   });
 
   it('redacts from the exact saved review set and preserves an explicitly rejected match', async () => {

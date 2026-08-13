@@ -45,6 +45,8 @@ export type {
   PreviewScanSummary,
   ProcessingRedactionSummary,
   ProcessingScanSummary,
+  ProcessMediaType,
+  RedactedDisplayName,
   RedactedOutputSummary,
   ReviewDecisionInput,
   ReviewDecisionSummary,

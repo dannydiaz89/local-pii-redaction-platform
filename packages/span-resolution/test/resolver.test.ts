@@ -113,6 +113,18 @@ describe('span resolution', () => {
     expect(result.spans[0]?.nativeLocations).toEqual([location]);
   });
 
+  it('normalizes value-free PDF metadata locations into resolved evidence', () => {
+    const text = 'alpha@example.test';
+    const first = detectDeterministic(text, revision)[0];
+    if (first === undefined) throw new Error('Synthetic detector fixture produced no evidence');
+    const location = {
+      schemaVersion: '4.0.0' as const, kind: 'PDF_METADATA_VALUE' as const, carrier: 'INFO' as const,
+      object: 6, field: 'AUTHOR' as const, occurrence: 1
+    };
+    const result = resolveEvidence([{ ...first, nativeLocations: [location] }], revision, unicodeCodePointLength(text));
+    expect(result.spans[0]?.nativeLocations).toEqual([location]);
+  });
+
   it('rejects same-span supporting evidence with inconsistent native locations', () => {
     const text = 'alpha@example.test';
     const first = detectDeterministic(text, revision)[0];

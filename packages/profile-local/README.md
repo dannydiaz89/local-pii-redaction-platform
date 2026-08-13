@@ -6,17 +6,20 @@ Reusable composition root for the platform's current local file-processing profi
 
 - Assembles the rules-only detector, verifier, capabilities, and core application.
 - Publishes the current rules-only TXT/Markdown/JSON/CSV CLI manifest with the experimental strict
-  DOCX inspect/scan surface, the TXT/Markdown browser manifest, and the experimental text-only
+  DOCX/PDF surfaces, a bounded TXT/Markdown/JSON/CSV process-local API manifest, and the experimental text-only
   Ollama hybrid manifest.
 - Creates the explicitly requested Ollama hybrid application after provider preparation.
 - Supplies capability requirements shared by the CLI and local API.
-- Projects a bounded catalog of pinned bundled-policy metadata for the local API.
+- Projects a bounded catalog of pinned policy metadata for the local API, including a separately
+  versioned and digested 8 MiB process-local policy variant.
 
 ## Boundary
 
 This package wires existing ports and adapters together. It contains no command parsing, HTTP
-handling, browser logic, or durable state. JSON and CSV are rules-only and CLI-only in the current
-slice. DOCX is rules-only, CLI-only, experimental, and limited to inspect/scan. Ollama remains
+handling, browser logic, or durable state. JSON and CSV are rules-only in the CLI and process-local API
+slice. DOCX is rules-only, CLI-only, experimental, and limited to inspect/scan. PDF is CLI-only,
+experimental, extraction-only, and limited to probe/inspect even though its closed v5 profile maps
+the narrow accepted Info/XMP metadata values. Ollama remains
 experimental, loopback-only, text-only, and scan-only.
 
 There is no package-local test directory yet; its compositions are exercised through CLI, API, core,

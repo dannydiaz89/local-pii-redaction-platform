@@ -3,10 +3,13 @@ import { extname, resolve } from 'node:path';
 
 import {
   defaultTextArtifactFileSystem,
+  createEphemeralNativeArtifactSession,
+  decodeLocalUtf8ArtifactBytes,
   deriveRedactedOutputPath,
   discardStagedTextArtifact,
   publishStagedTextArtifact,
   readLocalUtf8Artifact,
+  encodeLocalUtf8ArtifactText,
   stageTextArtifact,
   type LocalUtf8Artifact,
   type StagedTextArtifact,
@@ -309,6 +312,10 @@ export async function readJsonArtifact(
     throw new SafeError({ code: 'FORMAT_UNSUPPORTED', message: 'This adapter supports JSON files only.', retryable: false, correlationId: 'cor_json_adapter' });
   }
   const source = await readLocalUtf8Artifact(inputPath, maximumBytes, fileSystem);
+  return jsonArtifactFromUtf8(source);
+}
+
+function jsonArtifactFromUtf8(source: LocalUtf8Artifact): JsonArtifact {
   const parsed = parseJson(source.text);
   const regions = Object.freeze(parsed.regions.map((region): CanonicalRegionV1 => Object.freeze({
     schemaVersion: '1.0.0',
@@ -328,6 +335,19 @@ export async function readJsonArtifact(
   });
   jsonArtifactStates.set(artifact, { regions: parsed.regions, rawText: source.text });
   return artifact;
+}
+
+/** Parses bounded process-local bytes with the same native JSON grammar as filesystem inputs. */
+export function decodeJsonArtifactBytes(
+  bytes: Uint8Array,
+  maximumBytes = defaultMaximumJsonInputBytes
+): JsonArtifact {
+  const source = decodeLocalUtf8ArtifactBytes(
+    bytes,
+    { reference: 'ephemeral:input', displayName: 'document.json' },
+    maximumBytes
+  );
+  return jsonArtifactFromUtf8(source);
 }
 
 function transformValue(value: string, actions: readonly TypedLabelAction[], regionStart: number): string {
@@ -456,6 +476,29 @@ function createReceipt(plan: TypedLabelPlan, staged: Pick<StagedTextArtifact, 'd
     appliedActionIds: plan.actions.map(({ id }) => id)
   };
   return Object.freeze({ ...unsigned, receiptDigest: parseSha256Digest(computeWriterReceiptDigest(unsigned)) });
+}
+
+/** Creates an in-memory JSON-native stage/reopen/publish session with no path selection. */
+export function createEphemeralJsonArtifactSession(
+  source: JsonArtifact,
+  maximumOutputBytes = defaultMaximumJsonInputBytes
+) {
+  return createEphemeralNativeArtifactSession({
+    source,
+    writer: jsonWriterDescriptor,
+    maximumOutputBytes,
+    encodePlan: (artifact, plan) => encodeLocalUtf8ArtifactText(artifact, applyJsonPlan(artifact, plan)),
+    createReceipt,
+    reopen(bytes, staged, signal) {
+      signal?.throwIfAborted();
+      const reopened = decodeJsonArtifactBytes(bytes, maximumOutputBytes);
+      signal?.throwIfAborted();
+      if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
+        throw new SafeError({ code: 'ARTIFACT_DIGEST_MISMATCH', message: 'The staged JSON artifact changed before it could be reopened.', retryable: false, correlationId: 'cor_json_adapter' });
+      }
+      return reopened;
+    }
+  });
 }
 
 export function createLocalJsonArtifactSession(

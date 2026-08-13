@@ -1,8 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import {
+  localPreviewMaximumInputBytes,
   localRedactionMaximumOutputBytes,
   type ArtifactsArtifactContract,
+  type ArtifactsCreateArtifactRequestV2Contract,
   type ArtifactsCreateArtifactRequestContract,
   type JobsDetectionPageContract,
   type JobsReviewDecisionRequestContract,
@@ -10,6 +12,8 @@ import {
 } from '@local-pii/contracts';
 import type {
   RedactionReviewSnapshot,
+  TextArtifact,
+  TextProcessingSession,
   TextProcessingApplication,
   TextRedactionResult,
   TextScanResult
@@ -27,7 +31,14 @@ import {
   type JobMutationResult
 } from '@local-pii/job-store';
 import {
+  createEphemeralCsvArtifactSession,
+  createEphemeralJsonArtifactSession,
   createEphemeralTextArtifactSession,
+  csvCapabilityRequirement,
+  decodeCsvArtifactBytes,
+  decodeJsonArtifactBytes,
+  decodeTextArtifactBytes,
+  jsonCapabilityRequirement,
   resolveLocalPolicy,
   textCapabilityRequirement
 } from '@local-pii/profile-local';
@@ -43,14 +54,11 @@ import {
   type ProcessingJobRequest,
   type ReviewedLocalRedactionJobRequest
 } from './job-control.js';
-import {
-  decodeLocalTextArtifact,
-  scanLocalTextBytes,
-  type PreviewFormat
-} from './preview-scan.js';
 
 export type Artifact = Readonly<ArtifactsArtifactContract.Artifact>;
-export type CreateArtifactRequest = Readonly<ArtifactsCreateArtifactRequestContract.CreateLocalArtifactRequest>;
+export type CreateArtifactRequest =
+  | Readonly<ArtifactsCreateArtifactRequestContract.CreateLocalArtifactRequest>
+  | Readonly<ArtifactsCreateArtifactRequestV2Contract.CreateLocalArtifactRequestV2>;
 type GeneratedDetectionPage = JobsDetectionPageContract.JobDetectionPage;
 export type DetectionPage = Readonly<Omit<GeneratedDetectionPage, 'detections' | 'conflictDetails'>> & {
   readonly detections: readonly Readonly<GeneratedDetectionPage['detections'][number]>[];
@@ -120,9 +128,11 @@ export interface VolatileProcessingOptions {
 interface ArtifactRecord {
   metadata: Artifact;
   readonly expectedDigest: string;
-  readonly format: PreviewFormat;
+  readonly format: ArtifactFormat;
   bytes: Uint8Array | undefined;
 }
+
+type ArtifactFormat = 'text' | 'markdown' | 'json' | 'csv';
 
 const unsupportedContainerSignatures = Object.freeze([
   Buffer.from('%PDF-', 'ascii'),
@@ -234,12 +244,80 @@ function sameSubmittedDecision(
     && (existing.action !== 'RETYPE' || (submitted.action === 'RETYPE' && existing.entityType === submitted.entityType));
 }
 
-function formatFor(mediaType: CreateArtifactRequest['mediaType']): PreviewFormat {
-  return mediaType === 'text/markdown' ? 'markdown' : 'text';
+function formatFor(mediaType: CreateArtifactRequest['mediaType']): ArtifactFormat {
+  if (mediaType === 'text/markdown') return 'markdown';
+  if (mediaType === 'application/json') return 'json';
+  if (mediaType === 'text/csv') return 'csv';
+  return 'text';
 }
 
 function genericDisplayName(mediaType: CreateArtifactRequest['mediaType']): string {
-  return mediaType === 'text/markdown' ? 'document.md' : 'document.txt';
+  if (mediaType === 'text/markdown') return 'document.md';
+  if (mediaType === 'application/json') return 'document.json';
+  if (mediaType === 'text/csv') return 'document.csv';
+  return 'document.txt';
+}
+
+function genericRedactedDisplayName(format: ArtifactFormat): string {
+  if (format === 'markdown') return 'document.redacted.md';
+  if (format === 'json') return 'document.redacted.json';
+  if (format === 'csv') return 'document.redacted.csv';
+  return 'document.redacted.txt';
+}
+
+function requirementFor(format: ArtifactFormat, operation: 'SCAN' | 'REDACT') {
+  const requirement = format === 'json'
+    ? jsonCapabilityRequirement(operation)
+    : format === 'csv'
+      ? csvCapabilityRequirement(operation)
+      : textCapabilityRequirement(operation);
+  return { ...requirement, maximumInputBytes: localPreviewMaximumInputBytes };
+}
+
+function decodeArtifact(
+  bytes: Uint8Array,
+  format: ArtifactFormat,
+  policy: NonNullable<ReturnType<typeof resolveLocalPolicy>>
+): TextArtifact {
+  if (format === 'json') return decodeJsonArtifactBytes(bytes, localRedactionMaximumOutputBytes);
+  if (format === 'csv') {
+    return decodeCsvArtifactBytes(bytes, localRedactionMaximumOutputBytes, {
+      delimiter: policy.structure.csv.delimiter,
+      header: policy.structure.csv.header
+    });
+  }
+  return decodeTextArtifactBytes(
+    bytes,
+    format === 'markdown' ? 'text/markdown' : 'text/plain',
+    localRedactionMaximumOutputBytes
+  );
+}
+
+interface EphemeralProcessingHandle {
+  readonly session: TextProcessingSession;
+  publishedBytes(): Uint8Array | undefined;
+  dispose(): void;
+}
+
+function ephemeralSession(
+  source: TextArtifact,
+  format: ArtifactFormat,
+  policy: NonNullable<ReturnType<typeof resolveLocalPolicy>>
+): EphemeralProcessingHandle {
+  if (format === 'json') {
+    return createEphemeralJsonArtifactSession(source as ReturnType<typeof decodeJsonArtifactBytes>, localRedactionMaximumOutputBytes);
+  }
+  if (format === 'csv') {
+    return createEphemeralCsvArtifactSession(
+      source as ReturnType<typeof decodeCsvArtifactBytes>,
+      localRedactionMaximumOutputBytes,
+      { delimiter: policy.structure.csv.delimiter, header: policy.structure.csv.header }
+    );
+  }
+  return createEphemeralTextArtifactSession(
+    source as Parameters<typeof createEphemeralTextArtifactSession>[0],
+    localRedactionMaximumOutputBytes
+  );
 }
 
 function cloneArtifact(artifact: Artifact): Artifact {
@@ -459,14 +537,18 @@ export function createVolatileProcessingControl(
       controller.signal.throwIfAborted();
       job = await transition(job, 'EXTRACTING', correlationId);
       job = await transition(job, 'DETECTING', correlationId);
+      const policy = resolveLocalPolicy(job.policy);
+      if (policy === undefined) {
+        fail('POLICY_UNSATISFIABLE', 'The requested processing policy is unavailable.', false, correlationId);
+      }
+      const source = decodeArtifact(artifact.bytes, artifact.format, policy);
       if (job.operation === 'SCAN') {
-        const scan = await scanLocalTextBytes(
-          application,
-          artifact.bytes,
-          artifact.format,
-          { correlationId },
-          controller.signal
-        );
+        const scan = await application.scan({
+          session: { input: () => Promise.resolve(source) },
+          requirement: requirementFor(artifact.format, 'SCAN'),
+          policy,
+          signal: controller.signal
+        }, { correlationId });
         controller.signal.throwIfAborted();
         job = await transition(job, 'RESOLVING', correlationId);
         const result = resultForScan(scan, scan.artifact.digest, correlationId);
@@ -480,19 +562,14 @@ export function createVolatileProcessingControl(
       } else if (job.operation === 'REDACT') {
         job = await transition(job, 'RESOLVING', correlationId);
         job = await transition(job, 'REDACTING', correlationId);
-        const policy = resolveLocalPolicy(job.policy);
-        if (policy === undefined) {
-          fail('POLICY_UNSATISFIABLE', 'The requested processing policy is unavailable.', false, correlationId);
-        }
-        const source = decodeLocalTextArtifact(artifact.bytes, artifact.format, correlationId);
-        const handle = createEphemeralTextArtifactSession(source, localRedactionMaximumOutputBytes);
+        const handle = ephemeralSession(source, artifact.format, policy);
         const reviewSnapshot = reviewSnapshots.get(jobId);
         let detachedOutput: Uint8Array | undefined;
         let outputRetained = false;
         try {
           const redaction = await application.redact({
             session: handle.session,
-            requirement: textCapabilityRequirement('REDACT'),
+            requirement: requirementFor(artifact.format, 'REDACT'),
             policy,
             ...(reviewSnapshot === undefined ? {} : { review: reviewSnapshot }),
             signal: controller.signal
@@ -518,7 +595,7 @@ export function createVolatileProcessingControl(
               mediaType: artifact.metadata.mediaType,
               byteLength: detachedOutput.byteLength,
               digest: redaction.published.digest,
-              displayName: artifact.format === 'markdown' ? 'document.redacted.md' : 'document.redacted.txt',
+              displayName: genericRedactedDisplayName(artifact.format),
               publicationState: 'PUBLISHABLE',
               createdAt: createdAt.toISOString()
             }),

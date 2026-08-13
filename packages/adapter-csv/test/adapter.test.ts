@@ -9,7 +9,9 @@ import { parseSha256Digest, unicodeCodePointLength, type EntityType } from '@loc
 import { compileTypedLabelPlan, type TypedLabelPlan } from '@local-pii/redaction';
 
 import {
+  createEphemeralCsvArtifactSession,
   createLocalCsvArtifactSession,
+  decodeCsvArtifactBytes,
   csvWriterDescriptor,
   readCsvArtifact,
   type CsvArtifact,
@@ -132,6 +134,21 @@ function planWithReplacement(plan: TypedLabelPlan, replacement: string): TypedLa
 }
 
 describe('CSV adapter', () => {
+  it('uses native process-local stage, reopen, publish, and disposal without normalizing untouched CSV', async () => {
+    const raw = 'kind,value\r\ncontact,alpha@example.test\r\n';
+    const source = decodeCsvArtifactBytes(Buffer.from(raw, 'utf8'));
+    const start = codePointOffsetOf(source.text, 'alpha@example.test');
+    const handle = createEphemeralCsvArtifactSession(source, 1024);
+    const staged = await handle.session.stage(planFor(source, [{ start, end: start + 18 }]));
+    expect((await handle.session.reopen(staged)).text).toContain('[EMAIL_1]');
+    await handle.session.publish(staged);
+    expect(Buffer.from(handle.publishedBytes() ?? []).toString('utf8')).toBe(
+      'kind,value\r\ncontact,[EMAIL_1]\r\n'
+    );
+    handle.dispose();
+    expect(handle.publishedBytes()).toBeUndefined();
+  });
+
   it('extracts every decoded cell in row-major order and preserves input bytes and metadata', async () => {
     const raw = 'name,email,note\r\nAlice,alpha@example.test,"hello, world"\r\n';
     const path = await csvFile(raw);

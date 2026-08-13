@@ -219,6 +219,12 @@
       "resolvedType": "ProcessingScanSummary"
     },
     {
+      "name": "ProcessMediaType",
+      "kind": "type",
+      "declaration": "export type ProcessMediaType = 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv';",
+      "resolvedType": "\"application/json\" | \"text/plain\" | \"text/markdown\" | \"text/csv\""
+    },
+    {
       "name": "projectCapabilitySummary",
       "kind": "value",
       "declaration": "export declare function projectCapabilitySummary(value: unknown): CapabilitySummary;",
@@ -249,9 +255,15 @@
       "resolvedType": "(value: unknown, expectedJobId: string) => ReviewSetSummary"
     },
     {
+      "name": "RedactedDisplayName",
+      "kind": "type",
+      "declaration": "export type RedactedDisplayName = 'document.redacted.txt' | 'document.redacted.md' | 'document.redacted.json' | 'document.redacted.csv';",
+      "resolvedType": "\"document.redacted.txt\" | \"document.redacted.md\" | \"document.redacted.json\" | \"document.redacted.csv\""
+    },
+    {
       "name": "RedactedOutputSummary",
       "kind": "type",
-      "declaration": "export interface RedactedOutputSummary {\n    readonly id: string;\n    readonly mediaType: 'text/plain' | 'text/markdown';\n    readonly byteLength: number;\n    readonly digest: string;\n    readonly displayName: 'document.redacted.txt' | 'document.redacted.md';\n    readonly bytes: Uint8Array;\n}",
+      "declaration": "export interface RedactedOutputSummary {\n    readonly id: string;\n    readonly mediaType: ProcessMediaType;\n    readonly byteLength: number;\n    readonly digest: string;\n    readonly displayName: RedactedDisplayName;\n    readonly bytes: Uint8Array;\n}",
       "resolvedType": "RedactedOutputSummary"
     },
     {

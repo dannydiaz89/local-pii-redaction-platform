@@ -9,6 +9,8 @@ owns the authenticated HTTP routes and never imports client or UI code.
 
 - Builds the Fastify server around injected application and readiness ports.
 - Exposes privacy-minimized liveness, readiness, capability, and pinned-policy catalog endpoints.
+- Uses a separately versioned and digested development policy whose 8 MiB admission limit exactly
+  matches this transport, rather than presenting the broader CLI policy as satisfiable here.
 - Exposes authenticated metadata-only job control plus bounded process-local artifacts and real
   asynchronous rules scan/redaction workers with value-free detection pagination.
 - Stores bounded accept/reject/retype decisions as a value-free append-only process-local review
@@ -25,7 +27,10 @@ owns the authenticated HTTP routes and never imports client or UI code.
 - Enforces numeric-loopback Host validation, exact browser-origin checks, bearer authorization,
   request deadlines, cancellation, and bounded shutdown.
 - Rejects conflicting HTTP/1.1 framing, bounded chunked-body overflow, and recognizable PDF/archive
-  signatures at the TXT/Markdown upload boundary; real socket disconnects abort active port work.
+  signatures at the artifact upload boundary; real socket disconnects abort active port work.
+- Admits bounded TXT/Markdown, JSON, and CSV job artifacts. Structured jobs use native parsing,
+  in-memory native staging/reopen, shared verification, and generic names without exposing JSON
+  pointers, CSV headers/cells, or browser filenames.
 - Serves the built web shell and performs the development browser bootstrap on macOS and Linux.
 
 ## Current scope

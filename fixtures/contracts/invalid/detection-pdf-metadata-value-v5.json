@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "5.0.0",
+  "id": "D9B8A330-8D9A-4F6F-8F11-5B2F10E53967",
+  "entityType": "EMAIL",
+  "span": { "start": 5, "end": 12, "offsetUnit": "UNICODE_CODE_POINT", "extractionRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "confidence": 0.99,
+  "source": "REGEX",
+  "detector": { "id": "email-pattern", "version": "0.1.0" },
+  "nativeLocations": [{ "schemaVersion": "4.0.0", "kind": "PDF_METADATA_VALUE", "carrier": "INFO", "object": 6, "field": "AUTHOR", "occurrence": 1, "value": "forbidden" }]
+}

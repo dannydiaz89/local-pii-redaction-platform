@@ -1,6 +1,7 @@
 // Generated from canonical JSON Schemas by tooling/generate-typescript.ts. Do not edit.
 
 export * as ArtifactsArtifactContract from './artifacts-artifact.js';
+export * as ArtifactsCreateArtifactRequestV2Contract from './artifacts-create-artifact-request-v2.js';
 export * as ArtifactsCreateArtifactRequestContract from './artifacts-create-artifact-request.js';
 export * as AuditAuditSummaryContract from './audit-audit-summary.js';
 export * as CapabilitiesCapabilityManifestContract from './capabilities-capability-manifest.js';
@@ -20,15 +21,18 @@ export * as CommonErrorsContract from './common-errors.js';
 export * as CommonIdentifiersContract from './common-identifiers.js';
 export * as CommonNativeLocationV2Contract from './common-native-location-v2.js';
 export * as CommonNativeLocationV3Contract from './common-native-location-v3.js';
+export * as CommonNativeLocationV4Contract from './common-native-location-v4.js';
 export * as CommonNativeLocationContract from './common-native-location.js';
 export * as DetectionDetectRequestContract from './detection-detect-request.js';
 export * as DetectionDetectResponseContract from './detection-detect-response.js';
 export * as DetectionDetectionV2Contract from './detection-detection-v2.js';
 export * as DetectionDetectionV3Contract from './detection-detection-v3.js';
 export * as DetectionDetectionV4Contract from './detection-detection-v4.js';
+export * as DetectionDetectionV5Contract from './detection-detection-v5.js';
 export * as DetectionDetectionContract from './detection-detection.js';
 export * as ExtractionCanonicalRegionV2Contract from './extraction-canonical-region-v2.js';
 export * as ExtractionCanonicalRegionV3Contract from './extraction-canonical-region-v3.js';
+export * as ExtractionCanonicalRegionV4Contract from './extraction-canonical-region-v4.js';
 export * as ExtractionCanonicalRegionContract from './extraction-canonical-region.js';
 export * as ExtractionExtractedDocumentContract from './extraction-extracted-document.js';
 export * as JobsCancelJobRequestContract from './jobs-cancel-job-request.js';

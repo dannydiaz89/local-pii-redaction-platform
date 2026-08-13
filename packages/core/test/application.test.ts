@@ -358,6 +358,31 @@ describe('TextProcessingApplication', () => {
     }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
   });
 
+  it('binds a PDF metadata value only through a closed v4 canonical region', async () => {
+    const sourceText = 'ada@example.test';
+    const location = {
+      schemaVersion: '4.0.0' as const, kind: 'PDF_METADATA_VALUE' as const, carrier: 'INFO' as const,
+      object: 6, field: 'AUTHOR' as const, occurrence: 1
+    };
+    const source = {
+      ...artifact('structured://input', sourceText),
+      regions: [{
+        schemaVersion: '4.0.0' as const, start: 0, end: 16,
+        offsetUnit: 'UNICODE_CODE_POINT' as const, role: 'VALUE' as const, location
+      }]
+    };
+    const result = await createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve(source) }, requirement: { ...requirement, operation: 'SCAN' }
+    }, context);
+    expect(result.evidence[0]?.nativeLocations).toEqual([location]);
+    await expect(createTextProcessingApplication(dependencies()).scan({
+      session: { input: () => Promise.resolve({
+        ...source, regions: [{ ...source.regions[0], schemaVersion: '3.0.0' as const }]
+      } as unknown as TextArtifact) },
+      requirement: { ...requirement, operation: 'SCAN' }
+    }, context)).rejects.toMatchObject({ code: 'SOURCE_MAP_INVALID' });
+  });
+
   it('binds exact unprefixed DOCX XML element and attribute names without inventing prefixes', async () => {
     const sourceText = 'ada@example.test';
     const location = {

@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { createLocalPolicyCatalog, localTextApplication } from '@local-pii/profile-local';
+import { createProcessLocalApiPolicyCatalog, localApiApplication } from '@local-pii/profile-local';
 
 import { runTrustedLocalLauncher } from './launcher.js';
 import { createLocalPreviewScan } from './preview-scan.js';
@@ -19,14 +19,14 @@ async function main(): Promise<void> {
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', terminate);
   try {
-    const policyCatalog = createLocalPolicyCatalog();
-    const processing = createVolatileProcessingControl(localTextApplication, policyCatalog.policies);
+    const policyCatalog = createProcessLocalApiPolicyCatalog();
+    const processing = createVolatileProcessingControl(localApiApplication, policyCatalog.policies);
     await runTrustedLocalLauncher({
-      application: localTextApplication,
+      application: localApiApplication,
       jobs: processing,
       processing,
       policies: { get: (signal) => { signal?.throwIfAborted(); return Promise.resolve(policyCatalog); } },
-      preview: createLocalPreviewScan(localTextApplication),
+      preview: createLocalPreviewScan(localApiApplication),
       readiness: { check: (signal) => { signal?.throwIfAborted(); return Promise.resolve(); } }
     }, { webRoot }, lifecycle.signal);
   } finally {

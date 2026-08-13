@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
-import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from '@local-pii/contracts';
+import { computeWriterReceiptDigest, isRfc3339DateTime, type RedactionWriterReceiptContract } from '@local-pii/contracts';
 import { detectDeterministic } from '@local-pii/detectors';
 import {
+  entityTypes,
   parseSha256Digest,
   unicodeCodePointLength,
   type CanonicalRegion,
@@ -21,10 +22,16 @@ const maximumDepth = 128;
 const maximumAttributes = 64;
 const maximumActions = 100_000;
 const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
+const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/u;
+const sourceSpanIdPattern = /^rsp_[a-f0-9]{32}$/u;
+const versionPattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
+const componentIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
 const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const contentTypesNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const officeRelationshipPrefix = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
 const docxMediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const paragraphBoundary = '\n\u0000\n';
+const carrierBoundary = '\n\u0000DOCX-CARRIER\u0000\n';
 const boundary = '\n\u0000DOCX-INDEPENDENT-CARRIER\u0000\n';
 
 type WriterReceipt = RedactionWriterReceiptContract.WriterReceipt;
@@ -34,15 +41,47 @@ export interface IndependentDocxPlanBinding {
   readonly digest: Sha256Digest;
   readonly inputDigest: Sha256Digest;
   readonly extractionRevision: Sha256Digest;
+  readonly capabilityDigest: Sha256Digest;
+  readonly policy: {
+    readonly id: string;
+    readonly version: string;
+    readonly digest: Sha256Digest;
+    readonly riskTier: 'LOW' | 'MODERATE' | 'HIGH';
+  };
   readonly writer: { readonly id: string; readonly version: string };
   readonly expectedActionCount: number;
   readonly actions: readonly {
     readonly id: string;
+    readonly sourceSpanId?: string;
     readonly entityType: EntityType;
     readonly start: number;
     readonly end: number;
     readonly replacement: string;
   }[];
+  readonly review?: {
+    readonly extractionRevision: Sha256Digest;
+    readonly revision: number;
+    readonly decisionCount: number;
+    readonly digest: Sha256Digest;
+    readonly decisions: readonly {
+      readonly sourceSpanId: string;
+      readonly action: 'ACCEPT' | 'REJECT' | 'RETYPE';
+      readonly entityType: EntityType;
+      readonly reviewedEntityType?: EntityType;
+      readonly start: number;
+      readonly end: number;
+    }[];
+  };
+}
+
+export interface IndependentDocxApplicationBinding {
+  readonly capabilityDigest: Sha256Digest;
+  readonly policy: IndependentDocxPlanBinding['policy'];
+  readonly writer: { readonly id: string; readonly version: string; readonly digest: Sha256Digest };
+  readonly application: { readonly id: string; readonly version: string; readonly digest: Sha256Digest };
+  readonly outputMediaType: typeof docxMediaType;
+  readonly startedAt: string;
+  readonly completedAt: string;
 }
 
 export interface IndependentDocxVerificationRequest {
@@ -52,6 +91,7 @@ export interface IndependentDocxVerificationRequest {
   readonly sourceRegions: readonly CanonicalRegion[];
   readonly plan: IndependentDocxPlanBinding;
   readonly writerReceipt: WriterReceipt;
+  readonly applicationBinding: IndependentDocxApplicationBinding;
 }
 
 export type IndependentDocxFindingCode =
@@ -60,6 +100,8 @@ export type IndependentDocxFindingCode =
   | 'PACKAGE_INVENTORY_CHANGED'
   | 'CONTENT_TYPE_GRAPH_INVALID'
   | 'RELATIONSHIP_GRAPH_INVALID'
+  | 'CARRIER_CLASSIFICATION_MISMATCH'
+  | 'EXTRACTION_REVISION_MISMATCH'
   | 'SOURCE_MAP_MISMATCH'
   | 'UNPLANNED_NATIVE_DELTA'
   | 'PLANNED_NATIVE_DELTA_MISMATCH'
@@ -73,6 +115,8 @@ export interface IndependentDocxVerificationFoundation {
     'INDEPENDENT_ZIP_INVENTORY',
     'INDEPENDENT_CONTENT_TYPE_GRAPH',
     'INDEPENDENT_RELATIONSHIP_GRAPH',
+    'INDEPENDENT_SOURCE_CARRIER_CLASSIFICATION',
+    'INDEPENDENT_EXTRACTION_REVISION',
     'GENERIC_XML_CARRIER_ENUMERATION',
     'SUPPLIED_NATIVE_REGION_RECONCILIATION',
     'ACTION_RECEIPT_RECONCILIATION',
@@ -86,9 +130,13 @@ export interface IndependentDocxVerificationFoundation {
   readonly inputEntryCount: number;
   readonly outputEntryCount: number;
   readonly retainedRegionCount: number;
+  readonly classifiedRegionCount: number;
   readonly genericCarrierCount: number;
   readonly expectedActionCount: number;
   readonly appliedActionCount: number;
+  readonly reviewedResidualCount: number;
+  readonly suppliedApplicationInputsBound: boolean;
+  readonly suppliedApplicationBindingDigest?: Sha256Digest;
   readonly independentParser: true;
   readonly fidelityVerified: false;
   readonly authorizesPublication: false;
@@ -446,7 +494,10 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
       const paragraphFrame = [...stack].reverse().find((candidate) => candidate.name === 'w:p');
       paragraph = paragraphFrame?.paragraph;
       segment = paragraphFrame?.segment;
-      if (paragraphFrame !== undefined && (name === 'w:tab' || name === 'w:footnoteReference' || name === 'w:endnoteReference')) {
+      if (
+        paragraphFrame !== undefined
+        && ((name === 'w:tab' && parent === 'w:r') || name === 'w:footnoteReference' || name === 'w:endnoteReference')
+      ) {
         paragraphFrame.segment = (paragraphFrame.segment ?? 1) + 1;
       }
     }
@@ -472,13 +523,20 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
     cursor = end + 1;
   }
   if (stack.length !== 0 || roots !== 1) fail('PACKAGE_INVALID');
-  const paragraphs = [...paragraphValues.entries()].map(([key, aggregate]) => {
+  const rawParagraphs = [...paragraphValues.entries()].map(([key, aggregate]) => {
     const [paragraphPart, paragraph, segment] = key.split('\u0000');
     return Object.freeze({
       part: paragraphPart ?? '', paragraph: Number(paragraph), segment: Number(segment),
       value: aggregate.parts.join(''), carrierIds: Object.freeze(aggregate.carrierIds)
     });
   }).sort((left, right) => left.part.localeCompare(right.part) || left.paragraph - right.paragraph || left.segment - right.segment);
+  const normalizedSegments = new Map<string, number>();
+  const paragraphs = rawParagraphs.map((paragraph) => {
+    const identity = `${paragraph.part}\u0000${String(paragraph.paragraph)}`;
+    const segment = (normalizedSegments.get(identity) ?? 0) + 1;
+    normalizedSegments.set(identity, segment);
+    return Object.freeze({ ...paragraph, segment });
+  });
   return Object.freeze({
     structureDigest: parseSha256Digest(`sha256:${structure.digest('hex')}`),
     carriers: Object.freeze(carriers),
@@ -589,6 +647,181 @@ function parsePackage(bytes: Uint8Array): ParsedPackage {
   return Object.freeze({ ...preliminary, relationships });
 }
 
+const textPartPattern = /^word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml$/u;
+const classifiedAttributePartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|settings|numbering|styles|fontTable)\.xml|customXml\/(?:item1|itemProps1)\.xml|docProps\/(?:core|app)\.xml)$/u;
+const propertyTextElements = new Set([
+  'dc:creator', 'dc:description', 'dc:language', 'dc:subject', 'dc:title', 'dcterms:created', 'dcterms:modified',
+  'cp:lastModifiedBy', 'cp:lastPrinted', 'cp:revision', 'Template', 'TotalTime', 'Pages', 'Words', 'Characters',
+  'Application', 'DocSecurity', 'Lines', 'Paragraphs', 'ScaleCrop', 'Company', 'LinksUpToDate',
+  'CharactersWithSpaces', 'SharedDoc', 'HyperlinksChanged', 'AppVersion', 'vt:lpstr', 'vt:i4'
+]);
+
+const structuralCarrierPairs = new Set([
+  'w:t|xml:space', 'w:headerReference|r:id', 'w:headerReference|w:type', 'w:footerReference|r:id',
+  'w:footerReference|w:type', 'w:hyperlink|r:id', 'w:footnoteReference|w:id', 'w:endnoteReference|w:id',
+  'w:footnote|w:id', 'w:footnote|w:type', 'w:endnote|w:id', 'w:endnote|w:type',
+  'w:p|w14:paraId', 'w:p|w14:textId', 'w:p|w:rsidR', 'w:p|w:rsidRDefault', 'w:p|w:rsidP',
+  'w:p|w:rsidRPr', 'w:r|w:rsidR', 'w:sectPr|w:rsidR', 'w:rsid|w:val', 'w:rsidRoot|w:val',
+  'w:nsid|w:val', 'w:tmpl|w:val', 'w:num|w:numId', 'w:num|w16cid:durableId',
+  'w:abstractNum|w:abstractNumId', 'w:abstractNum|w15:restartNumberingAfterBreak', 'w:lvl|w:ilvl',
+  'w:start|w:val', 'w:numFmt|w:val', 'w:suff|w:val', 'w:lvlJc|w:val', 'w:outlineLvl|w:val',
+  'w:uiPriority|w:val', 'w:sz|w:val', 'w:szCs|w:val', 'w:defaultTabStop|w:val',
+  'w:hyphenationZone|w:val', 'w:zoom|w:percent', 'w:ind|w:left', 'w:ind|w:right',
+  'w:ind|w:firstLine', 'w:ind|w:hanging', 'w:spacing|w:before', 'w:spacing|w:after',
+  'w:spacing|w:line', 'w:spacing|w:lineRule', 'w:tab|w:pos', 'w:tab|w:val', 'w:pgSz|w:w',
+  'w:pgSz|w:h', 'w:pgMar|w:top', 'w:pgMar|w:right', 'w:pgMar|w:bottom', 'w:pgMar|w:left',
+  'w:pgMar|w:header', 'w:pgMar|w:footer', 'w:pgMar|w:gutter', 'w:docGrid|w:charSpace',
+  'w:docGrid|w:linePitch', 'w:cols|w:num', 'w:cols|w:space', 'w:panose1|w:val',
+  'w:sig|w:usb0', 'w:sig|w:usb1', 'w:sig|w:usb2', 'w:sig|w:usb3', 'w:sig|w:csb0',
+  'w:sig|w:csb1', 'w:color|w:val', 'w:shd|w:fill', 'wp:anchor|distT', 'wp:anchor|distB',
+  'wp:anchor|distL', 'wp:anchor|distR', 'wp:anchor|simplePos', 'wp:anchor|relativeHeight',
+  'wp:anchor|behindDoc', 'wp:anchor|locked', 'wp:anchor|layoutInCell', 'wp:anchor|allowOverlap',
+  'wp:anchor|wp14:anchorId', 'wp:anchor|wp14:editId', 'wp:simplePos|x', 'wp:simplePos|y',
+  'wp:extent|cx', 'wp:extent|cy', 'wp:effectExtent|l', 'wp:effectExtent|t', 'wp:effectExtent|r',
+  'wp:effectExtent|b', 'wp:docPr|id', 'a:off|x', 'a:off|y', 'a:ext|cx', 'a:ext|cy',
+  'a:ln|w', 'a:fillRef|idx', 'a:lnRef|idx', 'a:effectRef|idx', 'a:fontRef|idx',
+  'a:prstGeom|prst', 'a:srgbClr|val', 'v:line|wp14:anchorId'
+]);
+
+type ClassifiedCarrierLocation =
+  | Extract<CanonicalRegion['location'], { readonly kind: 'DOCX_RELATIONSHIP' }>
+  | Extract<CanonicalRegion['location'], { readonly kind: 'DOCX_XML_VALUE' }>;
+
+interface ClassifiedCarrier {
+  readonly identity: string;
+  readonly value: string;
+  readonly location: ClassifiedCarrierLocation;
+}
+
+interface ClassifiedSource {
+  readonly canonicalText: string;
+  readonly regions: readonly CanonicalRegion[];
+  readonly extractionRevision: Sha256Digest;
+}
+
+function textPartRank(name: string): readonly [number, number, string] {
+  const rank = name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : 4;
+  const suffix = Number(/(?:header|footer)([1-9][0-9]*)\.xml$/u.exec(name)?.[1] ?? 0);
+  return [rank, suffix, name];
+}
+
+function compareTextParts(left: string, right: string): number {
+  const a = textPartRank(left);
+  const b = textPartRank(right);
+  return (a[0] - b[0]) || (a[1] - b[1]) || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
+}
+
+function classifyCarriers(parsed: ParsedPackage): readonly ClassifiedCarrier[] {
+  const carriers: ClassifiedCarrier[] = [];
+  for (const [relationshipIdentity, targetCarrier] of parsed.relationships) {
+    const fields = relationshipIdentity.split('\u0000');
+    const sourcePart = fields[1];
+    const relationshipId = fields[2];
+    const relationshipXml = parsed.xml.get(targetCarrier.part);
+    const relationship = relationshipXml?.elements.find((element) => element.name === 'Relationship' && element.ordinal === targetCarrier.elementOrdinal);
+    if (
+      sourcePart === undefined || relationshipId === undefined || !textPartPattern.test(sourcePart)
+      || relationship?.attributes.TargetMode !== 'External'
+      || relationship.attributes.Type !== `${officeRelationshipPrefix}hyperlink`
+    ) continue;
+    carriers.push(Object.freeze({
+      identity: `R\u0000${sourcePart}\u0000${relationshipId}`,
+      value: targetCarrier.value,
+      location: Object.freeze({
+        schemaVersion: '2.0.0', kind: 'DOCX_RELATIONSHIP', sourcePart,
+        relationshipId, field: 'TARGET'
+      })
+    }));
+  }
+  for (const carrier of parsed.carriers) {
+    if (!classifiedAttributePartPattern.test(carrier.part)) continue;
+    if (carrier.kind === 'ATTRIBUTE') {
+      if (structuralCarrierPairs.has(`${carrier.element}|${carrier.attribute ?? ''}`)) continue;
+    } else {
+      const retainedText = textPartPattern.test(carrier.part)
+        ? carrier.element === 'wp:posOffset' || carrier.element === 'wp:align'
+        : carrier.part === 'docProps/core.xml' || carrier.part === 'docProps/app.xml'
+          ? propertyTextElements.has(carrier.element)
+          : false;
+      if (!retainedText || carrier.element === 'w:t') continue;
+    }
+    const location = Object.freeze({
+      schemaVersion: '2.0.0' as const,
+      kind: 'DOCX_XML_VALUE' as const,
+      part: carrier.part,
+      element: carrier.element,
+      elementOrdinal: carrier.elementOrdinal,
+      carrier: carrier.kind,
+      ...(carrier.attribute === undefined ? {} : { attribute: carrier.attribute })
+    });
+    carriers.push(Object.freeze({
+      identity: `X\u0000${carrier.part}\u0000${carrier.element}\u0000${String(carrier.elementOrdinal).padStart(7, '0')}\u0000${carrier.kind}\u0000${carrier.attribute ?? ''}`,
+      value: carrier.value,
+      location
+    }));
+  }
+  return Object.freeze(carriers.sort((left, right) => left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0));
+}
+
+function classifySource(parsed: ParsedPackage): ClassifiedSource {
+  const classifiedCarriers = classifyCarriers(parsed);
+  const textParts = [...parsed.xml.keys()].filter((part) => textPartPattern.test(part)).sort(compareTextParts);
+  if (textParts[0] !== 'word/document.xml') fail('CARRIER_CLASSIFICATION_MISMATCH');
+  const canonical: string[] = [];
+  const regions: CanonicalRegion[] = [];
+  const hash = createHash('sha256').update('local-pii:docx-extraction:v3\u0000', 'utf8');
+  let canonicalLength = 0;
+  let segmentCount = 0;
+  for (const part of textParts) {
+    hash.update(`PART:${part}\u0000`, 'utf8');
+    const paragraphs = parsed.paragraphs
+      .filter((paragraph) => paragraph.part === part)
+      .sort((left, right) => left.paragraph - right.paragraph || left.segment - right.segment);
+    for (const paragraph of paragraphs) {
+      if (segmentCount > 0) {
+        canonical.push(paragraphBoundary);
+        canonicalLength += unicodeCodePointLength(paragraphBoundary);
+      }
+      const start = canonicalLength;
+      hash.update(`S:${String(paragraph.paragraph)}:${String(paragraph.segment)}:`, 'utf8');
+      for (const id of paragraph.carrierIds) {
+        const node = parsed.carriers.find((carrier) => carrier.id === id);
+        if (node === undefined || node.element !== 'w:t') fail('CARRIER_CLASSIFICATION_MISMATCH');
+        canonical.push(node.value);
+        canonicalLength += unicodeCodePointLength(node.value);
+        hash.update('N:', 'utf8').update(String(Buffer.byteLength(node.value, 'utf8')), 'utf8').update(':', 'utf8').update(node.value, 'utf8');
+      }
+      regions.push(Object.freeze({
+        schemaVersion: classifiedCarriers.length === 0 ? '1.0.0' : '2.0.0',
+        start, end: canonicalLength, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: Object.freeze({ schemaVersion: '1.0.0', kind: 'DOCX_PART', part, paragraph: paragraph.paragraph })
+      }));
+      segmentCount += 1;
+    }
+  }
+  for (const carrier of classifiedCarriers) {
+    if (carrier.value.length === 0) continue;
+    if (canonical.length > 0) {
+      canonical.push(carrierBoundary);
+      canonicalLength += unicodeCodePointLength(carrierBoundary);
+    }
+    const start = canonicalLength;
+    canonical.push(carrier.value);
+    canonicalLength += unicodeCodePointLength(carrier.value);
+    regions.push(Object.freeze({
+      schemaVersion: '2.0.0', start, end: canonicalLength, offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+      location: carrier.location
+    }));
+    hash.update('C:', 'utf8').update(carrier.location.kind, 'utf8').update(':', 'utf8')
+      .update(String(Buffer.byteLength(carrier.value, 'utf8')), 'utf8').update(':', 'utf8').update(carrier.value, 'utf8');
+  }
+  return Object.freeze({
+    canonicalText: canonical.join(''),
+    regions: Object.freeze(regions),
+    extractionRevision: parseSha256Digest(`sha256:${hash.digest('hex')}`)
+  });
+}
+
 function codePointToUtf16(value: string, target: number): number {
   let utf16 = 0;
   let codePoints = 0;
@@ -602,6 +835,33 @@ function codePointToUtf16(value: string, target: number): number {
 
 function unicodeSlice(value: string, start: number, end: number): string {
   return value.slice(codePointToUtf16(value, start), codePointToUtf16(value, end));
+}
+
+function locationIdentity(location: CanonicalRegion['location']): string {
+  if (location.kind === 'DOCX_PART') return `P\u0000${location.schemaVersion}\u0000${location.part}\u0000${String(location.paragraph)}`;
+  if (location.kind === 'DOCX_RELATIONSHIP') return `R\u0000${location.schemaVersion}\u0000${location.sourcePart}\u0000${location.relationshipId}\u0000${location.field}`;
+  if (location.kind === 'DOCX_XML_VALUE') {
+    return `X\u0000${location.schemaVersion}\u0000${location.part}\u0000${location.element}\u0000${String(location.elementOrdinal)}\u0000${location.carrier}\u0000${location.attribute ?? ''}`;
+  }
+  return 'UNSUPPORTED';
+}
+
+function validateClassification(request: IndependentDocxVerificationRequest, classified: ClassifiedSource): void {
+  if (classified.canonicalText !== request.sourceCanonicalText || classified.regions.length !== request.sourceRegions.length) {
+    fail('CARRIER_CLASSIFICATION_MISMATCH');
+  }
+  for (const [index, expected] of classified.regions.entries()) {
+    const supplied = request.sourceRegions[index];
+    if (
+      supplied === undefined || supplied.schemaVersion !== expected.schemaVersion
+      || supplied.start !== expected.start || supplied.end !== expected.end
+      || (supplied as unknown as { readonly offsetUnit?: unknown }).offsetUnit !== 'UNICODE_CODE_POINT'
+      || (supplied as unknown as { readonly role?: unknown }).role !== 'VALUE'
+      || locationIdentity(supplied.location) !== locationIdentity(expected.location)
+      || unicodeSlice(request.sourceCanonicalText, supplied.start, supplied.end) !== unicodeSlice(classified.canonicalText, expected.start, expected.end)
+    ) fail('CARRIER_CLASSIFICATION_MISMATCH');
+  }
+  if (classified.extractionRevision !== request.plan.extractionRevision) fail('EXTRACTION_REVISION_MISMATCH');
 }
 
 interface ResolvedRegion {
@@ -639,19 +899,155 @@ function resolveRegions(parsed: ParsedPackage, regions: readonly CanonicalRegion
   });
 }
 
+function validDigest(value: unknown): value is Sha256Digest {
+  try { parseSha256Digest(value as string); return true; } catch { return false; }
+}
+
+function validComponent(value: { readonly id: unknown; readonly version: unknown; readonly digest: unknown }): boolean {
+  return typeof value.id === 'string' && componentIdPattern.test(value.id)
+    && typeof value.version === 'string' && versionPattern.test(value.version) && validDigest(value.digest);
+}
+
+function validateReviewBinding(plan: IndependentDocxPlanBinding, sourceLength: number): void {
+  if (plan.review === undefined) return;
+  const review = plan.review;
+  if (
+    review.extractionRevision !== plan.extractionRevision || !validDigest(review.digest)
+    || !Number.isSafeInteger(review.revision) || review.revision < 0 || review.revision > 1000
+    || review.decisionCount !== review.revision || review.decisions.length > review.decisionCount
+    || plan.actions.some(({ sourceSpanId }) => typeof sourceSpanId !== 'string' || !sourceSpanIdPattern.test(sourceSpanId))
+    || new Set(plan.actions.map(({ sourceSpanId }) => sourceSpanId)).size !== plan.actions.length
+  ) fail('BINDING_MISMATCH');
+  const actionsBySpan = new Map(plan.actions.map((action) => [action.sourceSpanId, action]));
+  const seen = new Set<string>();
+  let priorEnd = -1;
+  for (const decision of review.decisions) {
+    const runtimeAction = (decision as unknown as { readonly action?: unknown }).action;
+    if (
+      typeof runtimeAction !== 'string' || !['ACCEPT', 'REJECT', 'RETYPE'].includes(runtimeAction)
+      || !sourceSpanIdPattern.test(decision.sourceSpanId) || seen.has(decision.sourceSpanId)
+      || !Number.isSafeInteger(decision.start) || !Number.isSafeInteger(decision.end)
+      || decision.start < 0 || decision.end <= decision.start || decision.end > sourceLength || decision.start < priorEnd
+      || !entityTypes.includes(decision.entityType)
+    ) fail('BINDING_MISMATCH');
+    const action = actionsBySpan.get(decision.sourceSpanId);
+    if (decision.action === 'REJECT') {
+      if (
+        action !== undefined || decision.reviewedEntityType !== undefined
+        || plan.actions.some((candidate) => candidate.start < decision.end && candidate.end > decision.start)
+      ) fail('BINDING_MISMATCH');
+    } else {
+      const expectedType = decision.action === 'RETYPE' ? decision.reviewedEntityType : decision.entityType;
+      if (
+        action === undefined || action.start !== decision.start || action.end !== decision.end
+        || action.entityType !== expectedType
+        || (decision.action === 'ACCEPT' && decision.reviewedEntityType !== undefined)
+      ) fail('BINDING_MISMATCH');
+    }
+    seen.add(decision.sourceSpanId);
+    priorEnd = decision.end;
+  }
+}
+
+function permittedReviewedResiduals(plan: IndependentDocxPlanBinding): ReadonlySet<string> {
+  const allowed = new Set<string>();
+  if (plan.review === undefined) return allowed;
+  const actions = [...plan.actions].sort((left, right) => left.start - right.start);
+  for (const decision of plan.review.decisions) {
+    if (decision.action !== 'REJECT') continue;
+    let delta = 0;
+    for (const action of actions) {
+      if (action.end > decision.start) break;
+      delta += unicodeCodePointLength(action.replacement) - (action.end - action.start);
+    }
+    const start = decision.start + delta;
+    allowed.add(`${decision.entityType}:${String(start)}:${String(start + decision.end - decision.start)}`);
+  }
+  return allowed;
+}
+
+function validateApplicationBinding(request: IndependentDocxVerificationRequest): void {
+  const binding = request.applicationBinding;
+  if (
+    !validDigest(binding.capabilityDigest) || binding.capabilityDigest !== request.plan.capabilityDigest
+    || !validComponent(binding.writer) || !validComponent(binding.application)
+    || binding.writer.id !== request.plan.writer.id || binding.writer.version !== request.plan.writer.version
+    || !componentIdPattern.test(binding.policy.id) || !versionPattern.test(binding.policy.version)
+    || !validDigest(binding.policy.digest) || !['LOW', 'MODERATE', 'HIGH'].includes(binding.policy.riskTier)
+    || binding.policy.id !== request.plan.policy.id || binding.policy.version !== request.plan.policy.version
+    || binding.policy.digest !== request.plan.policy.digest || binding.policy.riskTier !== request.plan.policy.riskTier
+    || (binding as unknown as { readonly outputMediaType?: unknown }).outputMediaType !== docxMediaType
+    || !isRfc3339DateTime(binding.startedAt) || !isRfc3339DateTime(binding.completedAt)
+    || Date.parse(binding.completedAt) < Date.parse(binding.startedAt)
+  ) fail('BINDING_MISMATCH');
+}
+
+function computeSuppliedPlanSemanticsDigest(plan: IndependentDocxPlanBinding): Sha256Digest {
+  const fields = [
+    'local-pii:supplied-docx-plan-semantics:v1', plan.id, plan.digest, plan.inputDigest,
+    plan.extractionRevision, plan.capabilityDigest, plan.policy.id, plan.policy.version, plan.policy.digest,
+    plan.policy.riskTier, plan.writer.id, plan.writer.version, String(plan.expectedActionCount)
+  ];
+  for (const action of plan.actions) {
+    fields.push(
+      action.id, action.sourceSpanId ?? '', action.entityType, String(action.start), String(action.end), action.replacement
+    );
+  }
+  if (plan.review === undefined) fields.push('NO_REVIEW');
+  else {
+    fields.push(
+      'REVIEW', plan.review.extractionRevision, String(plan.review.revision), String(plan.review.decisionCount), plan.review.digest
+    );
+    for (const decision of plan.review.decisions) {
+      fields.push(
+        decision.sourceSpanId, decision.action, decision.entityType, decision.reviewedEntityType ?? '',
+        String(decision.start), String(decision.end)
+      );
+    }
+  }
+  const hash = createHash('sha256');
+  for (const field of fields) hash.update(String(Buffer.byteLength(field, 'utf8'))).update(':').update(field);
+  return parseSha256Digest(`sha256:${hash.digest('hex')}`);
+}
+
+function computeSuppliedApplicationBindingDigest(
+  request: IndependentDocxVerificationRequest,
+  inputDigest: Sha256Digest,
+  outputDigest: Sha256Digest,
+  outputExtractionRevision: Sha256Digest
+): Sha256Digest {
+  const binding = request.applicationBinding;
+  const fields = [
+    'local-pii:docx-application-binding:v1', inputDigest, String(request.inputBytes.byteLength),
+    outputDigest, String(request.outputBytes.byteLength), binding.outputMediaType, outputExtractionRevision,
+    request.plan.id, request.plan.digest, computeSuppliedPlanSemanticsDigest(request.plan),
+    binding.capabilityDigest, binding.policy.id, binding.policy.version,
+    binding.policy.digest, binding.policy.riskTier, request.writerReceipt.receiptDigest,
+    binding.writer.id, binding.writer.version, binding.writer.digest,
+    binding.application.id, binding.application.version, binding.application.digest,
+    binding.startedAt, binding.completedAt
+  ];
+  const hash = createHash('sha256');
+  for (const field of fields) hash.update(String(Buffer.byteLength(field, 'utf8'))).update(':').update(field);
+  return parseSha256Digest(`sha256:${hash.digest('hex')}`);
+}
+
 function validateBindings(request: IndependentDocxVerificationRequest, inputDigest: Sha256Digest, outputDigest: Sha256Digest): void {
   const { plan, writerReceipt: receipt } = request;
   if (
-    plan.inputDigest !== inputDigest || plan.expectedActionCount !== plan.actions.length
+    !planIdPattern.test(plan.id) || !validDigest(plan.digest) || !validDigest(plan.extractionRevision)
+    || !validDigest(plan.capabilityDigest) || plan.inputDigest !== inputDigest
+    || plan.expectedActionCount !== plan.actions.length
     || plan.actions.length > maximumActions || new Set(plan.actions.map(({ id }) => id)).size !== plan.actions.length
-    || plan.actions.some(({ id, start, end, replacement }, index) => {
+    || plan.actions.some(({ id, entityType, start, end, replacement }, index) => {
       const previous = index === 0 ? undefined : plan.actions.at(index - 1);
       return !actionIdPattern.test(id) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end)
-        || start < 0 || end <= start || typeof replacement !== 'string'
+        || start < 0 || end <= start || typeof replacement !== 'string' || !entityTypes.includes(entityType)
         || (index > 0 && (previous === undefined || start < previous.end));
     })
     || (receipt as unknown as { readonly schemaVersion?: unknown }).schemaVersion !== '1.0.0'
     || receipt.planDigest !== plan.digest || receipt.stagedDigest !== outputDigest
+    || !validDigest(receipt.planDigest) || !validDigest(receipt.stagedDigest) || !validDigest(receipt.receiptDigest)
     || receipt.stagedByteLength !== request.outputBytes.byteLength || receipt.writer.id !== plan.writer.id || receipt.writer.version !== plan.writer.version
     || receipt.expectedActionCount !== plan.expectedActionCount || receipt.appliedActionCount !== plan.actions.length
     || receipt.appliedActionIds.length !== plan.actions.length || receipt.appliedActionIds.some((id, index) => id !== plan.actions[index]?.id)
@@ -662,6 +1058,8 @@ function validateBindings(request: IndependentDocxVerificationRequest, inputDige
   } catch {
     fail('BINDING_MISMATCH');
   }
+  validateReviewBinding(plan, unicodeCodePointLength(request.sourceCanonicalText));
+  validateApplicationBinding(request);
 }
 
 function expectedRegionValue(value: string, region: CanonicalRegion, actions: readonly IndependentDocxPlanBinding['actions'][number][]): string {
@@ -709,12 +1107,14 @@ function expectedParagraphCarrierValues(
 function report(
   outcome: IndependentDocxVerificationFoundation['outcome'],
   findings: IndependentDocxVerificationFoundation['findings'],
-  counts: Partial<Pick<IndependentDocxVerificationFoundation, 'inputEntryCount' | 'outputEntryCount' | 'retainedRegionCount' | 'genericCarrierCount' | 'expectedActionCount' | 'appliedActionCount'>> = {}
+  counts: Partial<Pick<IndependentDocxVerificationFoundation, 'inputEntryCount' | 'outputEntryCount' | 'retainedRegionCount' | 'classifiedRegionCount' | 'genericCarrierCount' | 'expectedActionCount' | 'appliedActionCount' | 'reviewedResidualCount'>> = {},
+  applicationBindingDigest?: Sha256Digest
 ): IndependentDocxVerificationFoundation {
   return Object.freeze({
     outcome,
     checks: Object.freeze([
       'INDEPENDENT_ZIP_INVENTORY', 'INDEPENDENT_CONTENT_TYPE_GRAPH', 'INDEPENDENT_RELATIONSHIP_GRAPH',
+      'INDEPENDENT_SOURCE_CARRIER_CLASSIFICATION', 'INDEPENDENT_EXTRACTION_REVISION',
       'GENERIC_XML_CARRIER_ENUMERATION', 'SUPPLIED_NATIVE_REGION_RECONCILIATION',
       'ACTION_RECEIPT_RECONCILIATION', 'INDEPENDENT_RESIDUAL_SCAN'
     ] as const),
@@ -722,9 +1122,13 @@ function report(
     inputEntryCount: counts.inputEntryCount ?? 0,
     outputEntryCount: counts.outputEntryCount ?? 0,
     retainedRegionCount: counts.retainedRegionCount ?? 0,
+    classifiedRegionCount: counts.classifiedRegionCount ?? 0,
     genericCarrierCount: counts.genericCarrierCount ?? 0,
     expectedActionCount: counts.expectedActionCount ?? 0,
     appliedActionCount: counts.appliedActionCount ?? 0,
+    reviewedResidualCount: counts.reviewedResidualCount ?? 0,
+    suppliedApplicationInputsBound: applicationBindingDigest !== undefined,
+    ...(applicationBindingDigest === undefined ? {} : { suppliedApplicationBindingDigest: applicationBindingDigest }),
     independentParser: true,
     fidelityVerified: false,
     authorizesPublication: false
@@ -734,8 +1138,10 @@ function report(
 /**
  * Independently parses and reconciles a strict DOCX input/output pair without
  * importing or invoking the DOCX adapter. This is a non-authorizing foundation:
- * renderer fidelity, sandboxing, malicious-corpus qualification, and a bound
- * application attestation remain mandatory before DOCX publication can be enabled.
+ * it binds a privacy-safe digest of supplied inputs relevant to a future
+ * application attestation, but does not independently prove the compiled plan
+ * identity or emit that attestation. Renderer fidelity, sandboxing, and
+ * malicious-corpus qualification remain mandatory before publication can be enabled.
  */
 export function verifyIndependentDocxFoundation(request: IndependentDocxVerificationRequest): IndependentDocxVerificationFoundation {
   const counts = {
@@ -749,7 +1155,12 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
     validateBindings(request, inputDigest, outputDigest);
     const input = parsePackage(request.inputBytes);
     const output = parsePackage(request.outputBytes);
-    const detailedCounts = { ...counts, inputEntryCount: input.entries.length, outputEntryCount: output.entries.length, genericCarrierCount: output.carriers.length };
+    const classified = classifySource(input);
+    validateClassification(request, classified);
+    const detailedCounts = {
+      ...counts, inputEntryCount: input.entries.length, outputEntryCount: output.entries.length,
+      genericCarrierCount: output.carriers.length, classifiedRegionCount: classified.regions.length
+    };
     if (
       input.entries.length !== output.entries.length
       || input.entries.some((entry, index) => {
@@ -800,6 +1211,14 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
       if (outputEntry === undefined) fail('PACKAGE_INVENTORY_CHANGED');
       if (!input.xml.has(entry.name) && !entry.contents.equals(outputEntry.contents)) fail('UNPLANNED_NATIVE_DELTA');
     }
+    const outputClassified = classifySource(output);
+    if (
+      outputClassified.regions.length !== classified.regions.length
+      || classified.regions.some((region, index) => {
+        const candidate = outputClassified.regions[index];
+        return candidate === undefined || locationIdentity(candidate.location) !== locationIdentity(region.location);
+      })
+    ) fail('CARRIER_CLASSIFICATION_MISMATCH');
     const paragraphCarrierIds = new Set(output.paragraphs.flatMap(({ carrierIds }) => carrierIds));
     const retainedValues = [
       ...output.paragraphs.map(({ value }) => value),
@@ -815,14 +1234,36 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
     }
     const findings: Array<{ readonly code: IndependentDocxFindingCode; readonly count: number; readonly entityType?: EntityType }> = [];
     if (canaryCount > 0) findings.push({ code: 'RESIDUAL_SOURCE_CANARY', count: canaryCount });
-    const rescannedText = retainedValues.join(boundary);
-    const evidence = detectDeterministic(rescannedText, outputDigest);
-    const resolution = resolveEvidence(evidence, outputDigest, unicodeCodePointLength(rescannedText));
+    const evidence = detectDeterministic(outputClassified.canonicalText, outputClassified.extractionRevision);
+    const resolution = resolveEvidence(evidence, outputClassified.extractionRevision, unicodeCodePointLength(outputClassified.canonicalText));
     if (resolution.conflicts.length > 0) fail('VERIFIER_INCOMPLETE');
+    const permittedResiduals = permittedReviewedResiduals(request.plan);
     const byEntity = new Map<EntityType, number>();
-    for (const span of resolution.spans) byEntity.set(span.entityType, (byEntity.get(span.entityType) ?? 0) + 1);
+    let reviewedResidualCount = 0;
+    for (const span of resolution.spans) {
+      if (permittedResiduals.has(`${span.entityType}:${String(span.start)}:${String(span.end)}`)) {
+        reviewedResidualCount += 1;
+        continue;
+      }
+      byEntity.set(span.entityType, (byEntity.get(span.entityType) ?? 0) + 1);
+    }
+    const qualifiedCarrierIds = new Set(outputRegions.flatMap(({ carrierIds }) => carrierIds));
+    const extraValues = output.carriers.filter(({ id }) => !qualifiedCarrierIds.has(id)).map(({ value }) => value);
+    if (extraValues.length > 0) {
+      const extraText = extraValues.join(boundary);
+      const extraEvidence = detectDeterministic(extraText, outputClassified.extractionRevision);
+      const extraResolution = resolveEvidence(extraEvidence, outputClassified.extractionRevision, unicodeCodePointLength(extraText));
+      if (extraResolution.conflicts.length > 0) fail('VERIFIER_INCOMPLETE');
+      for (const span of extraResolution.spans) byEntity.set(span.entityType, (byEntity.get(span.entityType) ?? 0) + 1);
+    }
     for (const [entityType, count] of byEntity) findings.push({ code: 'RESIDUAL_ENTITY', count, entityType });
-    return report(findings.length === 0 ? 'RECONCILED_SUPPLIED_REGIONS' : 'FAIL', findings, detailedCounts);
+    const bindingDigest = computeSuppliedApplicationBindingDigest(request, inputDigest, outputDigest, outputClassified.extractionRevision);
+    return report(
+      findings.length === 0 ? 'RECONCILED_SUPPLIED_REGIONS' : 'FAIL',
+      findings,
+      { ...detailedCounts, reviewedResidualCount },
+      bindingDigest
+    );
   } catch (error: unknown) {
     const code = error instanceof VerificationFailure ? error.code : 'VERIFIER_INCOMPLETE';
     return report(code === 'RESIDUAL_SOURCE_CANARY' || code === 'RESIDUAL_ENTITY' ? 'FAIL' : 'INCOMPLETE', [{ code, count: 1 }], counts);

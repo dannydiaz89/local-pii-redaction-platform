@@ -23,9 +23,16 @@ The capability descriptor therefore continues to advertise only probe, inspect, 
 `@local-pii/verification` now contains a separate-parser, no-write DOCX reconciliation foundation.
 It is complementary evidence only: it independently parses bounded ZIP/XML graphs, enumerates generic
 retained carriers, checks exact declared native deltas and writer-receipt binding, and performs canary
-and deterministic residual scans. It explicitly cannot authorize publication because complete
-independent accepted-carrier classification, extraction-revision reproduction, application attestation,
-review semantics, renderer fidelity, sandboxing, and malicious-corpus qualification remain open.
+and deterministic residual scans. For inputs already accepted by this adapter, it now independently
+reconstructs the complete frozen paragraph, relationship, and XML-value source-carrier order/map and
+reproduces `docx-extraction:v3`, so omitted source carriers and forged revisions fail closed. It
+also permits an exact rejected reviewed residual only at its action-adjusted canonical output location
+and emits a privacy-safe digest over the supplied future application-attestation inputs and plan/review
+semantics. It does not independently recompute the compiled plan identity. That digest is not an
+attestation, does not authenticate the caller-supplied review decisions, and cannot authorize
+publication. Complete feature-grammar and malicious-corpus
+qualification, canonical application attestation/profile integration, renderer fidelity, and
+sandboxing remain open.
 
 Hard limits currently include 25 MiB compressed input, 256 ZIP entries, 50 MiB total expanded content, 10 MiB per entry, 100× maximum compression ratio, 100,000 text nodes, 50,000 paragraphs, 10,000 XML/relationship carrier regions, 2,048 code points per carrier, 10 million canonical code points, and 100,000 plan actions. Parsing is bounded but whole-document.
 

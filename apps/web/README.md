@@ -15,7 +15,7 @@ Accessible, localized React shell for the future local review workflow.
   automatic policy, and offers keyboard-focus movement between unreviewed rows on the current page.
 - Prevents server-page changes from carrying an unbounded draft batch; the reviewer must save or
   explicitly discard current unsaved decisions before moving pages.
-- Keeps exact detected text hidden by default and reveals only the bounded current-page matches from
+- Keeps exact detected text hidden by default and reveals only bounded TXT/Markdown current-page matches from
   the user-selected local file after an explicit action; cleartext never enters API JSON, review
   history, logs, or browser persistence.
 - Lets the reviewer explicitly open one bounded local source excerpt at a time, highlights the
@@ -35,7 +35,7 @@ Accessible, localized React shell for the future local review workflow.
 
 ## Current scope
 
-The application accepts a TXT or Markdown file up to 8 MiB, sends only its raw bytes to the
+The application accepts a TXT, Markdown, JSON, or CSV file up to 8 MiB, sends only its raw bytes to the
 same-origin numeric-loopback API, and creates a session-only artifact and real scan job. The
 SDK must first accept the server's canonical `1.0.0` capability envelope and advertised format
 limits; an absent or incompatible negotiation fails before artifact upload. The
@@ -44,11 +44,13 @@ Artifact/job metadata and value-free results disappear when the application clos
 to 100 detection rows exposes category, one-based Unicode code-point location, detector confidence,
 and evidence-source labels from the server. Up to 100 conflict rows expose only range, possible
 categories, and source labels. Matched values and evidence IDs are never returned by the API. The
-browser may explicitly reveal the exact current-page matches by deriving them from the already-
-selected local file. From a revealed row it can show at most 80 Unicode code points before and 120
+browser may explicitly reveal exact TXT/Markdown current-page matches by deriving them from the already-
+selected local file. JSON/CSV value and source-context reveal remains disabled because canonical
+structured offsets do not address raw-file text. From a revealed row it can show at most 80 Unicode code points before and 120
 after that match in an escaped, focusable source-context region. It retains only those bounded
 strings until they are hidden, closed, or the page/file changes. After a conflict-free scan, one action creates and verifies a redacted copy, then shows a
-bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code points. The user
+bounded, keyboard-scrollable plain-text preview of at most 4,096 Unicode code points. JSON/CSV are
+shown only through that escaped plain-text derived-output view, not a format-aware renderer. The user
 explicitly downloads the complete output after reviewing that preview. It may
 contain sensitive values a detector missed, so pipeline verification is not presented as proof that
 the document is safe. Its temporary Blob URL is page-local and the server output exists only for the

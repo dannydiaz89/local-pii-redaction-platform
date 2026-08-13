@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-pii.dev/schemas/common/native-location/4.0.0",
+  "title": "Native structured location v4",
+  "description": "An append-only, value-free native location, including a bounded PDF Info or XMP metadata value.",
+  "schemaVersion": "4.0.0",
+  "oneOf": [
+    { "$ref": "https://local-pii.dev/schemas/common/native-location/3.0.0" },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "carrier", "object", "field", "occurrence"],
+      "properties": {
+        "schemaVersion": { "const": "4.0.0" },
+        "kind": { "const": "PDF_METADATA_VALUE" },
+        "carrier": { "enum": ["INFO", "XMP"] },
+        "object": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "field": {
+          "enum": [
+            "TITLE", "AUTHOR", "SUBJECT", "KEYWORDS", "CREATOR", "PRODUCER",
+            "CREATION_DATE", "MODIFICATION_DATE", "TRAPPED", "XMP_TOOLKIT",
+            "DC_FORMAT", "DC_TITLE", "DC_CREATOR", "DC_DESCRIPTION", "DC_SUBJECT",
+            "DC_DATE", "XMP_CREATOR_TOOL", "XMP_CREATE_DATE", "XMP_MODIFY_DATE",
+            "XMP_METADATA_DATE", "PDF_PRODUCER", "PDF_KEYWORDS", "PDF_VERSION", "XML_LANGUAGE"
+          ]
+        },
+        "occurrence": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+      }
+    }
+  ],
+  "examples": [
+    { "schemaVersion": "3.0.0", "kind": "PDF_TEXT_ITEM", "page": 1, "pageObject": 4, "contentObject": 5, "fontObject": 3, "textItem": 1, "glyphCount": 4 },
+    { "schemaVersion": "4.0.0", "kind": "PDF_METADATA_VALUE", "carrier": "INFO", "object": 6, "field": "AUTHOR", "occurrence": 1 }
+  ]
+}

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   localPreviewMaximumConflictDetails,
   localPreviewMaximumDetectionDetails,
+  localPreviewMaximumInputBytes,
   type JobsPreviewReviewReportV2Contract,
   type JobsPreviewScanReportContract
 } from '@local-pii/contracts';
@@ -96,9 +97,13 @@ export function scanLocalTextBytes(
 ): Promise<TextScanResult> {
   signal?.throwIfAborted();
   const artifact = decodeLocalTextArtifact(bytes, format, context.correlationId);
+  const requirement = {
+    ...textCapabilityRequirement('SCAN'),
+    maximumInputBytes: localPreviewMaximumInputBytes
+  };
   return application.scan({
     session: { input: () => Promise.resolve(artifact) },
-    requirement: textCapabilityRequirement('SCAN'),
+    requirement,
     ...(signal === undefined ? {} : { signal })
   }, context);
 }

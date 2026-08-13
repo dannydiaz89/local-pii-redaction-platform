@@ -169,6 +169,7 @@ function supportedFiles(
   formats: readonly unknown[],
   globalMaximumInputBytes: number
 ): readonly SupportedFileFormat[] {
+  const transportedExtensions: ReadonlySet<string> = new Set(['.txt', '.md', '.markdown', '.json', '.csv']);
   const effectiveGlobalMaximumInputBytes = Math.min(globalMaximumInputBytes, localClientMaximumInputBytes);
   const limits = new Map<string, { maximumInputBytes: number; supportsRedaction: boolean }>();
   for (const format of formats) {
@@ -189,6 +190,7 @@ function supportedFiles(
       if (typeof extension !== 'string' || !/^\.[a-z0-9]{1,16}$/u.test(extension)) {
         throw new Error('CAPABILITY_RESPONSE_INVALID');
       }
+      if (!transportedExtensions.has(extension)) continue;
       const current = limits.get(extension);
       limits.set(extension, {
         maximumInputBytes: Math.min(

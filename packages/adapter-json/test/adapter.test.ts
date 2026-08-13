@@ -8,7 +8,9 @@ import { parseSha256Digest, unicodeCodePointLength, type EntityType } from '@loc
 import { compileTypedLabelPlan } from '@local-pii/redaction';
 
 import {
+  createEphemeralJsonArtifactSession,
   createLocalJsonArtifactSession,
+  decodeJsonArtifactBytes,
   jsonWriterDescriptor,
   readJsonArtifact,
   type JsonArtifact
@@ -67,6 +69,21 @@ function codePointOffsetOf(text: string, value: string): number {
 }
 
 describe('JSON adapter extraction', () => {
+  it('uses native process-local stage, reopen, publish, and disposal without normalizing untouched JSON', async () => {
+    const raw = '{\n  "contact": "alpha@example.test",\n  "kept": true\n}\n';
+    const source = decodeJsonArtifactBytes(Buffer.from(raw, 'utf8'));
+    const start = codePointOffsetOf(source.text, 'alpha@example.test');
+    const handle = createEphemeralJsonArtifactSession(source, 1024);
+    const staged = await handle.session.stage(planFor(source, [{ start, end: start + 18 }]));
+    expect((await handle.session.reopen(staged)).text).toContain('[EMAIL_1]');
+    await handle.session.publish(staged);
+    expect(Buffer.from(handle.publishedBytes() ?? []).toString('utf8')).toBe(
+      '{\n  "contact": "[EMAIL_1]",\n  "kept": true\n}\n'
+    );
+    handle.dispose();
+    expect(handle.publishedBytes()).toBeUndefined();
+  });
+
   it('extracts only string values in document order and leaves input bytes and metadata unchanged', async () => {
     const raw = '{\n  "key@example.test": "alpha@example.test",\n  "nested": [42, true, null, "☎️ +1 202-555-0147"],\n  "a/b~c": {"label": "safe"}\n}\n';
     const path = await jsonFile(raw);

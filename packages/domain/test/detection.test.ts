@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isNativeLocationV1, isNativeLocationV2, isNativeLocationV3, nativeLocationIdentity } from '../src/index.js';
+import { isNativeLocationV1, isNativeLocationV2, isNativeLocationV3, isNativeLocationV4, nativeLocationIdentity } from '../src/index.js';
 
 describe('typed native locations', () => {
   it('accepts bounded JSON Pointer, CSV cell, and DOCX paragraph locations', () => {
@@ -69,6 +69,18 @@ describe('typed native locations', () => {
     expect(nativeLocationIdentity(location)).toBe('PDF_TEXT_ITEM\0' + ['1', '4', '5', '3', '2', '17'].join('\0'));
     expect(isNativeLocationV3({ ...location, value: 'forbidden' })).toBe(false);
     expect(isNativeLocationV3({ ...location, glyphCount: 0 })).toBe(false);
+  });
+
+  it('accepts only closed value-free PDF metadata coordinates in v4', () => {
+    const location = {
+      schemaVersion: '4.0.0' as const, kind: 'PDF_METADATA_VALUE' as const, carrier: 'XMP' as const,
+      object: 7, field: 'DC_CREATOR' as const, occurrence: 1
+    };
+    expect(isNativeLocationV4(location)).toBe(true);
+    expect(isNativeLocationV3(location)).toBe(false);
+    expect(nativeLocationIdentity(location)).toBe('PDF_METADATA_VALUE\0' + ['XMP', '7', 'DC_CREATOR', '1'].join('\0'));
+    expect(isNativeLocationV4({ ...location, value: 'forbidden' })).toBe(false);
+    expect(isNativeLocationV4({ ...location, field: 'UNKNOWN' })).toBe(false);
   });
 
   it.each([

@@ -3,6 +3,7 @@ import {
   isNativeLocationV1,
   isNativeLocationV2,
   isNativeLocationV3,
+  isNativeLocationV4,
   nativeLocationIdentity,
   parseCorrelationId,
   parseSha256Digest,
@@ -172,7 +173,8 @@ function validatedRegions(
       (Object.keys(candidate).length !== 6 && Object.keys(candidate).length !== 7)
       || (candidate.schemaVersion !== '1.0.0'
         && candidate.schemaVersion !== '2.0.0'
-        && candidate.schemaVersion !== '3.0.0')
+        && candidate.schemaVersion !== '3.0.0'
+        && candidate.schemaVersion !== '4.0.0')
       || candidate.offsetUnit !== 'UNICODE_CODE_POINT'
       || candidate.role !== 'VALUE'
       || !Number.isSafeInteger(candidate.start)
@@ -182,9 +184,10 @@ function validatedRegions(
       || (candidate.end as number) > textLength
     ) return sourceMapInvalid(requestCorrelationId);
     const location = candidate.location;
-    if (!isNativeLocationV3(location)
+    if (!isNativeLocationV4(location)
       || (candidate.schemaVersion === '1.0.0' && !isNativeLocationV1(location))
-      || (candidate.schemaVersion === '2.0.0' && !isNativeLocationV2(location))) {
+      || (candidate.schemaVersion === '2.0.0' && !isNativeLocationV2(location))
+      || (candidate.schemaVersion === '3.0.0' && !isNativeLocationV3(location))) {
       return sourceMapInvalid(requestCorrelationId);
     }
     if (location.kind === 'PDF_TEXT_ITEM'

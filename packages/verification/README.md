@@ -14,7 +14,10 @@ including canonical string-value text reopened from native JSON.
 - Publishes the current text verification capability descriptor.
 - Provides a non-authorizing independent DOCX foundation that owns a strict bounded ZIP/XML parser,
   validates package inventory and content-type/relationship graphs, enumerates retained XML carriers,
-  reconciles exact native per-carrier plan/receipt deltas, and performs privacy-safe residual scans.
+  for adapter-supplied accepted inputs, reconstructs the complete frozen canonical source-carrier/map
+  order, reproduces the v3 extraction revision across fragmented run nodes, reconciles exact native
+  per-carrier plan/receipt deltas, permits only exact action-adjusted rejected-review residuals, binds
+  privacy-safe supplied application-attestation inputs, and performs privacy-safe residual scans.
 
 ## Boundary
 
@@ -23,9 +26,16 @@ or guarantee that every possible form of PII was detected.
 
 The independent DOCX function is deliberately not the public `docx-redact-v1` verifier. It does not
 call or import the DOCX adapter and has no filesystem side effects, but it also does not yet reproduce
-the extraction revision, independently prove that the caller declared every adapter-qualified carrier,
-apply reviewed-residual exceptions, produce a core-bound verification attestation, or prove Office
-renderer fidelity. Its result always has `authorizesPublication: false` and `fidelityVerified: false`.
+the adapter's complete feature-grammar validation or malicious-input qualification. It does prove that
+for an adapter-supplied accepted input, the caller declared every carrier in the frozen source-carrier
+taxonomy and that the v3 extraction revision matches. Exact rejected review decisions are supported,
+and successful or residual-failure results expose only a digest of the supplied application inputs
+and complete supplied plan/review semantics. The foundation does not independently recompute the
+compiled plan identity, so the digest binds the supplied review decisions without authenticating
+that they came from the plan compiled by the application.
+That digest is deliberately not a canonical v2 verification attestation: the function still cannot
+produce a core-bound DOCX attestation or prove Office renderer fidelity. Its result always has
+`authorizesPublication: false` and `fidelityVerified: false`.
 
 ```sh
 pnpm --filter @local-pii/verification build

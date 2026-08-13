@@ -290,11 +290,17 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     ? scan.summary.details.filter(({ entityType }) => detectionFilter === 'ALL' || entityType === detectionFilter)
     : [];
   const detectionDetails = scan.kind === 'complete' ? scan.summary.details : undefined;
+  const selectedExtension = selectedFile === undefined
+    ? ''
+    : selectedFile.name.slice(Math.max(0, selectedFile.name.lastIndexOf('.'))).toLowerCase();
+  const canRevealDetectedText = selectedExtension === '.txt'
+    || selectedExtension === '.md'
+    || selectedExtension === '.markdown';
 
   useEffect(() => {
     sourceContextController.current?.abort();
     setSourceContext({ kind: 'idle' });
-    if (!showDetectedText || selectedFile === undefined || detectionDetails === undefined) {
+    if (!canRevealDetectedText || !showDetectedText || selectedFile === undefined || detectionDetails === undefined) {
       setDetectedText({ kind: 'idle' });
       return;
     }
@@ -309,10 +315,10 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
       }
     );
     return () => { controller.abort(); };
-  }, [detectionDetails, selectedFile, showDetectedText]);
+  }, [canRevealDetectedText, detectionDetails, selectedFile, showDetectedText]);
 
   const showSourceContext = (detail: JobDetectionSummary): void => {
-    if (selectedFile === undefined || !showDetectedText) return;
+    if (selectedFile === undefined || !canRevealDetectedText || !showDetectedText) return;
     const controller = new AbortController();
     sourceContextController.current?.abort();
     sourceContextController.current = controller;
@@ -616,16 +622,18 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         <div className="preview-review-heading">
                           <h3 id="preview-details-heading">{t('preview.details')}</h3>
                           <div className="preview-review-controls">
-                            <Button
-                              aria-pressed={showDetectedText}
-                              onClick={() => {
-                                if (showDetectedText) {
-                                  sourceContextController.current?.abort();
-                                  setSourceContext({ kind: 'idle' });
-                                }
-                                setShowDetectedText((visible) => !visible);
-                              }}
-                            >{showDetectedText ? t('review.hideDetectedText') : t('review.showDetectedText')}</Button>
+                            {canRevealDetectedText ? (
+                              <Button
+                                aria-pressed={showDetectedText}
+                                onClick={() => {
+                                  if (showDetectedText) {
+                                    sourceContextController.current?.abort();
+                                    setSourceContext({ kind: 'idle' });
+                                  }
+                                  setShowDetectedText((visible) => !visible);
+                                }}
+                              >{showDetectedText ? t('review.hideDetectedText') : t('review.showDetectedText')}</Button>
+                            ) : null}
                             <div className="preview-filter">
                               <label htmlFor="detection-filter">{t('preview.filter')}</label>
                               <select
@@ -646,6 +654,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             </div>
                           </div>
                         </div>
+                        {canRevealDetectedText ? null : (
+                          <Callout>{t('review.structuredRevealUnavailable')}</Callout>
+                        )}
                         {reviewProgress === undefined ? null : (
                           <section className="review-progress" aria-labelledby="review-progress-title">
                             <h4 id="review-progress-title">{t('review.progressTitle')}</h4>
@@ -743,7 +754,9 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                 return (
                                 <tr key={detail.id}>
                                   <th scope="row">{t(entityMessage(detail.entityType))}</th>
-                                  <td className="detected-text-cell">{!showDetectedText
+                                  <td className="detected-text-cell">{!canRevealDetectedText
+                                    ? t('review.detectedTextUnavailable')
+                                    : !showDetectedText
                                     ? t('review.detectedTextHidden')
                                     : detectedText.kind === 'loading'
                                       ? t('review.detectedTextLoading')

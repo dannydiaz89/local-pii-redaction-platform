@@ -37,10 +37,11 @@ function readyClient(): CapabilityClient {
       schemaVersion: '1.0.0',
       supportedContractVersions: ['1.0.0'],
       engineMode: 'RULES_ONLY',
-      formatCount: 2,
+      formatCount: 3,
       availableDetectorCount: 1,
       maximumInputBytes: 104_857_600,
       supportedFiles: [
+        { extension: '.json', maximumInputBytes: 104_857_600, supportsRedaction: true },
         { extension: '.markdown', maximumInputBytes: 104_857_600, supportsRedaction: true },
         { extension: '.md', maximumInputBytes: 104_857_600, supportsRedaction: true },
         { extension: '.txt', maximumInputBytes: 104_857_600, supportsRedaction: true }
@@ -211,6 +212,27 @@ describe('web application foundation', () => {
     await waitFor(() => { expect(screen.queryByText('preview-canary@example.test')).toBeNull(); });
     expect(screen.queryByRole('heading', { name: 'Source context' })).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it('admits JSON while keeping raw detected text and source context unavailable', async () => {
+    const user = userEvent.setup();
+    render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
+    await screen.findByText('Local engine is ready');
+    const selected = new File(['{"contact":"structured@example.test"}'], 'private-source.json', {
+      type: 'application/json'
+    });
+    const localRead = vi.spyOn(selected, 'arrayBuffer');
+    await user.upload(screen.getByLabelText('Document file'), selected);
+    expect(screen.getByText(/JSON file.+passes the local preflight checks/u)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Scan locally' }));
+    expect(await screen.findByText('1 potential item found.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Show detected text' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'View source context' })).toBeNull();
+    expect(screen.getByText(/Detected text and source context stay hidden for JSON and CSV/u)).toBeTruthy();
+    expect(screen.getByText('Unavailable')).toBeTruthy();
+    expect(localRead).not.toHaveBeenCalled();
+    expect(screen.queryByText('structured@example.test')).toBeNull();
+    expect(screen.queryByText('private-source.json')).toBeNull();
   });
 
   it('renders an escaped verified preview before offering the download', async () => {

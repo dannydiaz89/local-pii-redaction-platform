@@ -197,7 +197,7 @@ fresh declaration-emit baseline make every public runtime or type change an expl
 review without claiming that this private package is already published or semantically versioned.
 The same typed client discovers the pinned policy catalog, creates a
 process-local artifact and real asynchronous rules-scan job, observes its state/events, and requests
-value-free detection pages. Once connected, document intake admits TXT/Markdown files up to 8 MiB.
+value-free detection pages. Once connected, document intake admits TXT/Markdown, JSON, and CSV files up to 8 MiB.
 The UI displays the server-owned completion state/event count plus aggregate categories and a
 native, filterable detection table with server-owned 100-row page controls. Up to 100 unresolved
 conflict locations remain visible in a separate native table. Wide tables remain
@@ -209,13 +209,15 @@ against the full detection total and states explicitly that detections without a
 still follow the automatic policy. Previous/next unresolved controls move keyboard focus among the
 visible filtered rows, and server-page changes are blocked until drafts are saved or explicitly
 discarded. The detection table keeps matched
-text hidden by default. An explicit reveal reads only the bounded matches for the current page from
+text hidden by default. For TXT/Markdown, an explicit reveal reads only the bounded matches for the current page from
 the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
 never added to an API response or review record and is released from UI state when hidden, the page
 changes, or the file changes. A reviewer can then open one escaped source-context excerpt at a time:
 at most 80 Unicode code points before and 120 after the selected match, with the match highlighted
 and keyboard focus moved into the excerpt. Context is also local-only and cleared when closed or
-when its owning page/file changes; JavaScript strings cannot be reliably zeroized. For a conflict-free completed scan
+when its owning page/file changes; JavaScript strings cannot be reliably zeroized. JSON/CSV reveal
+and source context stay disabled because canonical structured offsets are not raw-file offsets and
+native locations remain private. For a conflict-free completed scan
 with an exact current review set, the UI can start a second process-local job that applies the
 selected pinned policy plus saved accept/reject/retype decisions, reopens and verifies the derived
 bytes, and shows an escaped plain-text preview only after the server reaches `VERIFIED`. The original
@@ -287,9 +289,9 @@ scanned nor transformed. A redaction action must fit wholly inside one value; cr
 boundary fails closed. Untouched keys, whitespace, ordering, numbers, booleans, nulls, and string
 tokens remain byte-identical. A changed string token is emitted with standard JSON escaping. The
 private same-directory stage is reparsed as JSON and its extracted values are rescanned before the
-existing no-clobber publication boundary commits it. JSON support is currently CLI-only and
-rules-only; the browser/API continue to advertise and accept TXT/Markdown until their structured
-preview and review mapping is implemented. A v2 external policy can classify an exact RFC 6901
+existing no-clobber publication boundary commits it. JSON is rules-only in the CLI and bounded
+process-local browser/API transport. The API uses the same native parser, in-memory native stage,
+native reopen, and generic names without exposing JSON pointers. A v2 external policy can classify an exact RFC 6901
 JSON Pointer as one configured entity type while all other values retain free-text detection.
 JSON Lines, streaming, key transformation, wildcard selectors, and structured-path evidence in
 public reports remain open.
@@ -305,8 +307,8 @@ cell—including the first row—is scanned; the adapter never guesses whether a
 Redaction actions must remain inside one cell. Untouched field tokens, delimiters, quotes, and line
 endings stay byte-identical; changed fields retain their quoted form and are escaped when required.
 The private stage is reparsed as CSV and its cells are rescanned before no-clobber publication. CSV
-support is currently CLI-only and rules-only. Wildcard/ignore selectors, public cell-location
-evidence, API/browser support, and streaming/million-row qualification remain open. Formula-like
+is rules-only in the CLI and bounded process-local browser/API transport. Wildcard/ignore selectors,
+public cell-location evidence, and streaming/million-row qualification remain open. Formula-like
 cells are treated as untrusted text: the CLI never evaluates them, but unchanged formula tokens are
 not neutralized for spreadsheet software. CSV redaction requires the selected output path to retain
 a `.csv` extension.
@@ -367,31 +369,52 @@ untouched decompressed parts, and uniquely planted planned-source canaries on sy
 The reconciliation deliberately reuses the extraction parser and reports no independent or fidelity
 qualification. A separate non-authorizing foundation in `@local-pii/verification` now uses its own
 bounded ZIP/XML/content-type/relationship parser, independently enumerates retained XML carriers,
-reconciles exact per-carrier native deltas with the plan and writer receipt, rejects unplanned package
-or carrier changes, and runs privacy-safe unique-canary plus deterministic residual scans. It never
+for inputs already accepted by the adapter, reconstructs the complete frozen paragraph/relationship/
+XML source-carrier order and canonical source map,
+independently reproduces the `docx-extraction:v3` revision across fragmented run nodes, reconciles exact
+per-carrier native deltas with the plan and writer receipt, rejects omitted or unplanned package/carrier
+changes, and runs privacy-safe unique-canary plus deterministic residual scans. Exact `REJECT` review
+decisions may retain only the matching entity at its action-adjusted canonical output offsets; forged
+or shifted offsets do not suppress residuals. These remain caller-supplied review semantics until a
+core-bound compiled-plan integrity check exists. The foundation also validates and hashes the supplied
+input/output, capability, policy, plan, receipt, writer, application, media type, output extraction
+revision, and bounded clock inputs required by a future application attestation. That internal digest
+binds the complete supplied plan/review semantics but does not independently recompute the compiled
+plan identity, so the digest binds what was supplied without authenticating that it was the plan the
+application compiled. It is not the canonical verification attestation and cannot be consumed as one. It never
 imports the DOCX adapter, writes or publishes a file, and always reports fidelity and publication as
 unverified. DOCX redaction and standalone verification therefore remain unexposed: complete independent
-classification of the adapter's accepted carrier surface, a core-bound verification attestation,
-broader feature coverage,
+feature-grammar equivalence and malicious-input qualification, a core-bound verification attestation,
+canonical DOCX verification profile/report integration, broader feature coverage,
 sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
 Milestone 4 work.
 
 The rules-only CLI also has an experimental, synthetic-only `.pdf` inspection foundation through
-[`@local-pii/adapter-pdf`](./packages/adapter-pdf). It accepts only PDF 1.4 files with one complete
-classic xref revision, a closed catalog/flat-page graph, one uncompressed content stream per page,
-and bounded visible ASCII literal text using built-in Helvetica/WinAnsi and a closed `BT`/`Tf`/`Td`/
+[`@local-pii/adapter-pdf`](./packages/adapter-pdf). It accepts only an exact PDF 1.4 header or a PDF
+1.7 header followed by a bounded all-binary comment, one complete classic xref revision, a closed
+catalog/flat-page graph, one uncompressed or bounded exact Flate content stream per page, and
+bounded visible ASCII literal text using built-in Helvetica/WinAnsi and a closed `BT`/`Tf`/`Td`/
 `Tj`/`ET` operator set. Canonical reading order is page order followed by operator order. Version
 0.2 emits a complete frozen source map for that accepted surface: each canonical text item has a
 value-free v3 location containing page, page/content/font object numbers, text-item ordinal, and
 exact glyph count. Unknown or unused objects, operators, encodings, filters, or dictionaries fail
-closed, as do encryption,
-incremental updates, metadata, actions/JavaScript, forms/XFA, annotations, attachments, optional
-content, images, XObjects, alternate fonts, scanned/mixed pages, and selected-file symlinks. The
+closed. One exact inline `/OpenAction [page-reference /XYZ null null 0]` (with the separator before
+`[` optional) may identify a declared page as the non-executable initial view; it has no canonical
+value or skipped source-map carrier.
+Version 0.5 also admits only a paired, closed Info/XMP metadata grammar. Every accepted metadata
+value is included in canonical text and receives a value-free v4 carrier/object/field/occurrence
+location; namespace spoofing, duplicate attributes, arbitrary XML nesting, document IDs, unknown
+fields, and unpaired metadata fail closed. This is extraction provenance, not metadata sanitization.
+Named/string destinations, action dictionaries, and every other action shape fail closed, as do
+encryption, incremental updates, broader metadata, JavaScript, forms/XFA, annotations, attachments,
+optional content, images, XObjects, alternate fonts, scanned/mixed pages, and selected-file
+symlinks. The
 capability is `EXPERIMENTAL`, `EXTRACT_ONLY`, and advertises only probe/inspect. Scan is blocked
 pending end-to-end admission/security qualification of the new strict-profile source map, while
-real-world scanning remains blocked on compressed content, tagging/metadata coverage, fonts,
-operators, and qualified Unicode mapping; redaction, verification, rendering/preview, and OCR are
-also unavailable. This does not resolve
+real-world scanning remains blocked on broader compressed carriers, tagging/metadata coverage,
+fonts, operators, and qualified Unicode mapping; the narrow Flate support does not admit object/xref
+streams, filter arrays, predictors, trailing data, or other compressed carriers. Redaction,
+verification, rendering/preview, and OCR are also unavailable. This does not resolve
 OQ-009: production PDF parser/writer/verifier selection, licensing, independent extraction, native
 search/copy checks, renderer canaries, fidelity, and sandbox qualification remain open.
 
@@ -456,7 +479,7 @@ output collisions.
 
 - The rules-only CLI accepts UTF-8 `.txt`, `.md`, `.markdown`, `.json`, and `.csv` regular files for
   inspect/scan/redact/verify. Its narrow experimental `.docx` surface is inspect/scan only. Symbolic
-  links are rejected. The current browser/API intake remains TXT/Markdown-only.
+  links are rejected. The current browser/API intake supports TXT/Markdown/JSON/CSV only.
 - `batch scan` recursively processes only TXT/Markdown/JSON/CSV beneath one non-symbolic directory.
   Traversal is deterministic and bounded to 1,000 files, 1,000 directories, 10,000 entries,
   256 MiB of selected input, 32 include and 32 exclude patterns, and a 60-second cooperative

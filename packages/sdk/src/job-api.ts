@@ -28,6 +28,12 @@ export type JobEventType = JobsJobEventPageContract.JobEvent['type'];
 export type PreviewEntityType = CommonEntityTypeContract.EntityType;
 export type PreviewOutcome = JobsPreviewScanReportContract.EphemeralPreviewScanReport['outcome'];
 export type PreviewDetectionSource = JobsPreviewReviewReportV2Contract.EphemeralPreviewReviewReportV2['detections'][number]['sources'][number];
+export type ProcessMediaType = 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv';
+export type RedactedDisplayName =
+  | 'document.redacted.txt'
+  | 'document.redacted.md'
+  | 'document.redacted.json'
+  | 'document.redacted.csv';
 
 export interface PolicyReference {
   readonly id: string;
@@ -135,10 +141,10 @@ export interface ReviewSetSummary {
 
 export interface RedactedOutputSummary {
   readonly id: string;
-  readonly mediaType: 'text/plain' | 'text/markdown';
+  readonly mediaType: ProcessMediaType;
   readonly byteLength: number;
   readonly digest: string;
-  readonly displayName: 'document.redacted.txt' | 'document.redacted.md';
+  readonly displayName: RedactedDisplayName;
   readonly bytes: Uint8Array;
 }
 
@@ -509,7 +515,7 @@ function projectEventPage(value: unknown, expectedJobId: string, afterCursor: nu
 
 interface ArtifactSummary {
   readonly id: string;
-  readonly mediaType: 'text/plain' | 'text/markdown';
+  readonly mediaType: ProcessMediaType;
   readonly byteLength: number;
   readonly digest: string;
   readonly publicationState: 'STAGED' | 'IMMUTABLE';
@@ -524,10 +530,10 @@ function projectArtifact(value: unknown): ArtifactSummary {
     || value.schemaVersion !== '1.0.0'
     || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
     || value.kind !== 'INPUT'
-    || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
+    || !isProcessMediaType(value.mediaType)
     || !safeInteger(value.byteLength, 1, localClientMaximumInputBytes)
     || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
-    || typeof value.displayName !== 'string' || value.displayName.length > 255
+    || value.displayName !== expectedInputDisplayName(value.mediaType)
     || (value.publicationState !== 'STAGED' && value.publicationState !== 'IMMUTABLE')
     || !dateTime(value.createdAt)
     || (value.expiresAt !== undefined && !dateTime(value.expiresAt))) {
@@ -551,11 +557,11 @@ function projectOutputArtifact(value: unknown): Omit<RedactedOutputSummary, 'byt
     || value.schemaVersion !== '1.0.0'
     || typeof value.id !== 'string' || !artifactIdPattern.test(value.id)
     || value.kind !== 'SANITIZED_OUTPUT'
-    || (value.mediaType !== 'text/plain' && value.mediaType !== 'text/markdown')
+    || !isProcessMediaType(value.mediaType)
     || !safeInteger(value.byteLength, 0, localClientMaximumOutputBytes)
     || typeof value.digest !== 'string' || !digestPattern.test(value.digest)
-    || (value.displayName !== 'document.redacted.txt' && value.displayName !== 'document.redacted.md')
-    || (value.mediaType === 'text/plain') !== (value.displayName === 'document.redacted.txt')
+    || !isRedactedDisplayName(value.displayName)
+    || expectedRedactedDisplayName(value.mediaType) !== value.displayName
     || value.publicationState !== 'PUBLISHABLE'
     || !dateTime(value.createdAt)
     || (value.expiresAt !== undefined && !dateTime(value.expiresAt))) {
@@ -744,11 +750,41 @@ export function projectReviewSet(value: unknown, expectedJobId: string): ReviewS
   });
 }
 
-function mediaTypeForFile(file: File): 'text/plain' | 'text/markdown' {
+function isProcessMediaType(value: unknown): value is ProcessMediaType {
+  return value === 'text/plain'
+    || value === 'text/markdown'
+    || value === 'application/json'
+    || value === 'text/csv';
+}
+
+function isRedactedDisplayName(value: unknown): value is RedactedDisplayName {
+  return value === 'document.redacted.txt'
+    || value === 'document.redacted.md'
+    || value === 'document.redacted.json'
+    || value === 'document.redacted.csv';
+}
+
+function expectedRedactedDisplayName(mediaType: ProcessMediaType): RedactedDisplayName {
+  if (mediaType === 'text/markdown') return 'document.redacted.md';
+  if (mediaType === 'application/json') return 'document.redacted.json';
+  if (mediaType === 'text/csv') return 'document.redacted.csv';
+  return 'document.redacted.txt';
+}
+
+function expectedInputDisplayName(mediaType: ProcessMediaType): string {
+  if (mediaType === 'text/markdown') return 'document.md';
+  if (mediaType === 'application/json') return 'document.json';
+  if (mediaType === 'text/csv') return 'document.csv';
+  return 'document.txt';
+}
+
+function mediaTypeForFile(file: File): ProcessMediaType {
   const separator = file.name.lastIndexOf('.');
   const extension = separator < 1 ? '' : file.name.slice(separator).toLowerCase();
   if (extension === '.txt') return 'text/plain';
   if (extension === '.md' || extension === '.markdown') return 'text/markdown';
+  if (extension === '.json') return 'application/json';
+  if (extension === '.csv') return 'text/csv';
   throw new TypeError('The scan file is invalid.');
 }
 
@@ -868,7 +904,12 @@ export function createLocalJobClient(
         origin, session.bearerToken, fetchImplementation, new URL('/v1/artifacts', origin),
         {
           method: 'POST',
-          body: JSON.stringify({ schemaVersion: '1.0.0', mediaType, byteLength: bytes.byteLength, digest })
+          body: JSON.stringify({
+            schemaVersion: mediaType === 'application/json' || mediaType === 'text/csv' ? '2.0.0' : '1.0.0',
+            mediaType,
+            byteLength: bytes.byteLength,
+            digest
+          })
         },
         operationSignal,
         maximumJobResponseBytes,

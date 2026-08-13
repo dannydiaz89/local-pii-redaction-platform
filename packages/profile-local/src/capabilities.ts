@@ -22,6 +22,7 @@ import {
 } from '@local-pii/adapter-json';
 import { deterministicDetectorCapabilities, defaultDetectorLimits } from '@local-pii/detectors';
 import { assertCapabilityManifest, type CapabilityManifest } from '@local-pii/core';
+import { localPreviewMaximumInputBytes } from '@local-pii/contracts';
 import {
   ollamaExperimentalDefaultLimits,
   ollamaLocalCapabilityDescriptor
@@ -96,7 +97,7 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
   const manifest: CapabilityManifest = {
     schemaVersion: '1.0.0',
     id: 'local-rules-files',
-    version: '0.7.0',
+    version: '1.0.0',
     engineMode: 'RULES_ONLY',
     supportedContractVersions: ['1.0.0'],
     formats: [textFormat, jsonFormat, csvFormat, docxFormat, pdfFormat],
@@ -153,6 +154,33 @@ export function createTextOnlyCapabilityManifest(): CapabilityManifest {
     })) as CapabilityManifest['verificationProfiles']
   };
   assertCapabilityManifest(manifest, 'cor_text_capabilities');
+  return manifest;
+}
+
+/** Capability snapshot for the bounded process-local API artifact transport. */
+export function createProcessLocalApiCapabilityManifest(): CapabilityManifest {
+  const files = createCurrentCapabilityManifest();
+  const formatIds = new Set(['text', 'json', 'csv']);
+  const manifest: CapabilityManifest = {
+    ...files,
+    id: 'local-rules-api-files',
+    version: '0.1.0',
+    formats: files.formats.filter(({ id }) => formatIds.has(id)).map((format) => ({
+      ...format,
+      limits: { ...format.limits, maximumInputBytes: localPreviewMaximumInputBytes }
+    })) as CapabilityManifest['formats'],
+    verificationProfiles: files.verificationProfiles
+      .map((profile) => ({
+        ...profile,
+        formats: profile.formats.filter((format) => formatIds.has(format))
+      }))
+      .filter(({ formats }) => formats.length > 0) as CapabilityManifest['verificationProfiles'],
+    limits: {
+      ...files.limits,
+      maximumInputBytes: localPreviewMaximumInputBytes
+    }
+  };
+  assertCapabilityManifest(manifest, 'cor_api_capabilities');
   return manifest;
 }
 

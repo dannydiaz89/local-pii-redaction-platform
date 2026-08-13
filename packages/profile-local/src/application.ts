@@ -34,6 +34,7 @@ import {
 import {
   createCurrentCapabilityManifest,
   createOllamaHybridCapabilityManifest,
+  createProcessLocalApiCapabilityManifest,
   createTextOnlyCapabilityManifest
 } from './capabilities.js';
 
@@ -119,7 +120,7 @@ export function pdfCapabilityRequirement(operation: CapabilityOperation): Capabi
     detectorIds: [],
     detectorKinds: [],
     transformationActions: [],
-    verificationProfile: 'pdf-literal-extract-v2',
+    verificationProfile: 'pdf-literal-extract-v5',
     maximumInputBytes: defaultMaximumPdfInputBytes,
     minimumQualification: 'EXPERIMENTAL'
   };
@@ -198,6 +199,7 @@ function application(
 
 export const localTextApplication = application(createTextOnlyCapabilityManifest(), rulesDetector);
 export const localFileApplication = application(createCurrentCapabilityManifest(), rulesDetector);
+export const localApiApplication = application(createProcessLocalApiCapabilityManifest(), rulesDetector);
 
 export interface ExperimentalOllamaApplicationOptions {
   readonly model: string;

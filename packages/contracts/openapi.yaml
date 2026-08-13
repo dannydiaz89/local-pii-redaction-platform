@@ -100,7 +100,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "./schemas/artifacts/create-artifact-request.schema.json"
+              oneOf:
+                - $ref: "./schemas/artifacts/create-artifact-request.schema.json"
+                - $ref: "./schemas/artifacts/create-artifact-request-v2.schema.json"
       responses:
         "201":
           description: A staged session artifact was created

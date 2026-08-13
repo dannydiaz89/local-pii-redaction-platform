@@ -221,6 +221,44 @@ export interface EphemeralTextArtifactSessionHandle {
   dispose(): void;
 }
 
+/** Format-neutral artifact shape accepted by the process-local native session mechanics. */
+export interface EphemeralNativeArtifact extends LocalUtf8Artifact {
+  readonly mediaType: string;
+  readonly extractionRevision: Sha256Digest;
+  readonly text: string;
+}
+
+/** Adapter-owned callbacks for a native in-memory writer and native reopen boundary. */
+export interface EphemeralNativeArtifactSessionOptions<Artifact extends EphemeralNativeArtifact> {
+  readonly source: Artifact;
+  readonly writer: Readonly<{ readonly id: string; readonly version: string; readonly digest: Sha256Digest }>;
+  readonly maximumOutputBytes: number;
+  encodePlan(source: Artifact, plan: TypedLabelPlan): Uint8Array;
+  createReceipt(
+    plan: TypedLabelPlan,
+    staged: Readonly<{ readonly digest: Sha256Digest; readonly byteLength: number }>
+  ): TextWriterReceipt;
+  reopen(
+    bytes: Uint8Array,
+    staged: StagedTextArtifact,
+    signal?: AbortSignal
+  ): Promise<Artifact> | Artifact;
+}
+
+/** Owns the only mutable staged and published buffers for one native in-memory session. */
+export interface EphemeralNativeArtifactSessionHandle<Artifact extends EphemeralNativeArtifact> {
+  readonly session: Readonly<{
+    readonly writer: EphemeralNativeArtifactSessionOptions<Artifact>['writer'];
+    input(signal?: AbortSignal): Promise<Artifact>;
+    stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact>;
+    reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<Artifact>;
+    publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication>;
+    discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void>;
+  }>;
+  publishedBytes(): Uint8Array | undefined;
+  dispose(): void;
+}
+
 function digestBytes(bytes: Uint8Array): Sha256Digest {
   return parseSha256Digest(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
 }
@@ -751,6 +789,58 @@ async function removeStageAfterFailure(
   }
 }
 
+/**
+ * Applies the adapter's bounded UTF-8 admission rules to caller-owned bytes without
+ * selecting or opening a filesystem path. The returned text is immutable application
+ * state; callers continue to own and clear the original byte buffer.
+ */
+export function decodeLocalUtf8ArtifactBytes(
+  bytes: Uint8Array,
+  descriptor: Readonly<{ readonly reference: string; readonly displayName: string }>,
+  maximumBytes = defaultMaximumInputBytes
+): LocalUtf8Artifact {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > defaultMaximumInputBytes) {
+    throw new TypeError('Maximum input bytes must be a nonnegative safe integer within the adapter limit.');
+  }
+  if (bytes.byteLength > maximumBytes) {
+    throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  const hasUtf8Bom = bytes.length >= 3 && bytes[0] === utf8Bom[0] && bytes[1] === utf8Bom[1] && bytes[2] === utf8Bom[2];
+  const content = hasUtf8Bom ? bytes.subarray(3) : bytes;
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+  } catch {
+    throw new SafeError({ code: 'FORMAT_CORRUPT', message: 'The input is not valid UTF-8 text.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  if (text.includes('\u0000')) {
+    throw new SafeError({ code: 'FORMAT_CORRUPT', message: 'The text input contains unsupported NUL bytes.', retryable: false, correlationId: 'cor_text_adapter' });
+  }
+  return Object.freeze({
+    reference: descriptor.reference,
+    path: descriptor.reference,
+    displayName: descriptor.displayName,
+    byteLength: bytes.byteLength,
+    digest: digestBytes(bytes),
+    text,
+    hasUtf8Bom
+  });
+}
+
+/** Encodes derived UTF-8 text while preserving the admitted source BOM policy. */
+export function encodeLocalUtf8ArtifactText(
+  source: Pick<LocalUtf8Artifact, 'hasUtf8Bom'>,
+  text: string
+): Uint8Array {
+  const encoded = Buffer.from(text, 'utf8');
+  if (!source.hasUtf8Bom) return encoded;
+  try {
+    return Buffer.concat([Buffer.from(utf8Bom), encoded]);
+  } finally {
+    encoded.fill(0);
+  }
+}
+
 export async function readLocalUtf8Artifact(
   inputPath: string,
   maximumBytes = defaultMaximumInputBytes,
@@ -789,27 +879,11 @@ export async function readLocalUtf8Artifact(
   if (bounded.exceeded) {
     throw new SafeError({ code: 'INPUT_TOO_LARGE', message: 'The input exceeds the configured byte limit.', retryable: false, correlationId: 'cor_text_adapter' });
   }
-  const bytes = bounded.bytes;
-  const hasUtf8Bom = bytes.length >= 3 && bytes[0] === utf8Bom[0] && bytes[1] === utf8Bom[1] && bytes[2] === utf8Bom[2];
-  const content = hasUtf8Bom ? bytes.subarray(3) : bytes;
-  let text: string;
-  try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(content);
-  } catch {
-    throw new SafeError({ code: 'FORMAT_CORRUPT', message: 'The input is not valid UTF-8 text.', retryable: false, correlationId: 'cor_text_adapter' });
-  }
-  if (text.includes('\u0000')) {
-    throw new SafeError({ code: 'FORMAT_CORRUPT', message: 'The text input contains unsupported NUL bytes.', retryable: false, correlationId: 'cor_text_adapter' });
-  }
-  return {
-    reference: path,
-    path,
-    displayName: basename(path),
-    byteLength: bytes.byteLength,
-    digest: digestBytes(bytes),
-    text,
-    hasUtf8Bom
-  };
+  return decodeLocalUtf8ArtifactBytes(
+    bounded.bytes,
+    { reference: path, displayName: basename(path) },
+    maximumBytes
+  );
 }
 
 export async function readTextArtifact(
@@ -823,6 +897,32 @@ export async function readTextArtifact(
     mediaType: supportedMediaType(artifact.path),
     extractionRevision: extractionDigest(artifact.text)
   };
+}
+
+/** Decodes one bounded process-local TXT or Markdown byte sequence. */
+export function decodeTextArtifactBytes(
+  bytes: Uint8Array,
+  mediaType: TextArtifact['mediaType'],
+  maximumBytes = defaultMaximumInputBytes
+): EphemeralTextArtifactSource {
+  const source = decodeLocalUtf8ArtifactBytes(
+    bytes,
+    {
+      reference: 'ephemeral:input',
+      displayName: mediaType === 'text/markdown' ? 'document.md' : 'document.txt'
+    },
+    maximumBytes
+  );
+  return Object.freeze({
+    reference: source.reference,
+    displayName: source.displayName,
+    mediaType,
+    byteLength: source.byteLength,
+    digest: source.digest,
+    extractionRevision: extractionDigest(source.text),
+    text: source.text,
+    hasUtf8Bom: source.hasUtf8Bom
+  });
 }
 
 export function deriveRedactedOutputPath(inputPath: string): string {
@@ -1066,6 +1166,180 @@ export function createLocalTextArtifactSession(
       await discardStagedTextArtifact(staged, fileSystem);
     }
   };
+}
+
+function sameWriterReceipt(left: TextWriterReceipt, right: TextWriterReceipt): boolean {
+  return left.planDigest === right.planDigest
+    && left.writer.id === right.writer.id
+    && left.writer.version === right.writer.version
+    && left.stagedDigest === right.stagedDigest
+    && left.stagedByteLength === right.stagedByteLength
+    && left.expectedActionCount === right.expectedActionCount
+    && left.appliedActionCount === right.appliedActionCount
+    && left.receiptDigest === right.receiptDigest
+    && left.appliedActionIds.length === right.appliedActionIds.length
+    && left.appliedActionIds.every((id, index) => id === right.appliedActionIds[index]);
+}
+
+/**
+ * Process-local staging mechanics shared by native structured adapters. Parsing,
+ * plan application, receipt construction, and reopen all remain adapter-owned.
+ */
+export function createEphemeralNativeArtifactSession<Artifact extends EphemeralNativeArtifact>(
+  options: EphemeralNativeArtifactSessionOptions<Artifact>
+): EphemeralNativeArtifactSessionHandle<Artifact> {
+  if (!Number.isSafeInteger(options.maximumOutputBytes)
+    || options.maximumOutputBytes < 1
+    || options.maximumOutputBytes > defaultMaximumInputBytes) {
+    throw new TypeError('The ephemeral native output limit is invalid.');
+  }
+  let stagedState: { readonly descriptor: StagedTextArtifact; readonly bytes: Buffer } | undefined;
+  let published: Buffer | undefined;
+  let disposed = false;
+
+  const requireActive = (): void => {
+    if (disposed) {
+      throw new SafeError({
+        code: 'STORAGE_UNAVAILABLE',
+        message: 'The ephemeral artifact session is unavailable.',
+        retryable: false,
+        correlationId: 'cor_text_adapter'
+      });
+    }
+  };
+  const clearStage = (): void => {
+    stagedState?.bytes.fill(0);
+    stagedState = undefined;
+  };
+  const matchingStage = (candidate: StagedTextArtifact): boolean => {
+    const current = stagedState?.descriptor;
+    return current !== undefined
+      && candidate.reference === current.reference
+      && candidate.path === current.path
+      && candidate.targetPath === current.targetPath
+      && candidate.digest === current.digest
+      && candidate.byteLength === current.byteLength
+      && sameWriterReceipt(candidate.receipt, current.receipt)
+      && stagedState !== undefined
+      && digestBytes(stagedState.bytes) === current.digest;
+  };
+  const mismatch = (message: string): never => {
+    throw new SafeError({
+      code: 'ARTIFACT_DIGEST_MISMATCH',
+      message,
+      retryable: false,
+      correlationId: 'cor_text_adapter'
+    });
+  };
+
+  const session = Object.freeze({
+    writer: options.writer,
+    input(signal?: AbortSignal): Promise<Artifact> {
+      signal?.throwIfAborted();
+      requireActive();
+      return Promise.resolve(options.source);
+    },
+    async stage(plan: TypedLabelPlan, signal?: AbortSignal): Promise<StagedTextArtifact> {
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      requireActive();
+      if (stagedState !== undefined || published !== undefined) {
+        throw new SafeError({
+          code: 'JOB_CONFLICT',
+          message: 'The ephemeral artifact session already contains an output.',
+          retryable: false,
+          correlationId: 'cor_text_adapter'
+        });
+      }
+      const encoded = options.encodePlan(options.source, plan);
+      const bytes = Buffer.from(encoded);
+      encoded.fill(0);
+      let descriptor: StagedTextArtifact;
+      try {
+        if (bytes.byteLength > options.maximumOutputBytes) {
+          throw new SafeError({
+            code: 'INPUT_TOO_LARGE',
+            message: 'The derived artifact exceeds the configured byte limit.',
+            retryable: false,
+            correlationId: 'cor_text_adapter'
+          });
+        }
+        const base = Object.freeze({
+          reference: 'ephemeral:stage',
+          path: 'ephemeral:stage',
+          targetPath: 'ephemeral:published',
+          byteLength: bytes.byteLength,
+          digest: digestBytes(bytes)
+        });
+        descriptor = Object.freeze({ ...base, receipt: options.createReceipt(plan, base) });
+        stagedState = { descriptor, bytes };
+      } catch (error: unknown) {
+        bytes.fill(0);
+        throw error;
+      }
+      try {
+        signal?.throwIfAborted();
+      } catch (error: unknown) {
+        clearStage();
+        throw error;
+      }
+      return descriptor;
+    },
+    async reopen(staged: StagedTextArtifact, signal?: AbortSignal): Promise<Artifact> {
+      signal?.throwIfAborted();
+      requireActive();
+      if (!matchingStage(staged) || stagedState === undefined) {
+        return mismatch('The staged artifact changed before it could be reopened.');
+      }
+      const reopenBytes = Uint8Array.from(stagedState.bytes);
+      try {
+        const reopened = await options.reopen(reopenBytes, staged, signal);
+        signal?.throwIfAborted();
+        if (reopened.digest !== staged.digest || reopened.byteLength !== staged.byteLength) {
+          return mismatch('The staged artifact changed before it could be reopened.');
+        }
+        return reopened;
+      } catch (error: unknown) {
+        clearStage();
+        throw error;
+      } finally {
+        reopenBytes.fill(0);
+      }
+    },
+    async publish(staged: StagedTextArtifact, signal?: AbortSignal): Promise<TextArtifactPublication> {
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      requireActive();
+      if (!matchingStage(staged) || stagedState === undefined) {
+        return mismatch('The staged artifact changed before publication.');
+      }
+      published = stagedState.bytes;
+      stagedState = undefined;
+      return Object.freeze({
+        reference: 'ephemeral:published',
+        byteLength: published.byteLength,
+        digest: digestBytes(published)
+      });
+    },
+    async discard(staged: StagedTextArtifact, signal?: AbortSignal): Promise<void> {
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      requireActive();
+      if (matchingStage(staged)) clearStage();
+    }
+  });
+
+  return Object.freeze({
+    session,
+    publishedBytes: () => published === undefined ? undefined : Uint8Array.from(published),
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      clearStage();
+      published?.fill(0);
+      published = undefined;
+    }
+  });
 }
 
 /**

@@ -21,7 +21,13 @@ export function registerArtifactRoutes(server: FastifyInstance, context: ApiRout
   server.post('/v1/artifacts', async (request, reply) => {
     const processing = dependencies.processing;
     if (processing === undefined) throw unavailableJob(request);
-    const body = canonicalBody(request, apiContractIds.createArtifactRequest) as CreateArtifactRequest;
+    const schemaId = request.body !== null
+      && typeof request.body === 'object'
+      && !Array.isArray(request.body)
+      && (request.body as Readonly<Record<string, unknown>>).schemaVersion === '2.0.0'
+      ? apiContractIds.createArtifactRequestV2
+      : apiContractIds.createArtifactRequest;
+    const body = canonicalBody(request, schemaId) as CreateArtifactRequest;
     const artifact = await invokeBounded(request, handlerTimeoutMs, lifecycleSignal, (signal) =>
       processing.initiateArtifact(body, requestCorrelationId(request), signal)
     );
