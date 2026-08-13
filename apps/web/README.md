@@ -19,11 +19,12 @@ Accessible, localized React application for the local review workflow.
   automatic policy, and offers keyboard-focus movement between unreviewed rows on the current page.
 - Prevents server-page changes from carrying an unbounded draft batch; the reviewer must save or
   explicitly discard current unsaved decisions before moving pages.
-- Keeps exact detected text hidden by default and reveals only bounded TXT/Markdown current-page matches from
-  the user-selected local file after an explicit action; cleartext never enters API JSON, review
+- Shows bounded TXT/Markdown current-page matches automatically after scanning by reading them from
+  the user-selected local file; cleartext never enters API JSON, review
   history, logs, or browser persistence.
-- Lets the reviewer explicitly open one bounded local source excerpt at a time, highlights the
-  selected match in escaped TXT/Markdown text, and moves focus into the keyboard-scrollable context.
+- Lets the reviewer expand one bounded local source excerpt directly beneath its finding row,
+  highlights the selected match in escaped TXT/Markdown text, and moves focus into that
+  keyboard-scrollable context without losing the table position.
 - Creates and verifies a session-only redacted copy through the real shared application core, shows
   its bounded preview, then offers a generic authenticated download without changing the source.
 - Provides a two-step accessible clear-workflow action that expires a verified redaction before its

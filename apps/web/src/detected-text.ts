@@ -33,7 +33,7 @@ function validBoundaries(
 }
 
 /**
- * Reads exact detection text from the user-selected local file after an explicit reveal action.
+ * Reads exact detection text from the user-selected local file after a completed scan.
  * Only the bounded matches are returned; the complete decoded document is not retained.
  */
 export async function readDetectedText(

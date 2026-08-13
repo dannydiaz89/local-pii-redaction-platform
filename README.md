@@ -213,13 +213,12 @@ revision feedback; they are not stored in browser persistence. The UI reports sa
 against the full detection total and states explicitly that detections without a saved decision
 still follow the automatic policy. Previous/next unresolved controls move keyboard focus among the
 visible filtered rows, and server-page changes are blocked until drafts are saved or explicitly
-discarded. The detection table keeps matched
-text hidden by default. For TXT/Markdown, an explicit reveal reads only the bounded matches for the current page from
+discarded. For TXT/Markdown, the detection table automatically reads only the bounded matches for the current page from
 the already-selected local file, using the server-owned Unicode code-point locations. Cleartext is
-never added to an API response or review record and is released from UI state when hidden, the page
-changes, or the file changes. A reviewer can then open one escaped source-context excerpt at a time:
+never added to an API response or review record and is released from UI state when the page or file
+changes. A reviewer can expand one escaped source-context excerpt directly beneath its finding row:
 at most 80 Unicode code points before and 120 after the selected match, with the match highlighted
-and keyboard focus moved into the excerpt. Context is also local-only and cleared when closed or
+and keyboard focus moved into the excerpt without losing the table position. Context is local-only and cleared when closed or
 when its owning page/file changes; JavaScript strings cannot be reliably zeroized. JSON/CSV reveal
 and source context stay disabled because canonical structured offsets are not raw-file offsets and
 native locations remain private. For a conflict-free completed scan

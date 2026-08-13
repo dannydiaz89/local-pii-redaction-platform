@@ -174,7 +174,7 @@ describe('web application foundation', () => {
     expect(screen.getByText(/Browser persistence and durable artifact storage remain disabled/u)).toBeTruthy();
   });
 
-  it('keeps detected text hidden until the reviewer explicitly reveals the local match', async () => {
+  it('shows bounded local detected text automatically and reveals source context on request', async () => {
     const user = userEvent.setup();
     const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={readyJobClient()} />);
     await screen.findByText('Local engine is ready');
@@ -194,30 +194,29 @@ describe('web application foundation', () => {
     expect(screen.getByText('Characters 20–46')).toBeTruthy();
     expect(screen.getByText('Detector confidence: 99%')).toBeTruthy();
     expect(screen.getByText('Evidence source: pattern rule')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Category' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Detected text' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Confidence' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Evidence sources' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Finding' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Why it was flagged' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Review decision' })).toBeTruthy();
     expect(screen.getByText('Saved reviewer decisions: 0 of 1.')).toBeTruthy();
     expect(screen.getByText(/These follow the automatic policy/u)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Previous detection' })).toBeNull();
-    expect(screen.queryByText('preview-canary@example.test')).toBeNull();
     expect(screen.queryByText('private-source.txt')).toBeNull();
-    const reveal = screen.getByRole('button', { name: 'Show detected text' });
-    expect(reveal.getAttribute('aria-pressed')).toBe('false');
-    await user.click(reveal);
     expect(await screen.findByText('preview-canary@example.test')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Hide detected text' }).getAttribute('aria-pressed')).toBe('true');
-    await user.click(screen.getByRole('button', { name: 'View source context' }));
+    expect(screen.queryByRole('button', { name: /detected text/u })).toBeNull();
+    const contextButton = screen.getByRole('button', { name: 'View source context' });
+    expect(contextButton.getAttribute('aria-expanded')).toBe('false');
+    await user.click(contextButton);
     const sourceContext = await screen.findByRole('region', {
       name: 'Highlighted detected text in its local source context'
     });
+    expect(sourceContext.closest('tr')?.classList.contains('context-row')).toBe(true);
     expect(sourceContext.textContent).toContain('Synthetic contact: preview-canary@example.test');
     expect(sourceContext.querySelector('mark')?.textContent).toBe('preview-canary@example.test');
     await waitFor(() => { expect(document.activeElement).toBe(sourceContext); });
-    await user.click(screen.getByRole('button', { name: 'Hide detected text' }));
-    await waitFor(() => { expect(screen.queryByText('preview-canary@example.test')).toBeNull(); });
+    const closeContextButton = screen.getByRole('button', { name: 'Close source context' });
+    expect(closeContextButton.getAttribute('aria-expanded')).toBe('true');
+    await user.click(closeContextButton);
+    expect(screen.getByText('preview-canary@example.test')).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Source context' })).toBeNull();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
@@ -234,7 +233,7 @@ describe('web application foundation', () => {
     expect(screen.getByText(/JSON · .+ · Ready to scan/u)).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Scan document' }));
     expect(await screen.findByText('1 potential item found.')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Show detected text' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /detected text/u })).toBeNull();
     expect(screen.queryByRole('button', { name: 'View source context' })).toBeNull();
     expect(screen.getByText(/Detected text and source context stay hidden for JSON and CSV/u)).toBeTruthy();
     expect(screen.getByText('Unavailable')).toBeTruthy();
@@ -498,7 +497,7 @@ describe('web application foundation', () => {
     expect(await screen.findByText('Characters 20–46')).toBeTruthy();
   });
 
-  it('renders conflict locations and evidence without returning the planted value', async () => {
+  it('keeps conflict evidence value-free while showing detected text from the selected file', async () => {
     const user = userEvent.setup();
     const plantedValue = '+378282246310005';
     const jobs: LocalJobClient = {
@@ -534,7 +533,8 @@ describe('web application foundation', () => {
     expect(screen.getByText('Overlapping characters 30–45')).toBeTruthy();
     expect(screen.getByText('Possible categories: Payment cards and Phone numbers')).toBeTruthy();
     expect(screen.getByText('Conflicting evidence: checksum and pattern rule')).toBeTruthy();
-    expect(container.textContent).not.toContain(plantedValue);
+    expect(screen.getByRole('region', { name: 'Conflicts requiring review' }).textContent).not.toContain(plantedValue);
+    expect(await screen.findByText(plantedValue)).toBeTruthy();
     expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 

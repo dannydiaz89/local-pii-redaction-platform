@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   formatInteger,
@@ -72,7 +72,8 @@ type DetectedTextState =
   | { readonly kind: 'idle' | 'loading' | 'unavailable' }
   | { readonly kind: 'ready'; readonly values: ReadonlyMap<string, string> };
 type SourceContextState =
-  | { readonly kind: 'idle' | 'loading' | 'unavailable' }
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading' | 'unavailable'; readonly detectionId: string }
   | { readonly kind: 'ready'; readonly context: SourceDetectionContext };
 
 function effectiveReviewDecisions(
@@ -175,7 +176,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const [detectionFilter, setDetectionFilter] = useState<PreviewEntityType | 'ALL'>('ALL');
   const [reviewDrafts, setReviewDrafts] = useState<Readonly<Record<string, ReviewDraft>>>({});
   const [reviewSaveState, setReviewSaveState] = useState<ReviewSaveState>('idle');
-  const [showDetectedText, setShowDetectedText] = useState(false);
   const [detectedText, setDetectedText] = useState<DetectedTextState>({ kind: 'idle' });
   const [sourceContext, setSourceContext] = useState<SourceContextState>({ kind: 'idle' });
   const [workflowClearState, setWorkflowClearState] = useState<WorkflowClearState>('idle');
@@ -212,7 +212,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
     setDetectionFilter('ALL');
     setReviewDrafts({});
     setReviewSaveState('idle');
-    setShowDetectedText(false);
     setDetectedText({ kind: 'idle' });
     setSourceContext({ kind: 'idle' });
     setWorkflowClearState('idle');
@@ -296,11 +295,16 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const canRevealDetectedText = selectedExtension === '.txt'
     || selectedExtension === '.md'
     || selectedExtension === '.markdown';
+  const sourceContextDetectionId = sourceContext.kind === 'idle'
+    ? undefined
+    : sourceContext.kind === 'ready'
+      ? sourceContext.context.detectionId
+      : sourceContext.detectionId;
 
   useEffect(() => {
     sourceContextController.current?.abort();
     setSourceContext({ kind: 'idle' });
-    if (!canRevealDetectedText || !showDetectedText || selectedFile === undefined || detectionDetails === undefined) {
+    if (!canRevealDetectedText || selectedFile === undefined || detectionDetails === undefined) {
       setDetectedText({ kind: 'idle' });
       return;
     }
@@ -315,20 +319,24 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
       }
     );
     return () => { controller.abort(); };
-  }, [canRevealDetectedText, detectionDetails, selectedFile, showDetectedText]);
+  }, [canRevealDetectedText, detectionDetails, selectedFile]);
 
   const showSourceContext = (detail: JobDetectionSummary): void => {
-    if (selectedFile === undefined || !canRevealDetectedText || !showDetectedText) return;
-    const controller = new AbortController();
+    if (selectedFile === undefined || !canRevealDetectedText) return;
     sourceContextController.current?.abort();
+    if (sourceContextDetectionId === detail.id) {
+      setSourceContext({ kind: 'idle' });
+      return;
+    }
+    const controller = new AbortController();
     sourceContextController.current = controller;
-    setSourceContext({ kind: 'loading' });
+    setSourceContext({ kind: 'loading', detectionId: detail.id });
     void readSourceDetectionContext(selectedFile, detail, controller.signal).then(
       (context) => {
         if (!controller.signal.aborted) setSourceContext({ kind: 'ready', context });
       },
       () => {
-        if (!controller.signal.aborted) setSourceContext({ kind: 'unavailable' });
+        if (!controller.signal.aborted) setSourceContext({ kind: 'unavailable', detectionId: detail.id });
       }
     );
   };
@@ -416,7 +424,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setDetectionFilter('ALL');
                   setReviewDrafts({});
                   setReviewSaveState('idle');
-                  setShowDetectedText(false);
                   setDetectedText({ kind: 'idle' });
                   sourceContextController.current?.abort();
                   setSourceContext({ kind: 'idle' });
@@ -453,7 +460,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   setRedaction({ kind: 'idle' });
                   setReviewDrafts({});
                   setReviewSaveState('idle');
-                  setShowDetectedText(false);
                   setDetectedText({ kind: 'idle' });
                   sourceContextController.current?.abort();
                   setSourceContext({ kind: 'idle' });
@@ -571,18 +577,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         <div className="preview-review-heading">
                           <h3 id="preview-details-heading">{t('preview.details')}</h3>
                           <div className="preview-review-controls">
-                            {canRevealDetectedText ? (
-                              <Button
-                                aria-pressed={showDetectedText}
-                                onClick={() => {
-                                  if (showDetectedText) {
-                                    sourceContextController.current?.abort();
-                                    setSourceContext({ kind: 'idle' });
-                                  }
-                                  setShowDetectedText((visible) => !visible);
-                                }}
-                              >{showDetectedText ? t('review.hideDetectedText') : t('review.showDetectedText')}</Button>
-                            ) : null}
                             <div className="preview-filter">
                               <label htmlFor="detection-filter">{t('preview.filter')}</label>
                               <select
@@ -592,6 +586,8 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                   const next = event.currentTarget.value;
                                   if (next === 'ALL' || detailCategories.includes(next as PreviewEntityType)) {
                                     setDetectionFilter(next as PreviewEntityType | 'ALL');
+                                    sourceContextController.current?.abort();
+                                    setSourceContext({ kind: 'idle' });
                                   }
                                 }}
                               >
@@ -625,67 +621,17 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                               })}</p>
                           </section>
                         )}
-                        {sourceContext.kind === 'loading' ? (
-                          <Callout>{t('review.sourceContextLoading')}</Callout>
-                        ) : sourceContext.kind === 'unavailable' ? (
-                          <Callout tone="critical">{t('review.sourceContextUnavailable')}</Callout>
-                        ) : sourceContext.kind === 'ready' && sourceContextDetail !== undefined ? (
-                          <section
-                            id="source-detection-context"
-                            className="source-context"
-                            aria-labelledby="source-context-title"
-                          >
-                            <div className="source-context-heading">
-                              <div>
-                                <h4 id="source-context-title">{t('review.sourceContextTitle')}</h4>
-                                <p>{t('review.sourceContextBody')}</p>
-                              </div>
-                              <Button
-                                className="context-button"
-                                onClick={() => {
-                                  sourceContextController.current?.abort();
-                                  setSourceContext({ kind: 'idle' });
-                                }}
-                              >{t('review.closeContext')}</Button>
-                            </div>
-                            <p className="source-context-summary">
-                              <strong>{t(entityMessage(sourceContextDetail.entityType))}</strong>
-                              {' · '}
-                              {message(locale, 'preview.location', {
-                                start: formatInteger(locale, sourceContextDetail.start + 1),
-                                end: formatInteger(locale, sourceContextDetail.end)
-                              })}
-                            </p>
-                            <div
-                              ref={sourceContextRegion}
-                              className="source-context-scroll"
-                              role="region"
-                              tabIndex={0}
-                              aria-label={t('review.sourceContextLabel')}
-                            >
-                              <pre dir="auto">{sourceContext.context.leadingTruncated
-                                ? <span aria-hidden="true">…</span>
-                                : null}<span>{sourceContext.context.before}</span><mark>{sourceContext.context.match}</mark><span>{sourceContext.context.after}</span>{sourceContext.context.trailingTruncated
-                                ? <span aria-hidden="true">…</span>
-                                : null}</pre>
-                            </div>
-                            <p className="preview-details-privacy">{t('review.sourceContextPrivacy')}</p>
-                          </section>
-                        ) : null}
                         <div
                           className="preview-table-scroll"
                           role="region"
                           tabIndex={0}
                           aria-labelledby="preview-details-heading"
                         >
-                          <table id="detection-review-table" className="preview-table">
+                          <table id="detection-review-table" className="preview-table review-table">
                             <thead>
                               <tr>
-                                <th scope="col">{t('preview.columnCategory')}</th>
-                                <th scope="col">{t('review.columnDetectedText')}</th>
-                                <th scope="col">{t('preview.columnLocation')}</th>
-                                <th scope="col">{t('preview.columnConfidence')}</th>
-                                <th scope="col">{t('preview.columnSources')}</th>
+                                <th scope="col">{t('review.columnFinding')}</th>
+                                <th scope="col">{t('review.columnBasis')}</th>
                                 <th scope="col">{t('review.columnDecision')}</th>
                               </tr>
                             </thead>
@@ -700,35 +646,41 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                   start: formatInteger(locale, detail.start + 1),
                                   end: formatInteger(locale, detail.end)
                                 });
+                                const contextExpanded = sourceContextDetectionId === detail.id;
                                 return (
-                                <tr key={detail.id}>
-                                  <th scope="row">{t(entityMessage(detail.entityType))}</th>
-                                  <td className="detected-text-cell">{!canRevealDetectedText
-                                    ? t('review.detectedTextUnavailable')
-                                    : !showDetectedText
-                                    ? t('review.detectedTextHidden')
-                                    : detectedText.kind === 'loading'
-                                      ? t('review.detectedTextLoading')
-                                      : detectedText.kind === 'ready' && detectedText.values.has(detail.id)
-                                        ? <div className="detected-text-actions">
-                                          <code dir="auto">{detectedText.values.get(detail.id)}</code>
-                                          <Button
-                                            className="context-button"
-                                            onClick={() => { showSourceContext(detail); }}
-                                          >{t('review.viewContext')}</Button>
-                                        </div>
-                                        : t('review.detectedTextUnavailable')}</td>
-                                  <td>{message(locale, 'preview.location', {
-                                    start: formatInteger(locale, detail.start + 1),
-                                    end: formatInteger(locale, detail.end)
-                                  })}</td>
-                                  <td>{message(locale, 'preview.confidence', {
-                                    percent: formatPercent(locale, detail.confidence)
-                                  })}</td>
-                                  <td>{message(locale, 'preview.sources', {
-                                    sources: formatList(locale, detail.sources.map((source) => t(sourceMessage(source))))
-                                  })}</td>
+                                <Fragment key={detail.id}>
+                                <tr className={contextExpanded ? 'detection-row context-expanded' : 'detection-row'}>
+                                  <th scope="row" className="finding-cell">
+                                    <div className="finding-content">
+                                      <strong>{t(entityMessage(detail.entityType))}</strong>
+                                      <div className="detected-text-cell">{!canRevealDetectedText
+                                        ? t('review.detectedTextUnavailable')
+                                        : detectedText.kind === 'loading'
+                                          ? t('review.detectedTextLoading')
+                                          : detectedText.kind === 'ready' && detectedText.values.has(detail.id)
+                                            ? <code dir="auto">{detectedText.values.get(detail.id)}</code>
+                                            : t('review.detectedTextUnavailable')}</div>
+                                      <span className="finding-location">{decisionLabel}</span>
+                                      {canRevealDetectedText ? (
+                                        <Button
+                                          className="context-button"
+                                          aria-expanded={contextExpanded}
+                                          aria-controls={`source-context-${detail.id}`}
+                                          onClick={() => { showSourceContext(detail); }}
+                                        >{contextExpanded ? t('review.closeContext') : t('review.viewContext')}</Button>
+                                      ) : null}
+                                    </div>
+                                  </th>
+                                  <td className="detection-basis-cell">
+                                    <p>{message(locale, 'preview.confidence', {
+                                      percent: formatPercent(locale, detail.confidence)
+                                    })}</p>
+                                    <p>{message(locale, 'preview.sources', {
+                                      sources: formatList(locale, detail.sources.map((source) => t(sourceMessage(source))))
+                                    })}</p>
+                                  </td>
                                   <td className="review-decision-cell">
+                                    <div className="review-decision-controls">
                                     <label className="visually-hidden" htmlFor={`review-${detail.id}`}>
                                       {t('review.columnDecision')}: {decisionLabel}
                                     </label>
@@ -786,8 +738,52 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                         </select>
                                       </>
                                     ) : null}
+                                    </div>
                                   </td>
                                 </tr>
+                                {contextExpanded ? (
+                                  <tr className="context-row">
+                                    <td colSpan={3}>
+                                      {sourceContext.kind === 'loading' ? (
+                                        <div id={`source-context-${detail.id}`} className="context-inline-state">
+                                          <Callout>{t('review.sourceContextLoading')}</Callout>
+                                        </div>
+                                      ) : sourceContext.kind === 'unavailable' ? (
+                                        <div id={`source-context-${detail.id}`} className="context-inline-state">
+                                          <Callout tone="critical">{t('review.sourceContextUnavailable')}</Callout>
+                                        </div>
+                                      ) : sourceContext.kind === 'ready' && sourceContextDetail?.id === detail.id ? (
+                                        <section
+                                          id={`source-context-${detail.id}`}
+                                          className="source-context"
+                                          aria-labelledby={`source-context-title-${detail.id}`}
+                                        >
+                                          <div className="source-context-heading">
+                                            <div>
+                                              <h4 id={`source-context-title-${detail.id}`}>{t('review.sourceContextTitle')}</h4>
+                                              <p>{t('review.sourceContextBody')}</p>
+                                            </div>
+                                          </div>
+                                          <div
+                                            ref={sourceContextRegion}
+                                            className="source-context-scroll"
+                                            role="region"
+                                            tabIndex={0}
+                                            aria-label={t('review.sourceContextLabel')}
+                                          >
+                                            <pre dir="auto">{sourceContext.context.leadingTruncated
+                                              ? <span aria-hidden="true">…</span>
+                                              : null}<span>{sourceContext.context.before}</span><mark>{sourceContext.context.match}</mark><span>{sourceContext.context.after}</span>{sourceContext.context.trailingTruncated
+                                              ? <span aria-hidden="true">…</span>
+                                              : null}</pre>
+                                          </div>
+                                          <p className="preview-details-privacy">{t('review.sourceContextPrivacy')}</p>
+                                        </section>
+                                      ) : null}
+                                    </td>
+                                  </tr>
+                                ) : null}
+                                </Fragment>
                                 );
                               })}
                             </tbody>
@@ -1057,7 +1053,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                             setDetectionFilter('ALL');
                             setReviewDrafts({});
                             setReviewSaveState('idle');
-                            setShowDetectedText(false);
                             setDetectedText({ kind: 'idle' });
                             sourceContextController.current?.abort();
                             setSourceContext({ kind: 'idle' });

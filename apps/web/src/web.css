@@ -74,15 +74,25 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .preview-table thead th { color: var(--color-muted); font-size: .82rem; }
 .preview-table tbody th { font-weight: 750; }
 .preview-table tbody tr:last-child > * { border-block-end: 0; }
-.detected-text-cell { min-inline-size: 12rem; }
+.review-table { min-inline-size: 40rem; table-layout: fixed; }
+.review-table thead th:nth-child(1) { inline-size: 44%; }
+.review-table thead th:nth-child(2) { inline-size: 26%; }
+.review-table thead th:nth-child(3) { inline-size: 30%; }
+.finding-content { display: grid; justify-items: start; gap: var(--space-2); }
+.finding-content > strong { font-size: 1rem; }
+.finding-location { color: var(--color-muted); font-size: .86rem; font-weight: 500; }
 .detected-text-cell code { display: inline-block; max-inline-size: 24rem; border-radius: .3rem; padding: .15rem .35rem; overflow-wrap: anywhere; white-space: pre-wrap; unicode-bidi: plaintext; color: var(--color-ink); background: var(--color-background); font: .92rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.detected-text-actions { display: grid; justify-items: start; gap: var(--space-2); }
+.detection-basis-cell p { margin: 0; line-height: 1.5; }
+.detection-basis-cell p + p { margin-block-start: var(--space-2); color: var(--color-muted); }
+.detection-row.context-expanded > * { border-block-end-color: transparent; background: var(--color-background); }
+.context-row > td { padding: 0 var(--space-3) var(--space-3); background: var(--color-background); }
+.context-inline-state { padding-block-start: var(--space-2); }
 .context-button.ui-button { min-block-size: 2.25rem; border: 1px solid var(--color-accent); padding: .4rem .65rem; color: var(--color-accent-strong); background: var(--color-surface); font-size: .85rem; }
 .context-button.ui-button:hover { color: white; background: var(--color-accent-strong); }
 .source-context { display: grid; gap: var(--space-3); border: 1px solid var(--color-border); border-inline-start: .3rem solid var(--color-accent); border-radius: .5rem; padding: var(--space-4); background: var(--color-background); }
 .source-context-heading { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }
-.source-context-heading h4, .source-context-heading p, .source-context-summary { margin: 0; }
-.source-context-heading p, .source-context-summary { color: var(--color-muted); line-height: 1.55; }
+.source-context-heading h4, .source-context-heading p { margin: 0; }
+.source-context-heading p { color: var(--color-muted); line-height: 1.55; }
 .source-context-scroll { max-block-size: 18rem; overflow: auto; border: 1px solid var(--color-border); border-radius: .4rem; background: var(--color-surface); }
 .source-context-scroll:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .2rem; }
 .source-context-scroll pre { margin: 0; padding: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-ink); font: .95rem/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; unicode-bidi: plaintext; }
@@ -91,9 +101,10 @@ h2 { font-size: clamp(1.35rem, 3vw, 2rem); }
 .review-progress h4 { grid-column: 1 / -1; margin: 0; }
 .review-progress progress { inline-size: 100%; block-size: .8rem; accent-color: var(--color-accent); }
 .review-progress p { margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
-.review-decision-cell { display: grid; gap: var(--space-2); min-inline-size: 13rem; }
-.review-decision-cell select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
-.review-decision-cell select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
+.review-decision-cell { min-inline-size: 13rem; }
+.review-decision-controls { display: grid; gap: var(--space-2); }
+.review-decision-controls select { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding-inline: .65rem 2rem; color: var(--color-ink); background: var(--color-surface); font: inherit; }
+.review-decision-controls select:focus-visible { outline: .2rem solid var(--color-focus); outline-offset: .15rem; }
 .review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .review-actions p { flex: 1 1 24rem; margin: 0; color: var(--color-muted); font-size: .9rem; line-height: 1.55; }
 .review-actions [role] { flex-basis: 100%; min-block-size: 1.5rem; }
