@@ -9,8 +9,11 @@ SQLite prototype for the storage-neutral `JobMetadataStore` boundary.
 - Commits each revision change and event append in one SQLite transaction.
 - Appends one value-free outbox message in that same transaction, exposes bounded pending pages,
   and acknowledges deliveries idempotently by event ID plus aggregate revision.
+- Claims eligible messages under opaque-UUID, short exclusive consumer leases, schedules bounded
+  retries, and dead-letters a message after five failed or abandoned delivery attempts.
 - Replays idempotent creation across process restarts and rejects stale compare-and-swap updates.
-- Migrates the synthetic schema-v1 event history into deterministic pending schema-v2 outbox rows.
+- Migrates synthetic schema-v1 and schema-v2 histories into the schema-v3 delivery model without
+  re-pending acknowledged messages.
 - Requires an owner-only database directory, creates a new database file with owner-only
   permissions, and rejects symlinks, non-files, or group/other-accessible database files on POSIX
   hosts.
@@ -20,9 +23,9 @@ SQLite prototype for the storage-neutral `JobMetadataStore` boundary.
 
 This is a development evidence adapter, not an activated durable product profile. It never stores
 document bytes, filenames, paths, extracted text, detections, or review content. The default CLI and
-the browser launcher continue to use no SQLite database. Production dispatch, claim leases,
-retry/dead-letter policy, retention, encryption/key recovery, backup/restore, multiprocess behavior,
-and migration qualification remain open before the opt-in durable profile can ship.
+the browser launcher continue to use no SQLite database. Production dispatch, operational
+backoff/dead-letter handling, retention, encryption/key recovery, backup/restore, multiprocess
+stress, and migration qualification remain open before the opt-in durable profile can ship.
 
 Filesystem evidence currently covers a trusted owner-only POSIX directory. Replacement races by an
 adversarial process running as that same owner, Windows permission semantics, journal/sidecar crash

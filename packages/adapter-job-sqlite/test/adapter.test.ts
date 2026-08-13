@@ -15,6 +15,9 @@ const correlationId = 'cor_synthetic_sqlite_store';
 const firstEventId = '603df129-c778-4b13-8b2a-0fe745593c8f';
 const secondEventId = '703df129-c778-4b13-8b2a-0fe745593c8f';
 const thirdEventId = '803df129-c778-4b13-8b2a-0fe745593c8f';
+const firstConsumerId = '903df129-c778-4b13-8b2a-0fe745593c8f';
+const secondConsumerId = 'a03df129-c778-4b13-8b2a-0fe745593c8f';
+const thirdConsumerId = 'b03df129-c778-4b13-8b2a-0fe745593c8f';
 const requestDigest = `sha256:${'a'.repeat(64)}`;
 const temporaryRoots: string[] = [];
 
@@ -154,9 +157,327 @@ describe('SQLite job metadata adapter', () => {
       const raw = new DatabaseSync(path);
       const version = raw.prepare('PRAGMA user_version').get() as Record<string, unknown>;
       raw.close();
-      expect(Number(Object.values(version)[0])).toBe(2);
+      expect(Number(Object.values(version)[0])).toBe(3);
     } finally {
       migrated.close();
+    }
+  });
+
+  it('migrates schema v2 acknowledgements without making them pending again', async () => {
+    const path = await databasePath();
+    const original = openSqliteJobMetadataStore(path);
+    await original.create(createCommand());
+    await original.acknowledgeOutbox({
+      eventId: firstEventId,
+      revision: 1,
+      acknowledgedAt: '2026-08-09T18:02:00Z',
+      correlationId
+    });
+    original.close();
+
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      DROP INDEX job_outbox_pending;
+      ALTER TABLE job_outbox RENAME TO job_outbox_v3;
+      CREATE TABLE job_outbox (
+        cursor INTEGER PRIMARY KEY AUTOINCREMENT CHECK (cursor >= 1),
+        event_id TEXT NOT NULL UNIQUE REFERENCES job_events(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        event_cursor INTEGER NOT NULL CHECK (event_cursor >= 1),
+        event_type TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        acknowledged_at TEXT,
+        UNIQUE (job_id, revision),
+        CHECK (revision = event_cursor)
+      ) STRICT;
+      INSERT INTO job_outbox (
+        cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at, acknowledged_at
+      )
+      SELECT cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at, acknowledged_at
+      FROM job_outbox_v3;
+      DROP TABLE job_outbox_v3;
+      CREATE INDEX job_outbox_pending ON job_outbox(acknowledged_at, cursor);
+      PRAGMA user_version = 2;
+    `);
+    legacy.close();
+
+    const migrated = openSqliteJobMetadataStore(path);
+    try {
+      expect(await migrated.listPendingOutbox({ correlationId })).toEqual([]);
+      expect(await migrated.acknowledgeOutbox({
+        eventId: firstEventId,
+        revision: 1,
+        acknowledgedAt: '2026-08-09T19:00:00Z',
+        correlationId
+      })).toMatchObject({ replayed: true, acknowledgedAt: '2026-08-09T18:02:00Z' });
+    } finally {
+      migrated.close();
+    }
+  });
+
+  it('claims deliveries exclusively and completes the owning attempt idempotently across restart', async () => {
+    const path = await databasePath();
+    const first = openSqliteJobMetadataStore(path);
+    const second = openSqliteJobMetadataStore(path);
+    try {
+      await first.create(createCommand());
+      const [claim] = await first.claimPendingOutbox({
+        consumerId: firstConsumerId,
+        now: '2026-08-09T18:01:00Z',
+        leaseExpiresAt: '2026-08-09T18:02:00Z',
+        correlationId
+      });
+      expect(claim).toMatchObject({
+        consumerId: firstConsumerId,
+        attempt: 1,
+        message: { eventId: firstEventId, revision: 1 }
+      });
+      expect(await second.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:01:30Z',
+        leaseExpiresAt: '2026-08-09T18:02:30Z',
+        correlationId
+      })).toEqual([]);
+      await expectSafeError(second.acknowledgeOutbox({
+        eventId: firstEventId,
+        revision: 1,
+        acknowledgedAt: '2026-08-09T18:01:45Z',
+        correlationId
+      }), 'JOB_CONFLICT', true);
+      await expectSafeError(second.completeOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: secondConsumerId,
+        attempt: 1,
+        acknowledgedAt: '2026-08-09T18:01:45Z',
+        correlationId
+      }), 'JOB_CONFLICT', true);
+      expect(await first.completeOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: firstConsumerId,
+        attempt: 1,
+        acknowledgedAt: '2026-08-09T18:01:45Z',
+        correlationId
+      })).toMatchObject({ replayed: false });
+    } finally {
+      first.close();
+      second.close();
+    }
+
+    const restarted = openSqliteJobMetadataStore(path);
+    try {
+      expect(await restarted.completeOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: firstConsumerId,
+        attempt: 1,
+        acknowledgedAt: '2026-08-09T18:02:00Z',
+        correlationId
+      })).toMatchObject({
+        replayed: true,
+        acknowledgedAt: '2026-08-09T18:01:45Z'
+      });
+    } finally {
+      restarted.close();
+    }
+  });
+
+  it('schedules bounded retries and recovers an expired lease with a new attempt', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    try {
+      await store.create(createCommand());
+      const [firstClaim] = await store.claimPendingOutbox({
+        consumerId: firstConsumerId,
+        now: '2026-08-09T18:01:00Z',
+        leaseExpiresAt: '2026-08-09T18:02:00Z',
+        correlationId
+      });
+      expect(firstClaim?.attempt).toBe(1);
+      expect(await store.failOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: firstConsumerId,
+        attempt: 1,
+        failedAt: '2026-08-09T18:01:30Z',
+        retryAt: '2026-08-09T18:05:00Z',
+        correlationId
+      })).toMatchObject({ disposition: 'RETRY_SCHEDULED', attempt: 1 });
+      expect(await store.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:04:59Z',
+        leaseExpiresAt: '2026-08-09T18:05:59Z',
+        correlationId
+      })).toEqual([]);
+      const [secondClaim] = await store.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:05:00Z',
+        leaseExpiresAt: '2026-08-09T18:06:00Z',
+        correlationId
+      });
+      expect(secondClaim?.attempt).toBe(2);
+      const [recovered] = await store.claimPendingOutbox({
+        consumerId: thirdConsumerId,
+        now: '2026-08-09T18:06:01Z',
+        leaseExpiresAt: '2026-08-09T18:07:01Z',
+        correlationId
+      });
+      expect(recovered).toMatchObject({ consumerId: thirdConsumerId, attempt: 3 });
+      await expectSafeError(store.completeOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: secondConsumerId,
+        attempt: 2,
+        acknowledgedAt: '2026-08-09T18:05:30Z',
+        correlationId
+      }), 'JOB_CONFLICT', true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('persists active leases and retry availability across process restarts', async () => {
+    const path = await databasePath();
+    const first = openSqliteJobMetadataStore(path);
+    await first.create(createCommand());
+    await first.claimPendingOutbox({
+      consumerId: firstConsumerId,
+      now: '2026-08-09T18:01:00Z',
+      leaseExpiresAt: '2026-08-09T18:02:00Z',
+      correlationId
+    });
+    first.close();
+
+    const second = openSqliteJobMetadataStore(path);
+    try {
+      expect(await second.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:01:59Z',
+        leaseExpiresAt: '2026-08-09T18:02:59Z',
+        correlationId
+      })).toEqual([]);
+      const [recovered] = await second.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:02:00Z',
+        leaseExpiresAt: '2026-08-09T18:03:00Z',
+        correlationId
+      });
+      expect(recovered?.attempt).toBe(2);
+      await second.failOutboxClaim({
+        eventId: firstEventId,
+        revision: 1,
+        consumerId: secondConsumerId,
+        attempt: 2,
+        failedAt: '2026-08-09T18:02:30Z',
+        retryAt: '2026-08-09T18:05:00Z',
+        correlationId
+      });
+    } finally {
+      second.close();
+    }
+
+    const third = openSqliteJobMetadataStore(path);
+    try {
+      expect(await third.claimPendingOutbox({
+        consumerId: thirdConsumerId,
+        now: '2026-08-09T18:04:59Z',
+        leaseExpiresAt: '2026-08-09T18:05:59Z',
+        correlationId
+      })).toEqual([]);
+      expect(await third.claimPendingOutbox({
+        consumerId: thirdConsumerId,
+        now: '2026-08-09T18:05:00Z',
+        leaseExpiresAt: '2026-08-09T18:06:00Z',
+        correlationId
+      })).toMatchObject([{ consumerId: thirdConsumerId, attempt: 3 }]);
+    } finally {
+      third.close();
+    }
+  });
+
+  it('dead-letters a delivery after the fifth failed attempt and never reclaims it', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    try {
+      await store.create(createCommand());
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        const minute = attempt * 2;
+        const now = `2026-08-09T18:${String(minute).padStart(2, '0')}:00Z`;
+        const expiresAt = `2026-08-09T18:${String(minute + 1).padStart(2, '0')}:00Z`;
+        const [claim] = await store.claimPendingOutbox({
+          consumerId: firstConsumerId, now, leaseExpiresAt: expiresAt, correlationId
+        });
+        expect(claim?.attempt).toBe(attempt);
+        const failedAt = `2026-08-09T18:${String(minute).padStart(2, '0')}:30Z`;
+        const retryAt = `2026-08-09T18:${String(minute + 2).padStart(2, '0')}:00Z`;
+        const result = await store.failOutboxClaim({
+          eventId: firstEventId,
+          revision: 1,
+          consumerId: firstConsumerId,
+          attempt,
+          failedAt,
+          retryAt,
+          correlationId
+        });
+        expect(result.disposition).toBe(attempt === 5 ? 'DEAD_LETTERED' : 'RETRY_SCHEDULED');
+      }
+      expect(await store.listPendingOutbox({ correlationId })).toEqual([]);
+      expect(await store.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:20:00Z',
+        leaseExpiresAt: '2026-08-09T18:21:00Z',
+        correlationId
+      })).toEqual([]);
+      expect(await store.listDeadLetterOutbox({ correlationId })).toMatchObject([{
+        attempts: 5,
+        deadLetteredAt: '2026-08-09T18:10:30Z',
+        message: { eventId: firstEventId, revision: 1 }
+      }]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('dead-letters an exhausted lease after a consumer disappears', async () => {
+    const path = await databasePath();
+    const store = openSqliteJobMetadataStore(path);
+    try {
+      await store.create(createCommand());
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        const minute = attempt * 2;
+        const [claim] = await store.claimPendingOutbox({
+          consumerId: firstConsumerId,
+          now: `2026-08-09T18:${String(minute).padStart(2, '0')}:00Z`,
+          leaseExpiresAt: `2026-08-09T18:${String(minute + 1).padStart(2, '0')}:00Z`,
+          correlationId
+        });
+        expect(claim?.attempt).toBe(attempt);
+        if (attempt < 5) {
+          await store.failOutboxClaim({
+            eventId: firstEventId,
+            revision: 1,
+            consumerId: firstConsumerId,
+            attempt,
+            failedAt: `2026-08-09T18:${String(minute).padStart(2, '0')}:30Z`,
+            retryAt: `2026-08-09T18:${String(minute + 2).padStart(2, '0')}:00Z`,
+            correlationId
+          });
+        }
+      }
+      expect(await store.claimPendingOutbox({
+        consumerId: secondConsumerId,
+        now: '2026-08-09T18:11:01Z',
+        leaseExpiresAt: '2026-08-09T18:12:01Z',
+        correlationId
+      })).toEqual([]);
+      expect(await store.listDeadLetterOutbox({ correlationId })).toMatchObject([{
+        attempts: 5,
+        deadLetteredAt: '2026-08-09T18:11:01Z'
+      }]);
+    } finally {
+      store.close();
     }
   });
 

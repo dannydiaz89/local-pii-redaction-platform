@@ -4,6 +4,9 @@ import { SafeError } from '@local-pii/domain';
 import {
   createVolatileJobMetadataStore,
   validateJobOutboxAcknowledgement,
+  validateJobOutboxClaim,
+  validateJobOutboxClaimCompletion,
+  validateJobOutboxClaimFailure,
   validateJobOutboxQuery,
   type CreateJobCommand,
   type JobMetadataStore
@@ -14,6 +17,7 @@ const correlationId = 'cor_synthetic_job_store';
 const firstEventId = '603df129-c778-4b13-8b2a-0fe745593c8f';
 const secondEventId = '703df129-c778-4b13-8b2a-0fe745593c8f';
 const thirdEventId = '803df129-c778-4b13-8b2a-0fe745593c8f';
+const consumerId = '903df129-c778-4b13-8b2a-0fe745593c8f';
 const requestDigest = `sha256:${'a'.repeat(64)}`;
 
 function createCommand(overrides: Partial<CreateJobCommand> = {}): CreateJobCommand {
@@ -287,6 +291,50 @@ describe('volatile job metadata store conformance', () => {
       eventId: firstEventId,
       revision: 0,
       acknowledgedAt: '2026-08-09T18:02:00Z',
+      correlationId
+    }), 'SCHEMA_INVALID');
+    expect(validateJobOutboxClaim({
+      consumerId,
+      now: '2026-08-09T18:02:00Z',
+      leaseExpiresAt: '2026-08-09T18:07:00Z',
+      limit: 10,
+      correlationId
+    })).toEqual({
+      consumerId,
+      now: '2026-08-09T18:02:00Z',
+      leaseExpiresAt: '2026-08-09T18:07:00Z',
+      limit: 10
+    });
+    expect(validateJobOutboxClaimCompletion({
+      eventId: firstEventId,
+      revision: 1,
+      consumerId,
+      attempt: 1,
+      acknowledgedAt: '2026-08-09T18:03:00Z',
+      correlationId
+    })).toMatchObject({ consumerId, attempt: 1 });
+    expect(validateJobOutboxClaimFailure({
+      eventId: firstEventId,
+      revision: 1,
+      consumerId,
+      attempt: 1,
+      failedAt: '2026-08-09T18:03:00Z',
+      retryAt: '2026-08-09T18:04:00Z',
+      correlationId
+    })).toMatchObject({ attempt: 1, retryAt: '2026-08-09T18:04:00Z' });
+    expectSynchronousSafeError(() => validateJobOutboxClaim({
+      consumerId,
+      now: '2026-08-09T18:02:00Z',
+      leaseExpiresAt: '2026-08-09T18:07:01Z',
+      correlationId
+    }), 'SCHEMA_INVALID');
+    expectSynchronousSafeError(() => validateJobOutboxClaimFailure({
+      eventId: firstEventId,
+      revision: 1,
+      consumerId,
+      attempt: 6,
+      failedAt: '2026-08-09T18:03:00Z',
+      retryAt: '2026-08-10T18:03:01Z',
       correlationId
     }), 'SCHEMA_INVALID');
   });

@@ -13,20 +13,31 @@ import { SafeError } from '@local-pii/domain';
 import {
   prepareJobCreation,
   prepareJobTransition,
+  maximumJobOutboxAttempts,
   validateJobEventQuery,
   validateJobLookup,
   validateJobOutboxAcknowledgement,
+  validateJobOutboxClaim,
+  validateJobOutboxClaimCompletion,
+  validateJobOutboxClaimFailure,
   validateJobOutboxQuery,
   type AcknowledgeJobOutboxCommand,
+  type ClaimJobOutboxCommand,
+  type CompleteJobOutboxClaimCommand,
   type CreateJobCommand,
+  type FailJobOutboxClaimCommand,
   type Job,
   type JobEvent,
   type JobMetadataStore,
   type JobMutationResult,
   type JobOutboxAcknowledgement,
+  type JobOutboxClaim,
+  type JobOutboxDeadLetter,
+  type JobOutboxFailureResult,
   type JobOutboxMessage,
   type JobOutboxStore,
   type ListJobOutboxQuery,
+  type ListDeadLetterOutboxQuery,
   type ListJobEventsQuery,
   type TransitionJobCommand
 } from '@local-pii/job-store';
@@ -65,14 +76,46 @@ interface OutboxRow {
   readonly event_type: string;
   readonly occurred_at: string;
   readonly acknowledged_at: string | null;
+  readonly acknowledged_by: string | null;
+  readonly acknowledged_attempt: number | null;
+  readonly available_at: string;
+  readonly attempt_count: number;
+  readonly lease_owner: string | null;
+  readonly lease_attempt: number | null;
+  readonly leased_at: string | null;
+  readonly lease_expires_at: string | null;
+  readonly last_failure_at: string | null;
+  readonly dead_lettered_at: string | null;
   readonly event_body: string;
 }
 
 const jobSchemaId = 'https://local-pii.dev/schemas/jobs/job/1.0.0';
 const jobEventSchemaId = 'https://local-pii.dev/schemas/jobs/job-event/1.0.0';
-const schemaVersion = 2;
+const schemaVersion = 3;
 const applicationId = 0x4c504949;
 const defaultBusyTimeoutMs = 2_000;
+const storedConsumerPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const outboxSelection = `
+  outbox.cursor,
+  outbox.event_id,
+  outbox.job_id,
+  outbox.revision,
+  outbox.event_cursor,
+  outbox.event_type,
+  outbox.occurred_at,
+  outbox.acknowledged_at,
+  outbox.acknowledged_by,
+  outbox.acknowledged_attempt,
+  outbox.available_at,
+  outbox.attempt_count,
+  outbox.lease_owner,
+  outbox.lease_attempt,
+  outbox.leased_at,
+  outbox.lease_expires_at,
+  outbox.last_failure_at,
+  outbox.dead_lettered_at,
+  events.body AS event_body
+`;
 
 function fail(
   code: SafeError['code'],
@@ -131,6 +174,19 @@ function outboxRow(value: unknown): OutboxRow | undefined {
     || typeof value.event_type !== 'string'
     || typeof value.occurred_at !== 'string'
     || (value.acknowledged_at !== null && typeof value.acknowledged_at !== 'string')
+    || (value.acknowledged_by !== null && typeof value.acknowledged_by !== 'string')
+    || (value.acknowledged_attempt !== null && (!Number.isSafeInteger(value.acknowledged_attempt)
+      || (value.acknowledged_attempt as number) < 1))
+    || typeof value.available_at !== 'string'
+    || typeof value.attempt_count !== 'number' || !Number.isSafeInteger(value.attempt_count)
+    || value.attempt_count < 0 || value.attempt_count > maximumJobOutboxAttempts
+    || (value.lease_owner !== null && typeof value.lease_owner !== 'string')
+    || (value.lease_attempt !== null && (!Number.isSafeInteger(value.lease_attempt)
+      || (value.lease_attempt as number) < 1))
+    || (value.leased_at !== null && typeof value.leased_at !== 'string')
+    || (value.lease_expires_at !== null && typeof value.lease_expires_at !== 'string')
+    || (value.last_failure_at !== null && typeof value.last_failure_at !== 'string')
+    || (value.dead_lettered_at !== null && typeof value.dead_lettered_at !== 'string')
     || typeof value.event_body !== 'string') return undefined;
   return {
     cursor: value.cursor,
@@ -141,6 +197,16 @@ function outboxRow(value: unknown): OutboxRow | undefined {
     event_type: value.event_type,
     occurred_at: value.occurred_at,
     acknowledged_at: value.acknowledged_at,
+    acknowledged_by: value.acknowledged_by,
+    acknowledged_attempt: value.acknowledged_attempt as number | null,
+    available_at: value.available_at,
+    attempt_count: value.attempt_count,
+    lease_owner: value.lease_owner,
+    lease_attempt: value.lease_attempt as number | null,
+    leased_at: value.leased_at,
+    lease_expires_at: value.lease_expires_at,
+    last_failure_at: value.last_failure_at,
+    dead_lettered_at: value.dead_lettered_at,
     event_body: value.event_body
   };
 }
@@ -176,6 +242,22 @@ function decodeEvent(body: string, correlationId: string): JobEvent {
 
 function decodeOutboxMessage(row: OutboxRow, correlationId: string): JobOutboxMessage {
   const event = decodeEvent(row.event_body, correlationId);
+  const occurredAt = Date.parse(row.occurred_at);
+  const availableAt = Date.parse(row.available_at);
+  const acknowledgedAt = row.acknowledged_at === null ? undefined : Date.parse(row.acknowledged_at);
+  const leasedAt = row.leased_at === null ? undefined : Date.parse(row.leased_at);
+  const leaseExpiresAt = row.lease_expires_at === null ? undefined : Date.parse(row.lease_expires_at);
+  const lastFailureAt = row.last_failure_at === null ? undefined : Date.parse(row.last_failure_at);
+  const deadLetteredAt = row.dead_lettered_at === null ? undefined : Date.parse(row.dead_lettered_at);
+  const hasNoLease = row.lease_owner === null && row.lease_attempt === null
+    && row.leased_at === null && row.lease_expires_at === null;
+  const hasCompleteLease = row.lease_owner !== null && storedConsumerPattern.test(row.lease_owner)
+    && row.lease_attempt === row.attempt_count && leasedAt !== undefined && leaseExpiresAt !== undefined
+    && Number.isFinite(leasedAt) && Number.isFinite(leaseExpiresAt) && leaseExpiresAt > leasedAt;
+  const hasNoClaimAcknowledgement = row.acknowledged_by === null && row.acknowledged_attempt === null;
+  const hasClaimAcknowledgement = row.acknowledged_by !== null
+    && storedConsumerPattern.test(row.acknowledged_by)
+    && row.acknowledged_attempt !== null && row.acknowledged_attempt === row.attempt_count;
   if (event.id !== row.event_id
     || event.jobId !== row.job_id
     || event.revision !== row.revision
@@ -183,10 +265,18 @@ function decodeOutboxMessage(row: OutboxRow, correlationId: string): JobOutboxMe
     || event.type !== row.event_type
     || event.occurredAt !== row.occurred_at
     || row.revision !== row.event_cursor
-    || !Number.isFinite(Date.parse(row.occurred_at))
-    || (row.acknowledged_at !== null
-      && (!Number.isFinite(Date.parse(row.acknowledged_at))
-        || Date.parse(row.acknowledged_at) < Date.parse(row.occurred_at)))) {
+    || !Number.isFinite(occurredAt)
+    || !Number.isFinite(availableAt) || availableAt < occurredAt
+    || (!hasNoLease && !hasCompleteLease)
+    || (row.attempt_count === 0 && (!hasNoLease || lastFailureAt !== undefined || deadLetteredAt !== undefined))
+    || (acknowledgedAt !== undefined && (!Number.isFinite(acknowledgedAt) || acknowledgedAt < occurredAt))
+    || (acknowledgedAt === undefined && !hasNoClaimAcknowledgement)
+    || (acknowledgedAt !== undefined && !hasNoClaimAcknowledgement && !hasClaimAcknowledgement)
+    || (lastFailureAt !== undefined && (!Number.isFinite(lastFailureAt) || lastFailureAt < occurredAt))
+    || (deadLetteredAt !== undefined && (!Number.isFinite(deadLetteredAt) || deadLetteredAt < occurredAt
+      || row.attempt_count !== maximumJobOutboxAttempts))
+    || (acknowledgedAt !== undefined && (deadLetteredAt !== undefined || !hasNoLease))
+    || (deadLetteredAt !== undefined && !hasNoLease)) {
     storageFailure(correlationId);
   }
   return Object.freeze({
@@ -288,7 +378,7 @@ function initializeSchema(database: DatabaseSync): void {
   if ((observedVersion === 0 && observedApplication !== 0)
     || (observedVersion !== 0
       && (observedApplication !== applicationId
-        || (observedVersion !== 1 && observedVersion !== schemaVersion)))) {
+        || (observedVersion !== 1 && observedVersion !== 2 && observedVersion !== schemaVersion)))) {
     throw new Error('The SQLite job metadata schema is unsupported.');
   }
   if (observedVersion === 0) {
@@ -323,11 +413,32 @@ function initializeSchema(database: DatabaseSync): void {
           event_type TEXT NOT NULL,
           occurred_at TEXT NOT NULL,
           acknowledged_at TEXT,
+          acknowledged_by TEXT,
+          acknowledged_attempt INTEGER CHECK (acknowledged_attempt IS NULL OR acknowledged_attempt >= 1),
+          available_at TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            attempt_count >= 0 AND attempt_count <= ${String(maximumJobOutboxAttempts)}
+          ),
+          lease_owner TEXT,
+          lease_attempt INTEGER CHECK (lease_attempt IS NULL OR lease_attempt >= 1),
+          leased_at TEXT,
+          lease_expires_at TEXT,
+          last_failure_at TEXT,
+          dead_lettered_at TEXT,
           UNIQUE (job_id, revision),
-          CHECK (revision = event_cursor)
+          CHECK (revision = event_cursor),
+          CHECK ((lease_owner IS NULL AND lease_attempt IS NULL AND leased_at IS NULL AND lease_expires_at IS NULL)
+            OR (lease_owner IS NOT NULL AND lease_attempt = attempt_count
+              AND leased_at IS NOT NULL AND lease_expires_at IS NOT NULL)),
+          CHECK (acknowledged_at IS NULL OR (dead_lettered_at IS NULL AND lease_owner IS NULL)),
+          CHECK ((acknowledged_by IS NULL AND acknowledged_attempt IS NULL)
+            OR (acknowledged_at IS NOT NULL AND acknowledged_by IS NOT NULL
+              AND acknowledged_attempt = attempt_count)),
+          CHECK (dead_lettered_at IS NULL OR (acknowledged_at IS NULL AND lease_owner IS NULL))
         ) STRICT;
         CREATE INDEX job_events_page ON job_events(job_id, cursor);
-        CREATE INDEX job_outbox_pending ON job_outbox(acknowledged_at, cursor);
+        CREATE INDEX job_outbox_pending
+          ON job_outbox(acknowledged_at, dead_lettered_at, available_at, lease_expires_at, cursor);
         PRAGMA application_id = ${String(applicationId)};
         PRAGMA user_version = ${String(schemaVersion)};
       `);
@@ -344,12 +455,33 @@ function initializeSchema(database: DatabaseSync): void {
           event_type TEXT NOT NULL,
           occurred_at TEXT NOT NULL,
           acknowledged_at TEXT,
+          acknowledged_by TEXT,
+          acknowledged_attempt INTEGER CHECK (acknowledged_attempt IS NULL OR acknowledged_attempt >= 1),
+          available_at TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            attempt_count >= 0 AND attempt_count <= ${String(maximumJobOutboxAttempts)}
+          ),
+          lease_owner TEXT,
+          lease_attempt INTEGER CHECK (lease_attempt IS NULL OR lease_attempt >= 1),
+          leased_at TEXT,
+          lease_expires_at TEXT,
+          last_failure_at TEXT,
+          dead_lettered_at TEXT,
           UNIQUE (job_id, revision),
-          CHECK (revision = event_cursor)
+          CHECK (revision = event_cursor),
+          CHECK ((lease_owner IS NULL AND lease_attempt IS NULL AND leased_at IS NULL AND lease_expires_at IS NULL)
+            OR (lease_owner IS NOT NULL AND lease_attempt = attempt_count
+              AND leased_at IS NOT NULL AND lease_expires_at IS NOT NULL)),
+          CHECK (acknowledged_at IS NULL OR (dead_lettered_at IS NULL AND lease_owner IS NULL)),
+          CHECK ((acknowledged_by IS NULL AND acknowledged_attempt IS NULL)
+            OR (acknowledged_at IS NOT NULL AND acknowledged_by IS NOT NULL
+              AND acknowledged_attempt = attempt_count)),
+          CHECK (dead_lettered_at IS NULL OR (acknowledged_at IS NULL AND lease_owner IS NULL))
         ) STRICT;
-        CREATE INDEX job_outbox_pending ON job_outbox(acknowledged_at, cursor);
+        CREATE INDEX job_outbox_pending
+          ON job_outbox(acknowledged_at, dead_lettered_at, available_at, lease_expires_at, cursor);
         INSERT INTO job_outbox (
-          event_id, job_id, revision, event_cursor, event_type, occurred_at
+          event_id, job_id, revision, event_cursor, event_type, occurred_at, available_at
         )
         SELECT
           id,
@@ -357,9 +489,60 @@ function initializeSchema(database: DatabaseSync): void {
           json_extract(body, '$.revision'),
           json_extract(body, '$.cursor'),
           json_extract(body, '$.type'),
+          json_extract(body, '$.occurredAt'),
           json_extract(body, '$.occurredAt')
         FROM job_events
         ORDER BY rowid ASC;
+        PRAGMA user_version = ${String(schemaVersion)};
+      `);
+    });
+  } else if (observedVersion === 2) {
+    inTransaction(database, () => {
+      database.exec(`
+        DROP INDEX job_outbox_pending;
+        ALTER TABLE job_outbox RENAME TO job_outbox_v2;
+        CREATE TABLE job_outbox (
+          cursor INTEGER PRIMARY KEY AUTOINCREMENT CHECK (cursor >= 1),
+          event_id TEXT NOT NULL UNIQUE REFERENCES job_events(id) ON DELETE CASCADE,
+          job_id TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          event_cursor INTEGER NOT NULL CHECK (event_cursor >= 1),
+          event_type TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          acknowledged_by TEXT,
+          acknowledged_attempt INTEGER CHECK (acknowledged_attempt IS NULL OR acknowledged_attempt >= 1),
+          available_at TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            attempt_count >= 0 AND attempt_count <= ${String(maximumJobOutboxAttempts)}
+          ),
+          lease_owner TEXT,
+          lease_attempt INTEGER CHECK (lease_attempt IS NULL OR lease_attempt >= 1),
+          leased_at TEXT,
+          lease_expires_at TEXT,
+          last_failure_at TEXT,
+          dead_lettered_at TEXT,
+          UNIQUE (job_id, revision),
+          CHECK (revision = event_cursor),
+          CHECK ((lease_owner IS NULL AND lease_attempt IS NULL AND leased_at IS NULL AND lease_expires_at IS NULL)
+            OR (lease_owner IS NOT NULL AND lease_attempt = attempt_count
+              AND leased_at IS NOT NULL AND lease_expires_at IS NOT NULL)),
+          CHECK (acknowledged_at IS NULL OR (dead_lettered_at IS NULL AND lease_owner IS NULL)),
+          CHECK ((acknowledged_by IS NULL AND acknowledged_attempt IS NULL)
+            OR (acknowledged_at IS NOT NULL AND acknowledged_by IS NOT NULL
+              AND acknowledged_attempt = attempt_count)),
+          CHECK (dead_lettered_at IS NULL OR (acknowledged_at IS NULL AND lease_owner IS NULL))
+        ) STRICT;
+        INSERT INTO job_outbox (
+          cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at,
+          acknowledged_at, acknowledged_by, acknowledged_attempt, available_at
+        )
+        SELECT cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at,
+          acknowledged_at, NULL, NULL, occurred_at
+        FROM job_outbox_v2 ORDER BY cursor ASC;
+        DROP TABLE job_outbox_v2;
+        CREATE INDEX job_outbox_pending
+          ON job_outbox(acknowledged_at, dead_lettered_at, available_at, lease_expires_at, cursor);
         PRAGMA user_version = ${String(schemaVersion)};
       `);
     });
@@ -373,7 +556,9 @@ function initializeSchema(database: DatabaseSync): void {
     'SELECT id, job_id, cursor, body FROM job_events LIMIT 0',
     'SELECT scope, key, request_digest, job_body, event_body FROM job_idempotency LIMIT 0',
     `SELECT cursor, event_id, job_id, revision, event_cursor, event_type, occurred_at,
-      acknowledged_at FROM job_outbox LIMIT 0`
+      acknowledged_at, acknowledged_by, acknowledged_attempt, available_at, attempt_count,
+      lease_owner, lease_attempt, leased_at,
+      lease_expires_at, last_failure_at, dead_lettered_at FROM job_outbox LIMIT 0`
   ]) database.prepare(query).all();
 }
 
@@ -394,23 +579,14 @@ function eventIdentifierExists(database: DatabaseSync, eventId: string): boolean
 function insertOutbox(database: DatabaseSync, event: JobEvent): void {
   database.prepare(`
     INSERT INTO job_outbox (
-      event_id, job_id, revision, event_cursor, event_type, occurred_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(event.id, event.jobId, event.revision, event.cursor, event.type, event.occurredAt);
+      event_id, job_id, revision, event_cursor, event_type, occurred_at, available_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(event.id, event.jobId, event.revision, event.cursor, event.type, event.occurredAt, event.occurredAt);
 }
 
 function findOutboxRow(database: DatabaseSync, eventId: string, correlationId: string): OutboxRow | undefined {
   const value = database.prepare(`
-    SELECT
-      outbox.cursor,
-      outbox.event_id,
-      outbox.job_id,
-      outbox.revision,
-      outbox.event_cursor,
-      outbox.event_type,
-      outbox.occurred_at,
-      outbox.acknowledged_at,
-      events.body AS event_body
+    SELECT ${outboxSelection}
     FROM job_outbox AS outbox
     INNER JOIN job_events AS events ON events.id = outbox.event_id
     WHERE outbox.event_id = ?
@@ -419,6 +595,34 @@ function findOutboxRow(database: DatabaseSync, eventId: string, correlationId: s
   const row = outboxRow(value);
   if (row === undefined) storageFailure(correlationId);
   return row;
+}
+
+function decodeOutboxClaim(row: OutboxRow, correlationId: string): JobOutboxClaim {
+  const message = decodeOutboxMessage(row, correlationId);
+  if (row.lease_owner === null || row.lease_attempt === null
+    || row.leased_at === null || row.lease_expires_at === null) {
+    storageFailure(correlationId);
+  }
+  return Object.freeze({
+    message,
+    consumerId: row.lease_owner,
+    attempt: row.lease_attempt,
+    leasedAt: row.leased_at,
+    leaseExpiresAt: row.lease_expires_at
+  });
+}
+
+function requireClaimOwnership(
+  row: OutboxRow,
+  consumerId: string,
+  attempt: number,
+  correlationId: string
+): JobOutboxClaim {
+  const claim = decodeOutboxClaim(row, correlationId);
+  if (claim.consumerId !== consumerId || claim.attempt !== attempt) {
+    fail('JOB_CONFLICT', 'The outbox delivery lease changed.', true, correlationId);
+  }
+  return claim;
 }
 
 /**
@@ -618,19 +822,12 @@ export function openSqliteJobMetadataStore(
       available(query.correlationId);
       try {
         const rows = openedDatabase.prepare(`
-          SELECT
-            outbox.cursor,
-            outbox.event_id,
-            outbox.job_id,
-            outbox.revision,
-            outbox.event_cursor,
-            outbox.event_type,
-            outbox.occurred_at,
-            outbox.acknowledged_at,
-            events.body AS event_body
+          SELECT ${outboxSelection}
           FROM job_outbox AS outbox
           INNER JOIN job_events AS events ON events.id = outbox.event_id
-          WHERE outbox.acknowledged_at IS NULL AND outbox.cursor > ?
+          WHERE outbox.acknowledged_at IS NULL
+            AND outbox.dead_lettered_at IS NULL
+            AND outbox.cursor > ?
           ORDER BY outbox.cursor ASC
           LIMIT ?
         `).all(validated.afterCursor, validated.limit);
@@ -642,6 +839,96 @@ export function openSqliteJobMetadataStore(
       } catch (error: unknown) {
         if (error instanceof SafeError || error instanceof DOMException) throw error;
         storageFailure(query.correlationId);
+      }
+    },
+
+    async claimPendingOutbox(
+      command: ClaimJobOutboxCommand,
+      signal?: AbortSignal
+    ): Promise<readonly JobOutboxClaim[]> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxClaim(command);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(command.correlationId);
+      try {
+        return inTransaction(openedDatabase, () => {
+          signal?.throwIfAborted();
+          const exhausted = openedDatabase.prepare(`
+            SELECT ${outboxSelection}
+            FROM job_outbox AS outbox
+            INNER JOIN job_events AS events ON events.id = outbox.event_id
+            WHERE outbox.acknowledged_at IS NULL
+              AND outbox.dead_lettered_at IS NULL
+              AND outbox.attempt_count = ?
+              AND (outbox.lease_owner IS NULL
+                OR julianday(outbox.lease_expires_at) <= julianday(?))
+            ORDER BY outbox.cursor ASC
+            LIMIT ?
+          `).all(maximumJobOutboxAttempts, validated.now, maximumJobOutboxAttempts);
+          for (const value of exhausted) {
+            const row = outboxRow(value);
+            if (row === undefined) storageFailure(command.correlationId);
+            decodeOutboxMessage(row, command.correlationId);
+            const update = openedDatabase.prepare(`
+              UPDATE job_outbox SET
+                dead_lettered_at = ?, lease_owner = NULL, lease_attempt = NULL,
+                leased_at = NULL, lease_expires_at = NULL
+              WHERE event_id = ? AND acknowledged_at IS NULL AND dead_lettered_at IS NULL
+                AND attempt_count = ?
+            `).run(validated.now, row.event_id, maximumJobOutboxAttempts);
+            if (Number(update.changes) !== 1) {
+              fail('JOB_CONFLICT', 'The outbox delivery changed.', true, command.correlationId);
+            }
+          }
+
+          const candidates = openedDatabase.prepare(`
+            SELECT ${outboxSelection}
+            FROM job_outbox AS outbox
+            INNER JOIN job_events AS events ON events.id = outbox.event_id
+            WHERE outbox.acknowledged_at IS NULL
+              AND outbox.dead_lettered_at IS NULL
+              AND outbox.attempt_count < ?
+              AND julianday(outbox.available_at) <= julianday(?)
+              AND (outbox.lease_owner IS NULL
+                OR julianday(outbox.lease_expires_at) <= julianday(?))
+            ORDER BY outbox.cursor ASC
+            LIMIT ?
+          `).all(maximumJobOutboxAttempts, validated.now, validated.now, validated.limit);
+          const claims: JobOutboxClaim[] = [];
+          for (const value of candidates) {
+            const row = outboxRow(value);
+            if (row === undefined) storageFailure(command.correlationId);
+            decodeOutboxMessage(row, command.correlationId);
+            const nextAttempt = row.attempt_count + 1;
+            const update = openedDatabase.prepare(`
+              UPDATE job_outbox SET
+                attempt_count = ?, lease_owner = ?, lease_attempt = ?, leased_at = ?,
+                lease_expires_at = ?
+              WHERE event_id = ? AND revision = ? AND attempt_count = ?
+                AND acknowledged_at IS NULL AND dead_lettered_at IS NULL
+            `).run(
+              nextAttempt,
+              validated.consumerId,
+              nextAttempt,
+              validated.now,
+              validated.leaseExpiresAt,
+              row.event_id,
+              row.revision,
+              row.attempt_count
+            );
+            if (Number(update.changes) !== 1) {
+              fail('JOB_CONFLICT', 'The outbox delivery changed.', true, command.correlationId);
+            }
+            const claimed = findOutboxRow(openedDatabase, row.event_id, command.correlationId);
+            if (claimed === undefined) storageFailure(command.correlationId);
+            claims.push(decodeOutboxClaim(claimed, command.correlationId));
+          }
+          return Object.freeze(claims);
+        });
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(command.correlationId);
       }
     },
 
@@ -665,6 +952,9 @@ export function openSqliteJobMetadataStore(
           if (message.revision !== validated.revision) {
             fail('JOB_CONFLICT', 'The outbox event revision changed.', false, command.correlationId);
           }
+          if (row.dead_lettered_at !== null) {
+            fail('JOB_CONFLICT', 'The outbox event is dead-lettered.', false, command.correlationId);
+          }
           if (Date.parse(validated.acknowledgedAt) < Date.parse(message.occurredAt)) {
             fail('SCHEMA_INVALID', 'The outbox acknowledgement is invalid.', false, command.correlationId);
           }
@@ -675,9 +965,13 @@ export function openSqliteJobMetadataStore(
               replayed: true
             });
           }
+          if (row.lease_owner !== null) {
+            fail('JOB_CONFLICT', 'The outbox event has an active delivery lease.', true, command.correlationId);
+          }
           const update = openedDatabase.prepare(`
             UPDATE job_outbox SET acknowledged_at = ?
             WHERE event_id = ? AND revision = ? AND acknowledged_at IS NULL
+              AND dead_lettered_at IS NULL AND lease_owner IS NULL
           `).run(validated.acknowledgedAt, validated.eventId, validated.revision);
           if (Number(update.changes) !== 1) {
             fail('JOB_CONFLICT', 'The outbox event changed.', true, command.correlationId);
@@ -691,6 +985,190 @@ export function openSqliteJobMetadataStore(
       } catch (error: unknown) {
         if (error instanceof SafeError || error instanceof DOMException) throw error;
         storageFailure(command.correlationId);
+      }
+    },
+
+    async completeOutboxClaim(
+      command: CompleteJobOutboxClaimCommand,
+      signal?: AbortSignal
+    ): Promise<JobOutboxAcknowledgement> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxClaimCompletion(command);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(command.correlationId);
+      try {
+        return inTransaction(openedDatabase, () => {
+          signal?.throwIfAborted();
+          const row = findOutboxRow(openedDatabase, validated.eventId, command.correlationId);
+          if (row === undefined) {
+            fail('JOB_CONFLICT', 'The outbox event does not exist.', false, command.correlationId);
+          }
+          const message = decodeOutboxMessage(row, command.correlationId);
+          if (message.revision !== validated.revision) {
+            fail('JOB_CONFLICT', 'The outbox event revision changed.', false, command.correlationId);
+          }
+          if (row.acknowledged_at !== null) {
+            if (row.acknowledged_by !== validated.consumerId
+              || row.acknowledged_attempt !== validated.attempt) {
+              fail('JOB_CONFLICT', 'The outbox acknowledgement changed.', false, command.correlationId);
+            }
+            return Object.freeze({
+              message,
+              acknowledgedAt: row.acknowledged_at,
+              replayed: true
+            });
+          }
+          const claim = requireClaimOwnership(
+            row,
+            validated.consumerId,
+            validated.attempt,
+            command.correlationId
+          );
+          const acknowledgedAt = Date.parse(validated.acknowledgedAt);
+          if (acknowledgedAt < Date.parse(claim.leasedAt)
+            || acknowledgedAt > Date.parse(claim.leaseExpiresAt)) {
+            fail('JOB_CONFLICT', 'The outbox delivery lease expired.', true, command.correlationId);
+          }
+          const update = openedDatabase.prepare(`
+            UPDATE job_outbox SET
+              acknowledged_at = ?, acknowledged_by = ?, acknowledged_attempt = ?,
+              lease_owner = NULL, lease_attempt = NULL, leased_at = NULL, lease_expires_at = NULL
+            WHERE event_id = ? AND revision = ? AND lease_owner = ? AND lease_attempt = ?
+              AND acknowledged_at IS NULL AND dead_lettered_at IS NULL
+          `).run(
+            validated.acknowledgedAt,
+            validated.consumerId,
+            validated.attempt,
+            validated.eventId,
+            validated.revision,
+            validated.consumerId,
+            validated.attempt
+          );
+          if (Number(update.changes) !== 1) {
+            fail('JOB_CONFLICT', 'The outbox delivery lease changed.', true, command.correlationId);
+          }
+          return Object.freeze({ message, acknowledgedAt: validated.acknowledgedAt, replayed: false });
+        });
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(command.correlationId);
+      }
+    },
+
+    async failOutboxClaim(
+      command: FailJobOutboxClaimCommand,
+      signal?: AbortSignal
+    ): Promise<JobOutboxFailureResult> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxClaimFailure(command);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(command.correlationId);
+      try {
+        return inTransaction(openedDatabase, () => {
+          signal?.throwIfAborted();
+          const row = findOutboxRow(openedDatabase, validated.eventId, command.correlationId);
+          if (row === undefined) {
+            fail('JOB_CONFLICT', 'The outbox event does not exist.', false, command.correlationId);
+          }
+          const message = decodeOutboxMessage(row, command.correlationId);
+          if (message.revision !== validated.revision || row.acknowledged_at !== null
+            || row.dead_lettered_at !== null) {
+            fail('JOB_CONFLICT', 'The outbox delivery changed.', false, command.correlationId);
+          }
+          const claim = requireClaimOwnership(
+            row,
+            validated.consumerId,
+            validated.attempt,
+            command.correlationId
+          );
+          const failedAt = Date.parse(validated.failedAt);
+          if (failedAt < Date.parse(claim.leasedAt) || failedAt > Date.parse(claim.leaseExpiresAt)) {
+            fail('JOB_CONFLICT', 'The outbox delivery lease expired.', true, command.correlationId);
+          }
+          const deadLettered = validated.attempt === maximumJobOutboxAttempts;
+          const update = deadLettered
+            ? openedDatabase.prepare(`
+                UPDATE job_outbox SET
+                  last_failure_at = ?, dead_lettered_at = ?, lease_owner = NULL,
+                  lease_attempt = NULL, leased_at = NULL, lease_expires_at = NULL
+                WHERE event_id = ? AND revision = ? AND lease_owner = ? AND lease_attempt = ?
+                  AND acknowledged_at IS NULL AND dead_lettered_at IS NULL
+              `).run(
+                validated.failedAt,
+                validated.failedAt,
+                validated.eventId,
+                validated.revision,
+                validated.consumerId,
+                validated.attempt
+              )
+            : openedDatabase.prepare(`
+                UPDATE job_outbox SET
+                  last_failure_at = ?, available_at = ?, lease_owner = NULL,
+                  lease_attempt = NULL, leased_at = NULL, lease_expires_at = NULL
+                WHERE event_id = ? AND revision = ? AND lease_owner = ? AND lease_attempt = ?
+                  AND acknowledged_at IS NULL AND dead_lettered_at IS NULL
+              `).run(
+                validated.failedAt,
+                validated.retryAt,
+                validated.eventId,
+                validated.revision,
+                validated.consumerId,
+                validated.attempt
+              );
+          if (Number(update.changes) !== 1) {
+            fail('JOB_CONFLICT', 'The outbox delivery lease changed.', true, command.correlationId);
+          }
+          return deadLettered
+            ? Object.freeze({
+                message,
+                attempt: validated.attempt,
+                disposition: 'DEAD_LETTERED' as const,
+                deadLetteredAt: validated.failedAt
+              })
+            : Object.freeze({
+                message,
+                attempt: validated.attempt,
+                disposition: 'RETRY_SCHEDULED' as const,
+                availableAt: validated.retryAt
+              });
+        });
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(command.correlationId);
+      }
+    },
+
+    async listDeadLetterOutbox(
+      query: ListDeadLetterOutboxQuery,
+      signal?: AbortSignal
+    ): Promise<readonly JobOutboxDeadLetter[]> {
+      signal?.throwIfAborted();
+      const validated = validateJobOutboxQuery(query);
+      await Promise.resolve();
+      signal?.throwIfAborted();
+      available(query.correlationId);
+      try {
+        const rows = openedDatabase.prepare(`
+          SELECT ${outboxSelection}
+          FROM job_outbox AS outbox
+          INNER JOIN job_events AS events ON events.id = outbox.event_id
+          WHERE outbox.dead_lettered_at IS NOT NULL AND outbox.cursor > ?
+          ORDER BY outbox.cursor ASC LIMIT ?
+        `).all(validated.afterCursor, validated.limit);
+        return Object.freeze(rows.map((value) => {
+          const row = outboxRow(value);
+          if (row === undefined || row.dead_lettered_at === null) storageFailure(query.correlationId);
+          return Object.freeze({
+            message: decodeOutboxMessage(row, query.correlationId),
+            attempts: row.attempt_count,
+            deadLetteredAt: row.dead_lettered_at
+          });
+        }));
+      } catch (error: unknown) {
+        if (error instanceof SafeError || error instanceof DOMException) throw error;
+        storageFailure(query.correlationId);
       }
     },
 

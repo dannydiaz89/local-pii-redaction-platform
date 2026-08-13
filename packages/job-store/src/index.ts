@@ -111,12 +111,80 @@ export interface JobOutboxAcknowledgement {
   readonly replayed: boolean;
 }
 
+export interface ClaimJobOutboxCommand {
+  readonly consumerId: string;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
+  readonly limit?: number;
+  readonly correlationId: string;
+}
+
+export interface JobOutboxClaim {
+  readonly message: JobOutboxMessage;
+  readonly consumerId: string;
+  readonly attempt: number;
+  readonly leasedAt: string;
+  readonly leaseExpiresAt: string;
+}
+
+export interface CompleteJobOutboxClaimCommand {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly consumerId: string;
+  readonly attempt: number;
+  readonly acknowledgedAt: string;
+  readonly correlationId: string;
+}
+
+export interface FailJobOutboxClaimCommand {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly consumerId: string;
+  readonly attempt: number;
+  readonly failedAt: string;
+  readonly retryAt: string;
+  readonly correlationId: string;
+}
+
+export interface JobOutboxFailureResult {
+  readonly message: JobOutboxMessage;
+  readonly attempt: number;
+  readonly disposition: 'RETRY_SCHEDULED' | 'DEAD_LETTERED';
+  readonly availableAt?: string;
+  readonly deadLetteredAt?: string;
+}
+
+export interface ListDeadLetterOutboxQuery {
+  readonly afterCursor?: number;
+  readonly limit?: number;
+  readonly correlationId: string;
+}
+
+export interface JobOutboxDeadLetter {
+  readonly message: JobOutboxMessage;
+  readonly attempts: number;
+  readonly deadLetteredAt: string;
+}
+
 export interface JobOutboxStore {
   listPendingOutbox(query: ListJobOutboxQuery, signal?: AbortSignal): Promise<readonly JobOutboxMessage[]>;
+  claimPendingOutbox(command: ClaimJobOutboxCommand, signal?: AbortSignal): Promise<readonly JobOutboxClaim[]>;
   acknowledgeOutbox(
     command: AcknowledgeJobOutboxCommand,
     signal?: AbortSignal
   ): Promise<JobOutboxAcknowledgement>;
+  completeOutboxClaim(
+    command: CompleteJobOutboxClaimCommand,
+    signal?: AbortSignal
+  ): Promise<JobOutboxAcknowledgement>;
+  failOutboxClaim(
+    command: FailJobOutboxClaimCommand,
+    signal?: AbortSignal
+  ): Promise<JobOutboxFailureResult>;
+  listDeadLetterOutbox(
+    query: ListDeadLetterOutboxQuery,
+    signal?: AbortSignal
+  ): Promise<readonly JobOutboxDeadLetter[]>;
 }
 
 /** Canonical, validated creation material used by storage adapters. */
@@ -149,6 +217,30 @@ export interface ValidatedJobOutboxAcknowledgement {
   readonly acknowledgedAt: string;
 }
 
+export interface ValidatedJobOutboxClaim {
+  readonly consumerId: string;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
+  readonly limit: number;
+}
+
+export interface ValidatedJobOutboxClaimCompletion {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly consumerId: string;
+  readonly attempt: number;
+  readonly acknowledgedAt: string;
+}
+
+export interface ValidatedJobOutboxClaimFailure {
+  readonly eventId: string;
+  readonly revision: number;
+  readonly consumerId: string;
+  readonly attempt: number;
+  readonly failedAt: string;
+  readonly retryAt: string;
+}
+
 interface IdempotencyRecord {
   readonly requestDigest: string;
   readonly job: Job;
@@ -161,6 +253,9 @@ const tokenPattern = /^[A-Za-z0-9._:-]+$/u;
 const operations = new Set<JobOperation>(['SCAN', 'REDACT', 'VERIFY', 'INSPECT']);
 const maximumEventPageSize = 100;
 const maximumOutboxPageSize = 100;
+export const maximumJobOutboxAttempts = 5;
+export const maximumJobOutboxLeaseMilliseconds = 5 * 60 * 1_000;
+export const maximumJobOutboxRetryMilliseconds = 24 * 60 * 60 * 1_000;
 
 function fail(code: ErrorCode, message: string, retryable: boolean, correlationId: string): never {
   throw new SafeError({ code, message, retryable, correlationId });
@@ -437,6 +532,72 @@ export function validateJobOutboxAcknowledgement(
   const revision = validateRevision(command.revision, command.correlationId);
   const acknowledgedAt = validateDateTime(command.acknowledgedAt, command.correlationId);
   return Object.freeze({ eventId, revision, acknowledgedAt });
+}
+
+function validateOutboxConsumerId(value: unknown, correlationId: string): string {
+  if (typeof value !== 'string') {
+    fail('SCHEMA_INVALID', 'The outbox delivery command is invalid.', false, correlationId);
+  }
+  try {
+    return parseEventId(value);
+  } catch {
+    fail('SCHEMA_INVALID', 'The outbox delivery command is invalid.', false, correlationId);
+  }
+}
+
+function validateOutboxAttempt(value: unknown, correlationId: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1
+    || (value as number) > maximumJobOutboxAttempts) {
+    fail('SCHEMA_INVALID', 'The outbox delivery command is invalid.', false, correlationId);
+  }
+  return value as number;
+}
+
+export function validateJobOutboxClaim(command: ClaimJobOutboxCommand): ValidatedJobOutboxClaim {
+  parseCorrelationId(command.correlationId);
+  const consumerId = validateOutboxConsumerId(command.consumerId, command.correlationId);
+  const now = validateDateTime(command.now, command.correlationId);
+  const leaseExpiresAt = validateDateTime(command.leaseExpiresAt, command.correlationId);
+  const duration = Date.parse(leaseExpiresAt) - Date.parse(now);
+  const limit = command.limit ?? maximumOutboxPageSize;
+  if (duration < 1_000 || duration > maximumJobOutboxLeaseMilliseconds
+    || !Number.isSafeInteger(limit) || limit < 1 || limit > maximumOutboxPageSize) {
+    fail('SCHEMA_INVALID', 'The outbox delivery command is invalid.', false, command.correlationId);
+  }
+  return Object.freeze({ consumerId, now, leaseExpiresAt, limit });
+}
+
+export function validateJobOutboxClaimCompletion(
+  command: CompleteJobOutboxClaimCommand
+): ValidatedJobOutboxClaimCompletion {
+  parseCorrelationId(command.correlationId);
+  return Object.freeze({
+    eventId: validateEventId(command.eventId, command.correlationId),
+    revision: validateRevision(command.revision, command.correlationId),
+    consumerId: validateOutboxConsumerId(command.consumerId, command.correlationId),
+    attempt: validateOutboxAttempt(command.attempt, command.correlationId),
+    acknowledgedAt: validateDateTime(command.acknowledgedAt, command.correlationId)
+  });
+}
+
+export function validateJobOutboxClaimFailure(
+  command: FailJobOutboxClaimCommand
+): ValidatedJobOutboxClaimFailure {
+  parseCorrelationId(command.correlationId);
+  const failedAt = validateDateTime(command.failedAt, command.correlationId);
+  const retryAt = validateDateTime(command.retryAt, command.correlationId);
+  const delay = Date.parse(retryAt) - Date.parse(failedAt);
+  if (delay < 1_000 || delay > maximumJobOutboxRetryMilliseconds) {
+    fail('SCHEMA_INVALID', 'The outbox delivery command is invalid.', false, command.correlationId);
+  }
+  return Object.freeze({
+    eventId: validateEventId(command.eventId, command.correlationId),
+    revision: validateRevision(command.revision, command.correlationId),
+    consumerId: validateOutboxConsumerId(command.consumerId, command.correlationId),
+    attempt: validateOutboxAttempt(command.attempt, command.correlationId),
+    failedAt,
+    retryAt
+  });
 }
 
 /**

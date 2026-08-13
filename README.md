@@ -170,11 +170,12 @@ authorization, durable-object authorization, and a complete Windows/macOS CI mat
 [`@local-pii/adapter-job-sqlite`](./packages/adapter-job-sqlite) is a metadata-only development
 prototype behind that same port. It proves private-file creation, schema-version rejection,
 transactional revision/event updates, idempotent replay after restart, and stale-write rejection
-across connections. Schema v2 also atomically appends a value-free outbox record with every event,
-supports bounded pending reads and idempotent event/revision acknowledgements across restart, and
-synthetically migrates schema-v1 events into deterministic pending deliveries. It uses Node's
+across connections. Schema v3 also atomically appends a value-free outbox record with every event,
+supports bounded pending reads, exclusive five-minute-or-shorter claim leases, bounded retry
+scheduling, five-attempt dead-lettering, and idempotent completion across restart. Synthetic schema
+v1 and v2 migrations preserve delivery state. It uses Node's
 experimental built-in SQLite API and is not composed into the CLI or browser launcher. It does not
-qualify production dispatch, leases/retries, retention, encryption, backup, or a production durable
+qualify production dispatch/operations, retention, encryption, backup, or a production durable
 profile. Filesystem evidence assumes a trusted owner-only POSIX directory;
 same-owner path replacement races and Windows permission semantics remain open.
 

@@ -10,6 +10,8 @@ Storage-neutral job metadata boundary for the future opt-in durable application 
 - Couples each accepted mutation to a value-free canonical job event.
 - Defines bounded pending-outbox pagination and idempotent event/revision acknowledgement contracts
   for durable adapters without prescribing a dispatcher.
+- Defines opaque-UUID consumer identities, short exclusive claim leases, bounded retry scheduling,
+  five-attempt exhaustion, and a value-free dead-letter projection for durable-adapter conformance.
 - Provides a deliberately volatile reference adapter for conformance and application-development
   tests.
 
@@ -24,9 +26,9 @@ job control; it loses all state on process exit and must not be described as a d
 implementation or processing queue.
 
 The separate `@local-pii/adapter-job-sqlite` package now prototypes transaction and restart behavior
-against this port, including an atomic value-free outbox and synthetic schema migration. It remains
-disabled in the application while production dispatch, claim leases/retries, encryption, retention,
-backup, and migration qualification are open.
+against this port, including an atomic value-free outbox, claim/retry/dead-letter mechanics, and
+synthetic schema migration. It remains disabled in the application while production dispatch,
+operational retry policy, encryption, retention, backup, and migration qualification are open.
 
 ## Public entry point
 
