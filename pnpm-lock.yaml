@@ -13,7 +13,7 @@ importers:
         version: 9.39.5
       '@hono/node-server':
         specifier: ^2.1.0
-        version: 2.1.0(hono@4.13.1)
+        version: 2.1.0(hono@4.13.5)
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:packages/provider-ollama
@@ -45,8 +45,8 @@ importers:
         specifier: ^5.11.3
         version: 5.11.3
       hono:
-        specifier: ^4.13.1
-        version: 4.13.1
+        specifier: ^4.13.5
+        version: 4.13.5
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
@@ -95,12 +95,12 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../../packages/adapter-docx
-      '@local-pii/adapter-pdf':
-        specifier: workspace:*
-        version: link:../../packages/adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../../packages/adapter-json
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../../packages/adapter-pdf
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../../packages/adapter-text
@@ -184,15 +184,6 @@ importers:
         specifier: workspace:*
         version: link:../redaction
 
-  packages/adapter-pdf:
-    dependencies:
-      '@local-pii/adapter-text':
-        specifier: workspace:*
-        version: link:../adapter-text
-      '@local-pii/domain':
-        specifier: workspace:*
-        version: link:../domain
-
   packages/adapter-job-sqlite:
     dependencies:
       '@local-pii/contracts':
@@ -219,6 +210,15 @@ importers:
       '@local-pii/redaction':
         specifier: workspace:*
         version: link:../redaction
+
+  packages/adapter-pdf:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/adapter-text:
     dependencies:
@@ -292,21 +292,21 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../adapter-docx
-      '@local-pii/adapter-pdf':
-        specifier: workspace:*
-        version: link:../adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../adapter-json
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../adapter-pdf
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../adapter-text
-      '@local-pii/core':
-        specifier: workspace:*
-        version: link:../core
       '@local-pii/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@local-pii/core':
+        specifier: workspace:*
+        version: link:../core
       '@local-pii/detectors':
         specifier: workspace:*
         version: link:../detectors
@@ -1278,6 +1278,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -1387,8 +1388,8 @@ packages:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
 
-  hono@4.13.1:
-    resolution: {integrity: sha512-kdJoFVv2xmayw6cY09H7AbMJMt8Jn5jdlEdXsP7AGBdF2DIptVlKlOLKXP41yPip4/a3yQPv9gVcJYI8YY04dw==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -2254,9 +2255,9 @@ snapshots:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
 
-  '@hono/node-server@2.1.0(hono@4.13.1)':
+  '@hono/node-server@2.1.0(hono@4.13.5)':
     dependencies:
-      hono: 4.13.1
+      hono: 4.13.5
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -2915,7 +2916,7 @@ snapshots:
 
   has-flag@4.0.0: {}
 
-  hono@4.13.1: {}
+  hono@4.13.5: {}
 
   html-encoding-sniffer@6.0.0:
     dependencies:
