@@ -61,6 +61,7 @@
     "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/check-boundaries.test.ts": ["unit", "governance", "security-privacy"],
+    "tooling/check-csv-scale-benchmark.test.ts": ["unit", "performance", "security-privacy"],
     "tooling/check-linux-resource-profile-gate.test.ts": ["unit", "performance", "security-privacy"],
     "tooling/check-linux-syscall-gate.test.ts": ["unit", "security-privacy"]
   },
@@ -69,7 +70,7 @@
     "format-conformance": ["pnpm fixtures:check"],
     "governance": ["pnpm adr:check"],
     "security-privacy": ["pnpm privacy:check", "pnpm ephemeral:check", "pnpm ephemeral:syscall:check", "pnpm ephemeral:filesystem-failure:check", "pnpm ephemeral:resource:check"],
-    "performance": ["pnpm ephemeral:resource:check"],
+    "performance": ["pnpm ephemeral:resource:check", "pnpm perf:csv-scale:check"],
     "recovery": ["pnpm ephemeral:filesystem-failure:check"]
   }
 }

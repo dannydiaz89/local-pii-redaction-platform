@@ -29,6 +29,7 @@
     "ephemeral:syscall:check": "pnpm build && node --import tsx tooling/check-linux-syscall-gate.ts",
     "ephemeral:filesystem-failure:check": "pnpm build && node --import tsx tooling/check-linux-filesystem-failure-gate.ts",
     "ephemeral:resource:check": "pnpm build && node --import tsx tooling/check-linux-resource-profile-gate.ts",
+    "perf:csv-scale:check": "pnpm build && node --import tsx tooling/check-csv-scale-benchmark.ts",
     "taxonomy:check": "node --import tsx tooling/check-test-taxonomy.ts",
     "test": "vitest run",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit"

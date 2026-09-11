@@ -46,6 +46,12 @@ export const csvAdapterCapabilityDescriptor = {
     { id: 'explicit-header-exclusion', status: 'SUPPORTED' },
     { id: 'exact-column-policy', status: 'SUPPORTED' },
     { id: 'spreadsheet-formula-semantics', status: 'BLOCKED' },
+    // Blocked by structure, not by I/O. `pnpm perf:csv-scale:check` measures the ceiling at
+    // maximumCsvCells and the detector's 10_000 detections — reached at 20_000 five-column rows,
+    // an order of magnitude below a million — while peak RSS tracks the whole-file read at roughly
+    // two mebibytes per input mebibyte plus forty kibibytes per detection. A streaming reader
+    // raises none of those ceilings on its own: whole-document text, regions, plans, and the
+    // verification rescan are all in the port shapes in packages/core/src/ports.ts.
     { id: 'streaming', status: 'BLOCKED' },
     { id: 'symbolic-links', status: 'BLOCKED' }
   ],
