@@ -272,6 +272,69 @@ function paragraphAndCarriersSource(
   };
 }
 
+const commentsContentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
+
+function commentedPackage(bodyValue: string, commentValue: string, author: string): Buffer {
+  return zip([
+    {
+      name: '[Content_Types].xml',
+      contents: `<?xml version="1.0"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/><Override PartName="/word/comments.xml" ContentType="${commentsContentType}"/></Types>`
+    },
+    {
+      name: '_rels/.rels',
+      contents: `<?xml version="1.0"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>`
+    },
+    {
+      name: 'word/document.xml',
+      contents: `<?xml version="1.0"?><w:document xmlns:w="${wordNamespace}"><w:body><w:p><w:commentRangeStart w:id="1"/><w:r><w:t>${bodyValue}</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p><w:sectPr/></w:body></w:document>`
+    },
+    {
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId2" Type="${officeRelationshipPrefix}comments" Target="comments.xml"/></Relationships>`
+    },
+    {
+      name: 'word/comments.xml',
+      contents: `<?xml version="1.0"?><w:comments xmlns:w="${wordNamespace}"><w:comment w:id="1" w:author="${author}"><w:p><w:r><w:t>${commentValue}</w:t></w:r></w:p></w:comment></w:comments>`
+    }
+  ]);
+}
+
+function commentedSource(bodyValue: string, commentValue: string, author: string): {
+  readonly text: string;
+  readonly regions: readonly CanonicalRegion[];
+  readonly commentStart: number;
+  readonly authorStart: number;
+} {
+  const paragraphBoundary = '\n\u0000\n';
+  const commentStart = unicodeCodePointLength(bodyValue) + unicodeCodePointLength(paragraphBoundary);
+  const authorStart = commentStart + unicodeCodePointLength(commentValue) + unicodeCodePointLength(carrierBoundary);
+  return {
+    text: `${bodyValue}${paragraphBoundary}${commentValue}${carrierBoundary}${author}`,
+    regions: [
+      {
+        schemaVersion: '2.0.0', start: 0, end: unicodeCodePointLength(bodyValue),
+        offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: { schemaVersion: '1.0.0', kind: 'DOCX_PART', part: 'word/document.xml', paragraph: 1 }
+      },
+      {
+        schemaVersion: '2.0.0', start: commentStart, end: commentStart + unicodeCodePointLength(commentValue),
+        offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: { schemaVersion: '1.0.0', kind: 'DOCX_PART', part: 'word/comments.xml', paragraph: 1 }
+      },
+      {
+        schemaVersion: '2.0.0', start: authorStart, end: authorStart + unicodeCodePointLength(author),
+        offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+        location: {
+          schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/comments.xml',
+          element: 'w:comment', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:author'
+        }
+      }
+    ],
+    commentStart,
+    authorStart
+  };
+}
+
 describe('independent DOCX verification foundation', () => {
   it('reconciles one exact native paragraph delta without importing the DOCX adapter', () => {
     const source = 'alpha@example.test';
@@ -689,6 +752,72 @@ describe('independent DOCX verification foundation', () => {
     const collisionOutput = paragraphPackage(source, '', '', [], wordNamespace, ' xmlns:a="x" xmlns:b="y,xmlns:b=z"');
     expect(verifyIndependentDocxFoundation(requestFor(collisionInput, collisionOutput, source, [paragraphRegion(source)], []))).toMatchObject({
       outcome: 'INCOMPLETE', findings: [{ code: 'UNPLANNED_NATIVE_DELTA', count: 1 }]
+    });
+  });
+
+  /**
+   * The adapter pins the same digest for the same package shape in
+   * `packages/adapter-docx/test/adapter.test.ts`. The verifier recomputes it
+   * from the bytes alone and reports EXTRACTION_REVISION_MISMATCH when the two
+   * comment surfaces drift, so the pin fails loudly instead of silently leaving
+   * one implementation blind to comment text.
+   */
+  it('agrees with the adapter on the comment extraction revision', () => {
+    const classified = commentedSource('safe', 'alpha@example.test', 'Dana Reviewer');
+
+    expect(extractionRevision(classified.text, classified.regions))
+      .toBe('sha256:eeb13e3492ebd10a9d17d22393227dac1011804d7ac4d3417303fdb93ccbbc71');
+  });
+
+  it('reconciles planned deltas inside a comment paragraph and a comment author attribute', () => {
+    const commentValue = 'alpha@example.test';
+    const author = 'Dana Reviewer';
+    const input = commentedPackage('safe', commentValue, author);
+    const output = commentedPackage('safe', '[EMAIL_1]', '[PERSON_1]');
+    const classified = commentedSource('safe', commentValue, author);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, output, classified.text, classified.regions, [
+      {
+        id: actionId, entityType: 'EMAIL', start: classified.commentStart,
+        end: classified.commentStart + unicodeCodePointLength(commentValue), replacement: '[EMAIL_1]'
+      },
+      {
+        id: 'act_00000000000000000000000002', entityType: 'PERSON', start: classified.authorStart,
+        end: classified.authorStart + unicodeCodePointLength(author), replacement: '[PERSON_1]'
+      }
+    ]))).toMatchObject({
+      outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [], retainedRegionCount: 3, classifiedRegionCount: 3
+    });
+  });
+
+  it('fails an unredacted entity planted in a comment paragraph', () => {
+    const commentValue = 'alpha@example.test';
+    const input = commentedPackage('safe', commentValue, 'Dana');
+    const classified = commentedSource('safe', commentValue, 'Dana');
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
+      outcome: 'FAIL', findings: [{ code: 'RESIDUAL_ENTITY', count: 1, entityType: 'EMAIL' }]
+    });
+  });
+
+  it('refuses to reconcile a comment canary the writer claimed to remove but retained', () => {
+    const commentValue = 'canary-9f2c';
+    const input = commentedPackage('safe', commentValue, 'Dana');
+    const classified = commentedSource('safe', commentValue, 'Dana');
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [{
+      id: actionId, entityType: 'CUSTOM', start: classified.commentStart,
+      end: classified.commentStart + unicodeCodePointLength(commentValue), replacement: '[CUSTOM_1]'
+    }]))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'PLANNED_NATIVE_DELTA_MISMATCH', count: 1 }]
+    });
+  });
+
+  it('refuses a source map that omits the comment part the package actually carries', () => {
+    const input = commentedPackage('safe', 'canary-4d81', 'Dana');
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, 'safe', [paragraphRegionV2('safe')], []))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
     });
   });
 });

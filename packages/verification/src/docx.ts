@@ -496,7 +496,10 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
       segment = paragraphFrame?.segment;
       if (
         paragraphFrame !== undefined
-        && ((name === 'w:tab' && parent === 'w:r') || name === 'w:footnoteReference' || name === 'w:endnoteReference')
+        && (
+          (name === 'w:tab' && parent === 'w:r') || name === 'w:footnoteReference' || name === 'w:endnoteReference'
+          || name === 'w:commentReference' || name === 'w:annotationRef'
+        )
       ) {
         paragraphFrame.segment = (paragraphFrame.segment ?? 1) + 1;
       }
@@ -647,8 +650,8 @@ function parsePackage(bytes: Uint8Array): ParsedPackage {
   return Object.freeze({ ...preliminary, relationships });
 }
 
-const textPartPattern = /^word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml$/u;
-const classifiedAttributePartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|settings|numbering|styles|fontTable)\.xml|customXml\/(?:item1|itemProps1)\.xml|docProps\/(?:core|app)\.xml)$/u;
+const textPartPattern = /^word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml$/u;
+const classifiedAttributePartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|settings|numbering|styles|fontTable)\.xml|customXml\/(?:item1|itemProps1)\.xml|docProps\/(?:core|app)\.xml)$/u;
 const propertyTextElements = new Set([
   'dc:creator', 'dc:description', 'dc:language', 'dc:subject', 'dc:title', 'dcterms:created', 'dcterms:modified',
   'cp:lastModifiedBy', 'cp:lastPrinted', 'cp:revision', 'Template', 'TotalTime', 'Pages', 'Words', 'Characters',
@@ -660,6 +663,7 @@ const structuralCarrierPairs = new Set([
   'w:t|xml:space', 'w:headerReference|r:id', 'w:headerReference|w:type', 'w:footerReference|r:id',
   'w:footerReference|w:type', 'w:hyperlink|r:id', 'w:footnoteReference|w:id', 'w:endnoteReference|w:id',
   'w:footnote|w:id', 'w:footnote|w:type', 'w:endnote|w:id', 'w:endnote|w:type',
+  'w:comment|w:id', 'w:commentRangeStart|w:id', 'w:commentRangeEnd|w:id', 'w:commentReference|w:id',
   'w:p|w14:paraId', 'w:p|w14:textId', 'w:p|w:rsidR', 'w:p|w:rsidRDefault', 'w:p|w:rsidP',
   'w:p|w:rsidRPr', 'w:r|w:rsidR', 'w:sectPr|w:rsidR', 'w:rsid|w:val', 'w:rsidRoot|w:val',
   'w:nsid|w:val', 'w:tmpl|w:val', 'w:num|w:numId', 'w:num|w16cid:durableId',
@@ -700,7 +704,7 @@ interface ClassifiedSource {
 }
 
 function textPartRank(name: string): readonly [number, number, string] {
-  const rank = name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : 4;
+  const rank = name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : name.endsWith('/endnotes.xml') ? 4 : 5;
   const suffix = Number(/(?:header|footer)([1-9][0-9]*)\.xml$/u.exec(name)?.[1] ?? 0);
   return [rank, suffix, name];
 }

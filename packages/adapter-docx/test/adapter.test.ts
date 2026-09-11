@@ -31,7 +31,8 @@ const supportedPartContentTypes = {
   header: 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml',
   footer: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml',
   footnotes: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml',
-  endnotes: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml'
+  endnotes: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml',
+  comments: 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml'
 } as const;
 
 afterEach(async () => {
@@ -161,6 +162,30 @@ function supportedPackageParts(document: string, parts: readonly SupportedTextPa
     },
     ...[...parts].reverse().map((part) => ({ name: `word/${part.name}`, contents: part.contents }))
   ];
+}
+
+function commentAnchor(id: string, text: string): string {
+  return `<w:p><w:commentRangeStart w:id="${id}"/><w:r><w:t>${text}</w:t></w:r><w:commentRangeEnd w:id="${id}"/>`
+    + `<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="${id}"/></w:r></w:p>`;
+}
+
+function commentBody(
+  id: string,
+  author: string,
+  text: string,
+  extraAttributes = ' w:date="2026-01-02T03:04:05Z" w:initials="DR"'
+): string {
+  return `<w:comment w:id="${id}" w:author="${author}"${extraAttributes}>`
+    + `<w:p><w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:annotationRef/></w:r><w:r><w:t>${text}</w:t></w:r></w:p></w:comment>`;
+}
+
+function commentsPart(body: string): SupportedTextPart {
+  return {
+    id: 'rId2',
+    kind: 'comments',
+    name: 'comments.xml',
+    contents: `<?xml version="1.0" encoding="UTF-8"?><w:comments xmlns:w="${wordNamespace}">${body}</w:comments>`
+  };
 }
 
 const compatibilityNamespaces = {
@@ -338,6 +363,101 @@ describe('DOCX adapter', () => {
     expect({ mode: after.mode, size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs }).toEqual({
       mode: before.mode, size: before.size, mtimeNs: before.mtimeNs, ctimeNs: before.ctimeNs
     });
+  });
+
+  it('extracts comment text and annotation identity as independently addressable native regions', async () => {
+    const document = documentXml(commentAnchor('1', 'body-canary'));
+    const parts = [commentsPart(commentBody('1', 'Dana Reviewer', 'comment-canary alpha@example.test'))];
+    const path = await writeSyntheticDocx(supportedPackageParts(document, parts));
+
+    const artifact = await readDocxArtifact(path);
+
+    const paragraphBoundary = '\n\u0000\n';
+    const carrierBoundary = '\n\u0000DOCX-CARRIER\u0000\n';
+    expect(artifact.text).toBe([
+      ['body-canary', 'comment-canary alpha@example.test'].join(paragraphBoundary),
+      'Dana Reviewer', '2026-01-02T03:04:05Z', 'DR', 'CommentReference', 'CommentReference'
+    ].join(carrierBoundary));
+    expect(artifact.regions.map(({ location }) => location)).toEqual([
+      { schemaVersion: '1.0.0', kind: 'DOCX_PART', part: 'word/document.xml', paragraph: 1 },
+      { schemaVersion: '1.0.0', kind: 'DOCX_PART', part: 'word/comments.xml', paragraph: 1 },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/comments.xml', element: 'w:comment', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:author' },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/comments.xml', element: 'w:comment', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:date' },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/comments.xml', element: 'w:comment', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:initials' },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/comments.xml', element: 'w:rStyle', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:val' },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/document.xml', element: 'w:rStyle', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w:val' }
+    ]);
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'comment-text-anchors-and-annotation-identity', status: 'SUPPORTED' });
+  });
+
+  /**
+   * The independent verifier reconstructs this same canonical sequence from the
+   * package bytes without importing the adapter, and rejects the artifact when
+   * the two disagree. `packages/verification/test/docx.test.ts` pins the same
+   * digest, so drift on either side of that boundary breaks a test rather than
+   * silently producing a comment surface only one implementation can see.
+   */
+  it('pins the comment extraction revision shared with the independent verifier', async () => {
+    const document = documentXml('<w:p><w:commentRangeStart w:id="1"/><w:r><w:t>safe</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>');
+    const parts = [commentsPart('<w:comment w:id="1" w:author="Dana Reviewer"><w:p><w:r><w:t>alpha@example.test</w:t></w:r></w:p></w:comment>')];
+    const path = await writeSyntheticDocx(supportedPackageParts(document, parts));
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.text).toBe('safe\n\u0000\nalpha@example.test\n\u0000DOCX-CARRIER\u0000\nDana Reviewer');
+    expect(artifact.extractionRevision).toBe('sha256:eeb13e3492ebd10a9d17d22393227dac1011804d7ac4d3417303fdb93ccbbc71');
+  });
+
+  it('orders comment paragraphs after every other declared text part', async () => {
+    const parts: SupportedTextPart[] = [
+      commentsPart(commentBody('1', 'Dana Reviewer', 'comment-canary', '')),
+      { id: 'rId3', kind: 'endnotes', name: 'endnotes.xml', contents: `<?xml version="1.0" encoding="UTF-8"?><w:endnotes xmlns:w="${wordNamespace}"><w:endnote w:id="1"><w:p><w:r><w:t>endnote-canary</w:t></w:r></w:p></w:endnote></w:endnotes>` },
+      { id: 'rId4', kind: 'header', name: 'header1.xml', contents: `<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="${wordNamespace}"><w:p><w:r><w:t>header-canary</w:t></w:r></w:p></w:hdr>` }
+    ];
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${wordNamespace}" xmlns:r="${officeRelationshipNamespace}"><w:body>${commentAnchor('1', 'body-canary')}<w:p><w:r><w:t>notes</w:t><w:endnoteReference w:id="1"/></w:r></w:p><w:sectPr><w:headerReference r:id="rId4" w:type="default"/></w:sectPr></w:body></w:document>`;
+    const path = await writeSyntheticDocx(supportedPackageParts(document, parts));
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.regions.filter(({ location }) => location.kind === 'DOCX_PART').map(({ location }) => location.kind === 'DOCX_PART' ? location.part : '')).toEqual([
+      'word/document.xml', 'word/document.xml', 'word/header1.xml', 'word/endnotes.xml', 'word/comments.xml'
+    ]);
+  });
+
+  it.each([
+    [
+      'a comment reference without a declared comment body',
+      documentXml(commentAnchor('1', 'body-canary')),
+      [commentsPart(commentBody('2', 'Dana Reviewer', 'comment-canary'))]
+    ],
+    [
+      'a declared comment body without an anchor in the main document',
+      documentXml('<w:p><w:r><w:t>body-canary</w:t></w:r></w:p>'),
+      [commentsPart(commentBody('1', 'Dana Reviewer', 'comment-canary'))]
+    ],
+    [
+      'an unbalanced comment range',
+      documentXml('<w:p><w:commentRangeStart w:id="1"/><w:r><w:t>body-canary</w:t></w:r><w:r><w:commentReference w:id="1"/></w:r></w:p>'),
+      [commentsPart(commentBody('1', 'Dana Reviewer', 'comment-canary'))]
+    ],
+    [
+      'a comment range whose identifier is never referenced',
+      documentXml('<w:p><w:commentRangeStart w:id="2"/><w:r><w:t>body-canary</w:t></w:r><w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="1"/></w:r></w:p>'),
+      [commentsPart(commentBody('1', 'Dana Reviewer', 'comment-canary'))]
+    ]
+  ])('refuses %s without exposing planted comment content', async (_name, document, parts) => {
+    const path = await writeSyntheticDocx(supportedPackageParts(document, parts));
+
+    try {
+      await readDocxArtifact(path);
+      throw new Error('Expected the synthetic comment graph to be rejected.');
+    } catch (error: unknown) {
+      const code = (error as { code?: unknown }).code;
+      expect(['FORMAT_CORRUPT', 'FORMAT_UNSUPPORTED']).toContain(code);
+      const envelope = JSON.stringify({ code, message: (error as Error).message, details: (error as { details?: unknown }).details });
+      expect(envelope).not.toContain('comment-canary');
+      expect(envelope).not.toContain('Dana Reviewer');
+    }
   });
 
   it('maps a structural tab to a canonical boundary and distinct native segments', async () => {
@@ -965,7 +1085,11 @@ describe('DOCX adapter', () => {
     ['character data outside w:t', '<w:p>private-canary<w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['XML comment', '<!-- private-canary --><w:p><w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['styles part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/styles.xml', contents: '<w:styles xmlns:w="urn:test"><w:style><w:name w:val="private-canary"/></w:style></w:styles>' }], 'metadata_part'],
-    ['comments part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/comments.xml', contents: 'private-canary' }], 'additional_text_part']
+    ['comment companion part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/commentsExtended.xml', contents: 'private-canary' }], 'additional_text_part'],
+    ['glossary part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/glossary/document.xml', contents: 'private-canary' }], 'additional_text_part'],
+    ['bare text box', '<w:p><w:r><w:txbxContent><w:p><w:r><w:t>private-canary</w:t></w:r></w:p></w:txbxContent></w:r></w:p>', [], 'unknown_feature'],
+    ['shape-hosted text box', '<w:p><w:r><w:pict><w:txbxContent><w:p><w:r><w:t>private-canary</w:t></w:r></w:p></w:txbxContent></w:pict></w:r></w:p>', [], 'drawing_or_alternate_content'],
+    ['comment anchor outside the main document', '<w:p><w:r><w:annotationRef/></w:r></w:p>', [], 'unknown_feature']
   ])('fails closed for %s without exposing planted content', async (_name, body, additions, reason) => {
     const path = await docxFile(documentXml(body), additions);
     try {

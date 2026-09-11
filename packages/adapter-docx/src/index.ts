@@ -24,12 +24,12 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.5.0';
+export const docxAdapterVersion = '0.6.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:2e54f6b245808c31c1711a0252b526608aceaa741814fba9e435e2dea6f1bd24')
+  digest: parseSha256Digest('sha256:9d71c9e944aa9bdeea8abbf3651f395b20dd653aa88831cbf1de307b14ec2644')
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',
@@ -42,6 +42,7 @@ export const docxAdapterCapabilityDescriptor = {
   features: [
     { id: 'visible-document-paragraphs-and-tables', status: 'SUPPORTED' },
     { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
+    { id: 'comment-text-anchors-and-annotation-identity', status: 'SUPPORTED' },
     { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
     { id: 'strict-passive-word-support-parts', status: 'SUPPORTED' },
     { id: 'scanned-external-hyperlink-targets', status: 'SUPPORTED' },
@@ -53,7 +54,8 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'opc-growth-hint-extra-field', status: 'SUPPORTED' },
     { id: 'macros-and-active-content', status: 'BLOCKED' },
     { id: 'non-hyperlink-external-relationships', status: 'BLOCKED' },
-    { id: 'metadata-comments-and-additional-text-parts', status: 'BLOCKED' },
+    { id: 'glossary-subdocument-and-comment-companion-parts', status: 'BLOCKED' },
+    { id: 'text-boxes-and-inline-alternate-text-flows', status: 'BLOCKED' },
     { id: 'images-drawings-and-embedded-objects', status: 'BLOCKED' },
     { id: 'revisions-fields-hidden-text-and-controls', status: 'BLOCKED' },
     { id: 'zip64-and-encrypted-entries', status: 'BLOCKED' },
@@ -619,17 +621,17 @@ function carrierIdentity(carrier: XmlCarrierValue): string {
 }
 
 const blockedDocumentTags = new Set([
-  'w:altChunk', 'w:bookmarkStart', 'w:bookmarkEnd', 'w:br', 'w:commentRangeStart', 'w:commentRangeEnd',
-  'w:commentReference', 'w:cr', 'w:customXml', 'w:del', 'w:delText', 'w:fldChar', 'w:fldSimple',
-  'w:ins', 'w:instrText', 'w:moveFrom', 'w:moveFromRangeStart', 'w:moveFromRangeEnd',
+  'w:altChunk', 'w:bookmarkStart', 'w:bookmarkEnd', 'w:br', 'w:cr', 'w:customXml', 'w:del', 'w:delText',
+  'w:fldChar', 'w:fldSimple', 'w:ins', 'w:instrText', 'w:moveFrom', 'w:moveFromRangeStart', 'w:moveFromRangeEnd',
   'w:moveTo', 'w:moveToRangeStart', 'w:moveToRangeEnd', 'w:noBreakHyphen', 'w:object', 'w:oleObject',
   'w:ptab', 'w:sdt', 'w:softHyphen', 'w:sym', 'w:txbxContent', 'w:vanish', 'w:webHidden', 'w:specVanish'
 ]);
 
 const resumeTextElements = new Set([
-  'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:body', 'w:p', 'w:pPr', 'w:r', 'w:rPr',
+  'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:comments', 'w:body', 'w:p', 'w:pPr', 'w:r', 'w:rPr',
   'w:t', 'w:tab', 'w:sectPr', 'w:headerReference', 'w:footerReference', 'w:footnoteReference',
-  'w:endnoteReference', 'w:separator', 'w:continuationSeparator', 'w:footnote', 'w:endnote', 'w:tbl', 'w:tblPr',
+  'w:endnoteReference', 'w:separator', 'w:continuationSeparator', 'w:footnote', 'w:endnote',
+  'w:comment', 'w:commentRangeStart', 'w:commentRangeEnd', 'w:commentReference', 'w:annotationRef', 'w:tbl', 'w:tblPr',
   'w:tblGrid', 'w:gridCol', 'w:tr', 'w:trPr', 'w:tc', 'w:tcPr', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:noProof',
   'w:pStyle', 'w:rStyle', 'w:rFonts', 'w:color', 'w:sz', 'w:szCs', 'w:u', 'w:spacing', 'w:ind', 'w:jc',
   'w:tabs', 'w:numPr', 'w:ilvl', 'w:numId', 'w:proofErr', 'w:pgSz', 'w:pgMar', 'w:cols', 'w:docGrid',
@@ -651,6 +653,10 @@ const commonTextParents: Readonly<Record<string, readonly string[]>> = {
   'w:tab': ['w:r', 'w:tabs'],
   'w:footnoteReference': ['w:r'],
   'w:endnoteReference': ['w:r'],
+  'w:commentRangeStart': ['w:p'],
+  'w:commentRangeEnd': ['w:p'],
+  'w:commentReference': ['w:r'],
+  'w:annotationRef': ['w:r'],
   'w:separator': ['w:r'],
   'w:continuationSeparator': ['w:r'],
   'w:b': ['w:rPr'],
@@ -666,7 +672,7 @@ const commonTextParents: Readonly<Record<string, readonly string[]>> = {
 
 interface TextPartDescriptor {
   readonly name: string;
-  readonly root: 'w:document' | 'w:hdr' | 'w:ftr' | 'w:footnotes' | 'w:endnotes';
+  readonly root: 'w:document' | 'w:hdr' | 'w:ftr' | 'w:footnotes' | 'w:endnotes' | 'w:comments';
 }
 
 interface RawTextNode {
@@ -689,6 +695,8 @@ interface ParsedTextPartRaw {
   readonly referencedFootnoteIds: ReadonlySet<number>;
   readonly referencedEndnoteIds: ReadonlySet<number>;
   readonly declaredNoteIds: ReadonlySet<number>;
+  readonly declaredCommentIds: ReadonlySet<number>;
+  readonly referencedCommentIds: ReadonlySet<number>;
   readonly referencedHyperlinkIds: ReadonlySet<string>;
   readonly carriers: readonly XmlCarrierValue[];
   readonly paragraphCount: number;
@@ -728,13 +736,16 @@ function allowedParentsFor(descriptor: TextPartDescriptor): Readonly<Record<stri
       ? 'w:footnote'
       : descriptor.root === 'w:endnotes'
         ? 'w:endnote'
-        : descriptor.root;
+        : descriptor.root === 'w:comments'
+          ? 'w:comment'
+          : descriptor.root;
   return {
     [descriptor.root]: [undefined],
     ...commonTextParents,
     ...(descriptor.root === 'w:document' ? { 'w:body': ['w:document'], 'w:sectPr': ['w:body', 'w:pPr'], 'w:headerReference': ['w:sectPr'], 'w:footerReference': ['w:sectPr'] } : {}),
     ...(descriptor.root === 'w:footnotes' ? { 'w:footnote': ['w:footnotes'] } : {}),
     ...(descriptor.root === 'w:endnotes' ? { 'w:endnote': ['w:endnotes'] } : {}),
+    ...(descriptor.root === 'w:comments' ? { 'w:comment': ['w:comments'] } : {}),
     'w:p': [contentParent, 'w:tc'],
     'w:tbl': [contentParent, 'w:tc'],
     'w:tr': ['w:tbl'],
@@ -758,6 +769,10 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
   const referencedFootnoteIds = new Set<number>();
   const referencedEndnoteIds = new Set<number>();
   const declaredNoteIds = new Set<number>();
+  const declaredCommentIds = new Set<number>();
+  const referencedCommentIds = new Set<number>();
+  const openCommentRanges = new Set<number>();
+  const closedCommentRanges = new Set<number>();
   const referencedHyperlinkIds = new Set<string>();
   const specialNoteIds = new Set<number>();
   let activeSpecialNote: { readonly type: 'separator' | 'continuationSeparator'; markerSeen: boolean } | undefined;
@@ -799,6 +814,38 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
       }
       const id = Number(element.attributes['w:id']);
       (element.name === 'w:footnoteReference' ? referencedFootnoteIds : referencedEndnoteIds).add(id);
+    } else if (element.name === 'w:commentRangeStart' || element.name === 'w:commentRangeEnd' || element.name === 'w:commentReference') {
+      if (
+        descriptor.root !== 'w:document' || !element.selfClosing || attributeEntries.length !== 1
+        || !/^(?:0|[1-9][0-9]{0,8})$/u.test(element.attributes['w:id'] ?? '')
+      ) featureUnsupported('unknown_feature');
+      const id = Number(element.attributes['w:id']);
+      // Each anchored comment must present exactly one balanced range and one
+      // reference mark; anything else leaves comment text without a provable
+      // anchor in the document body.
+      if (element.name === 'w:commentRangeStart') {
+        if (openCommentRanges.has(id) || closedCommentRanges.has(id)) featureUnsupported('unknown_feature');
+        openCommentRanges.add(id);
+      } else if (element.name === 'w:commentRangeEnd') {
+        if (!openCommentRanges.delete(id)) featureUnsupported('unknown_feature');
+        closedCommentRanges.add(id);
+      } else {
+        if (referencedCommentIds.has(id)) featureUnsupported('unknown_feature');
+        referencedCommentIds.add(id);
+      }
+    } else if (element.name === 'w:annotationRef') {
+      if (descriptor.root !== 'w:comments' || !element.selfClosing || attributeEntries.length !== 0) featureUnsupported('unknown_feature');
+    } else if (element.name === 'w:comment') {
+      const allowed = new Set(['w:id', 'w:author', 'w:date', 'w:initials']);
+      if (
+        descriptor.root !== 'w:comments' || element.selfClosing
+        || attributeEntries.some(([name]) => !allowed.has(name))
+        || !/^(?:0|[1-9][0-9]{0,8})$/u.test(element.attributes['w:id'] ?? '')
+        || element.attributes['w:author'] === undefined
+      ) featureUnsupported('unknown_feature');
+      const id = Number(element.attributes['w:id']);
+      if (declaredCommentIds.has(id)) formatCorrupt();
+      declaredCommentIds.add(id);
     } else if (element.name === 'w:separator' || element.name === 'w:continuationSeparator') {
       const expected = element.name === 'w:separator' ? 'separator' : 'continuationSeparator';
       if (!element.selfClosing || attributeEntries.length !== 0 || activeSpecialNote?.type !== expected || activeSpecialNote.markerSeen) featureUnsupported('unknown_feature');
@@ -842,6 +889,9 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
     }
   }
 
+  if (openCommentRanges.size !== 0) formatCorrupt();
+  for (const id of closedCommentRanges) if (!referencedCommentIds.has(id)) formatCorrupt();
+
   const provisional: RawSegment[] = [];
   let paragraphNumber = 0;
   let currentSegments: RawTextNode[][] | undefined;
@@ -860,7 +910,7 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
         provisional.push(Object.freeze({ paragraphNumber, segmentNumber: segmentIndex + 1, nodes: Object.freeze(nodes) }));
       }
       currentSegments = undefined;
-    } else if (!element.closing && ((element.name === 'w:tab' && element.parent === 'w:r') || element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference')) {
+    } else if (!element.closing && ((element.name === 'w:tab' && element.parent === 'w:r') || element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference' || element.name === 'w:commentReference' || element.name === 'w:annotationRef')) {
       if (currentSegments === undefined) formatCorrupt();
       if ((currentSegments.at(-1)?.length ?? 0) > 0) currentSegments.push([]);
     } else if (!element.closing && element.name === 'w:t') {
@@ -894,6 +944,8 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
     referencedFootnoteIds,
     referencedEndnoteIds,
     declaredNoteIds,
+    declaredCommentIds,
+    referencedCommentIds,
     referencedHyperlinkIds,
     carriers: Object.freeze([
       ...collectXmlAttributeCarriers(descriptor.name, elements, declaredNamespaces),
@@ -1254,6 +1306,10 @@ const closedStructuralAttributeValidators: Readonly<Record<string, StructuralAtt
   [structuralPair('w:footnote', 'w:type')]: noteType,
   [structuralPair('w:endnote', 'w:id')]: boundedSignedDecimal(999_999_999),
   [structuralPair('w:endnote', 'w:type')]: noteType,
+  [structuralPair('w:comment', 'w:id')]: unsignedInt31,
+  [structuralPair('w:commentRangeStart', 'w:id')]: unsignedInt31,
+  [structuralPair('w:commentRangeEnd', 'w:id')]: unsignedInt31,
+  [structuralPair('w:commentReference', 'w:id')]: unsignedInt31,
   [structuralPair('w:p', 'w14:paraId')]: hex8,
   [structuralPair('w:p', 'w14:textId')]: hex8,
   [structuralPair('w:p', 'w:rsidR')]: hex8,
@@ -1645,14 +1701,15 @@ function validateWordCarrierPart(
   return collectXmlAttributeCarriers(entry.name, elements, declared);
 }
 
-const supportedPartPattern = /^word\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml$/u;
-const supportedRelationshipPartPattern = /^word\/_rels\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes)\.xml\.rels$/u;
+const supportedPartPattern = /^word\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml$/u;
+const supportedRelationshipPartPattern = /^word\/_rels\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml\.rels$/u;
 const supportedCustomXmlPartPattern = /^customXml\/(?:item1|itemProps1)\.xml$|^customXml\/_rels\/item1\.xml\.rels$/u;
 const relationshipKinds: Readonly<Record<string, { readonly root: TextPartDescriptor['root']; readonly contentType: string; readonly target: RegExp }>> = Object.freeze({
   header: { root: 'w:hdr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml', target: /^header[1-9][0-9]{0,5}\.xml$/u },
   footer: { root: 'w:ftr', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml', target: /^footer[1-9][0-9]{0,5}\.xml$/u },
   footnotes: { root: 'w:footnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml', target: /^footnotes\.xml$/u },
-  endnotes: { root: 'w:endnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml', target: /^endnotes\.xml$/u }
+  endnotes: { root: 'w:endnotes', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml', target: /^endnotes\.xml$/u },
+  comments: { root: 'w:comments', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml', target: /^comments\.xml$/u }
 });
 
 const passiveRelationshipKinds: Readonly<Record<string, { readonly target: string; readonly part: string; readonly contentType: string }>> = Object.freeze({
@@ -1675,12 +1732,15 @@ const carrierPartValidators: Readonly<Record<string, { readonly root: string; re
 function unsupportedEntryReason(name: string): UnsupportedFeatureReason {
   if (/^(?:docProps|customXml)\//u.test(name) || /^word\/(?:styles|settings|theme|fontTable|numbering|webSettings)/u.test(name)) return 'metadata_part';
   if (/^(?:word\/media|word\/embeddings|word\/drawings)\//u.test(name)) return 'drawing_or_alternate_content';
+  // `word/comments.xml` is now an extracted text part; the companion comment
+  // parts (commentsExtended, commentsIds, commentsExtensible) and the glossary
+  // and sub-document flows stay refused.
   if (/^word\/(?:comments|glossary|subDoc)/u.test(name)) return 'additional_text_part';
   return 'unknown_feature';
 }
 
 function partSort(left: TextPartDescriptor, right: TextPartDescriptor): number {
-  const rank = (name: string): number => name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : 4;
+  const rank = (name: string): number => name === 'word/document.xml' ? 0 : name.includes('/header') ? 1 : name.includes('/footer') ? 2 : name.endsWith('/footnotes.xml') ? 3 : name.endsWith('/endnotes.xml') ? 4 : 5;
   const difference = rank(left.name) - rank(right.name);
   if (difference !== 0) return difference;
   const suffix = (name: string): number => Number(/(?:header|footer)([1-9][0-9]*)\.xml$/u.exec(name)?.[1] ?? 0);
@@ -2106,6 +2166,14 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
   };
   assertNoteGraph(document.referencedFootnoteIds, footnotes);
   assertNoteGraph(document.referencedEndnoteIds, endnotes);
+  // Comment text is only extractable because every comment body is provably
+  // anchored in the main document and every anchor resolves to a declared body.
+  const comments = rawParts.find((part) => part.descriptor.root === 'w:comments');
+  if (document.referencedCommentIds.size > 0 && comments === undefined) formatCorrupt();
+  if (comments !== undefined) {
+    for (const id of document.referencedCommentIds) if (!comments.declaredCommentIds.has(id)) formatCorrupt();
+    for (const id of comments.declaredCommentIds) if (!document.referencedCommentIds.has(id)) formatCorrupt();
+  }
   carriers.sort((left, right) => {
     const leftIdentity = carrierIdentity(left);
     const rightIdentity = carrierIdentity(right);
