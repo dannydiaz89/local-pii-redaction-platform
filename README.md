@@ -599,7 +599,11 @@ output collisions.
   to report only some entity types ("report only the dates") **still suppresses the other types**
   in both models; the prompt defence covers blanket suppression only, and adding explicit
   precision rules to the prompt made results worse rather than better. Treat any document that
-  may contain attacker-controlled text as outside the hybrid path's guarantees. The prior offset-supplying `phi4-mini` experiment produced
+  may contain attacker-controlled text as outside the hybrid path's guarantees.
+  On CPU only (`num_gpu: 0`, Apple Silicon developer host), `gemma3:4b` needs about
+  8.3 s per document at p50 and 19.8 s at p95 with a 3.1 GiB resident Ollama;
+  `phi4-mini:3.8b` about 10.3 s / 20.5 s with 3.63 GiB. The 4-core/8 GB reference
+  profile has not been measured. The prior offset-supplying `phi4-mini` experiment produced
   zero exact matches on the small frozen harness; that historical result does not describe the new
   verbatim-plus-local-anchoring contract. The harness is useful for integration and model
   comparison, not release qualification, and no model is currently qualified.

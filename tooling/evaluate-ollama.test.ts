@@ -23,8 +23,13 @@ describe('Ollama evaluation safety boundary', () => {
       model: 'synthetic-local-model',
       repeat: 1,
       baseUrl: new URL('http://127.0.0.1:11434'),
-      timeoutMs: 60_000
+      timeoutMs: 60_000,
+      cpuOnly: false
     });
+    expect(parseOllamaEvaluationArguments(['--model', 'm', '--cpu-only', '--rss-process', 'ollama'])).toMatchObject({
+      cpuOnly: true, rssProcess: 'ollama'
+    });
+    expect(() => parseOllamaEvaluationArguments(['--model', 'm', '--rss-process', 'not a name'])).toThrow(TypeError);
   });
 
   it('applies the provider model-name boundary to evaluator arguments', () => {
@@ -79,7 +84,8 @@ describe('Ollama evaluation safety boundary', () => {
       model: 'synthetic-local-model',
       repeat: 1,
       baseUrl: new URL('http://127.0.0.1:11434'),
-      timeoutMs: 60_000
+      timeoutMs: 60_000,
+      cpuOnly: false
     }, fetchImplementation);
     const serialized = JSON.stringify(report);
 
@@ -103,7 +109,7 @@ describe('Ollama evaluation safety boundary', () => {
     expect(report).toMatchObject({
       evaluator: {
         id: 'local-ollama-verbatim-anchor',
-        version: '2.1.0',
+        version: '2.2.0',
         contextTokens: ollamaExperimentalContextTokens
       },
       model: { reportedName: 'synthetic-local-model:latest', localMetadata: { digest: `sha256:${'a'.repeat(64)}` } },

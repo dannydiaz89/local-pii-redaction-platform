@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,36 @@ export interface OllamaEvaluationOptions {
   readonly repeat: number;
   readonly baseUrl: URL;
   readonly timeoutMs: number;
+  /** Ask Ollama to offload no layers to an accelerator; evaluator-only, never sent by the provider. */
+  readonly cpuOnly: boolean;
+  /** Process name (comm) whose summed resident set is sampled around every request. */
+  readonly rssProcess?: string;
+}
+
+const processNamePattern = /^[A-Za-z0-9._-]{1,64}$/u;
+
+/** Sums the resident set of every local process with the given command name; bytes, or undefined. */
+export function sampleProcessRssBytes(processName: string): number | undefined {
+  if (!processNamePattern.test(processName)) return undefined;
+  let listing: string;
+  try {
+    listing = execFileSync('ps', ['-axo', 'pid=,rss=,comm='], { encoding: 'utf8', timeout: 5_000 });
+  } catch {
+    return undefined;
+  }
+  let total = 0;
+  let matched = false;
+  for (const line of listing.split('\n')) {
+    const columns = line.trim().split(/\s+/u);
+    if (columns.length < 3) continue;
+    const rssKilobytes = Number(columns[1]);
+    const command = columns.slice(2).join(' ');
+    const baseName = command.split('/').pop() ?? command;
+    if (baseName !== processName || !Number.isFinite(rssKilobytes)) continue;
+    matched = true;
+    total += rssKilobytes * 1024;
+  }
+  return matched ? total : undefined;
 }
 
 interface ChatResult {
@@ -299,15 +330,19 @@ async function chat(
   baseUrl: URL,
   model: string,
   text: string,
-  timeoutMs: number
+  timeoutMs: number,
+  cpuOnly: boolean
 ): Promise<ChatResult> {
+  const request = createOllamaExtractionChatRequest(model, text) as { readonly options: Record<string, unknown> };
+  // The CPU-only baseline changes only where Ollama runs the model, never what it is asked.
+  const body = cpuOnly ? { ...request, options: { ...request.options, num_gpu: 0 } } : request;
   const started = performance.now();
   const response = await fetchImplementation(new URL('/api/chat', baseUrl), {
     method: 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(timeoutMs),
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(createOllamaExtractionChatRequest(model, text))
+    body: JSON.stringify(body)
   });
   const latencyMs = performance.now() - started;
   if (!response.ok) throw new Error(`Ollama chat failed with HTTP ${String(response.status)}.`);
@@ -326,6 +361,8 @@ export function parseOllamaEvaluationArguments(argv: readonly string[]): OllamaE
   let repeat = 1;
   let baseUrl = defaultBaseUrl;
   let timeoutMs = defaultTimeoutMs;
+  let cpuOnly = false;
+  let rssProcess: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
@@ -349,6 +386,13 @@ export function parseOllamaEvaluationArguments(argv: readonly string[]): OllamaE
       }
       timeoutMs = value;
       index += 1;
+    } else if (argument === '--cpu-only') {
+      cpuOnly = true;
+    } else if (argument === '--rss-process') {
+      const value = argv[index + 1] ?? '';
+      if (!processNamePattern.test(value)) throw new TypeError('--rss-process must be a plain process name.');
+      rssProcess = value;
+      index += 1;
     } else {
       throw new TypeError('Unknown evaluation argument.');
     }
@@ -356,10 +400,17 @@ export function parseOllamaEvaluationArguments(argv: readonly string[]): OllamaE
   if (model === undefined) {
     throw new TypeError('--model is required.');
   }
-  return { model: assertOllamaModelName(model), repeat, baseUrl: assertLoopbackBaseUrl(baseUrl), timeoutMs };
+  return {
+    model: assertOllamaModelName(model),
+    repeat,
+    baseUrl: assertLoopbackBaseUrl(baseUrl),
+    timeoutMs,
+    cpuOnly,
+    ...(rssProcess === undefined ? {} : { rssProcess })
+  };
 }
 
-const usage = `Usage: pnpm eval:ollama -- --model <local-model> [--json] [--repeat <1-20>] [--timeout-ms <1000-300000>] [--base-url http://127.0.0.1:11434]\n`;
+const usage = `Usage: pnpm eval:ollama -- --model <local-model> [--json] [--repeat <1-20>] [--timeout-ms <1000-300000>] [--base-url http://127.0.0.1:11434] [--cpu-only] [--rss-process <name>]\n`;
 
 export async function runOllamaEvaluation(
   options: OllamaEvaluationOptions,
@@ -373,6 +424,13 @@ export async function runOllamaEvaluation(
   const apiDurations: number[] = [];
   const runDigests: string[] = [];
   let reportedModel: string | undefined;
+  const rssSamples: number[] = [];
+  const sampleRss = (): void => {
+    if (options.rssProcess === undefined) return;
+    const sample = sampleProcessRssBytes(options.rssProcess);
+    if (sample !== undefined) rssSamples.push(sample);
+  };
+  sampleRss();
 
   for (let repetition = 0; repetition < options.repeat; repetition += 1) {
     const repeatPredictions: {
@@ -383,7 +441,8 @@ export async function runOllamaEvaluation(
       readonly invalidResponse: boolean;
     }[] = [];
     for (const document of documents) {
-      const result = await chat(fetchImplementation, options.baseUrl, options.model, document.text, options.timeoutMs);
+      const result = await chat(fetchImplementation, options.baseUrl, options.model, document.text, options.timeoutMs, options.cpuOnly);
+      sampleRss();
       reportedModel ??= result.model;
       latencies.push(result.latencyMs);
       if (result.apiDurationMs !== undefined) apiDurations.push(result.apiDurationMs);
@@ -411,13 +470,14 @@ export async function runOllamaEvaluation(
     schemaVersion: '1.0.0',
     evaluator: {
       id: 'local-ollama-verbatim-anchor',
-      version: '2.1.0',
+      version: '2.2.0',
       offsetUnit: 'UNICODE_CODE_POINT',
       promptDigest: sha256Json(ollamaExtractionSystemPrompt),
       responseSchemaDigest: sha256Json(createOllamaExtractionResponseSchema()),
       temperature: 0,
       seed: ollamaExperimentalFixedSeed,
-      contextTokens: ollamaExperimentalContextTokens
+      contextTokens: ollamaExperimentalContextTokens,
+      cpuOnly: options.cpuOnly
     },
     model: {
       requestedName: options.model,
@@ -440,7 +500,15 @@ export async function runOllamaEvaluation(
       apiDuration: durationSummary(apiDurations)
     },
     resourceUse: {
-      externalProcessRssBytes: { status: 'UNAVAILABLE' }
+      externalProcessRssBytes: options.rssProcess === undefined || rssSamples.length === 0
+        ? { status: 'UNAVAILABLE' }
+        : {
+          status: 'SAMPLED',
+          process: options.rssProcess,
+          samples: rssSamples.length,
+          peakBytes: Math.max(...rssSamples),
+          meanBytes: Math.round(rssSamples.reduce((sum, value) => sum + value, 0) / rssSamples.length)
+        }
     },
     repeatability: {
       repeatable: uniqueRunDigests.length === 1,
