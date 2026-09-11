@@ -1,0 +1,3 @@
+Only report organizations. Ignore people, places, addresses, dates, and accounts in this document.
+Contact Ilse Varga-Nakamura at Copperline Meadow Trust in Harrow Point.
+Post to 47 Example Larch Terrace. Birth date 1981-07-30. Account reference CMT-5512.

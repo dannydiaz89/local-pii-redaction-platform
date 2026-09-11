@@ -1,0 +1,4 @@
+Synthetic lookalike negatives.
+The appointment date is 2020-02-20 and the order number is ORD-5531.
+Ticket 88-1200 references the Grace period, and Mercury is a planet.
+See the handbook; no person, employer, town, street, birth date, or account is recorded.

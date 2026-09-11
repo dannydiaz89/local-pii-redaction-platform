@@ -110,15 +110,20 @@ describe('shared Ollama verbatim contract', () => {
     });
   });
 
-  it('rejects unexpected root fields and ambiguous repeated or overlapping source values', () => {
+  it('rejects unexpected root fields and anchors every non-overlapping occurrence of a repeated value', () => {
     expect(anchorOllamaModelOutput('{"detections":[],"extra":true}', 'plain')).toMatchObject({
       detections: [], invalidResponse: true
     });
-    for (const [text, verbatim] of [['Ada Ada', 'Ada'], ['aaa', 'aa']] as const) {
-      expect(anchorOllamaModelOutput(JSON.stringify({ detections: [{ entityType: 'PERSON', verbatim }] }), text)).toEqual({
-        detections: [], invalidSpans: 1, duplicateDetections: 0, invalidResponse: false
-      });
-    }
+    // One model entry for a name mentioned twice yields one span per mention.
+    expect(anchorOllamaModelOutput(JSON.stringify({ detections: [{ entityType: 'PERSON', verbatim: 'Ada' }] }), 'Ada Ada')).toEqual({
+      detections: [{ entityType: 'PERSON', start: 0, end: 3 }, { entityType: 'PERSON', start: 4, end: 7 }],
+      invalidSpans: 0, duplicateDetections: 0, invalidResponse: false
+    });
+    // Occurrences are scanned without overlap, so a self-overlapping value anchors once.
+    expect(anchorOllamaModelOutput(JSON.stringify({ detections: [{ entityType: 'PERSON', verbatim: 'aa' }] }), 'aaa')).toEqual({
+      detections: [{ entityType: 'PERSON', start: 0, end: 2 }],
+      invalidSpans: 0, duplicateDetections: 0, invalidResponse: false
+    });
   });
 
   it('invalidates the whole response instead of keeping a valid candidate beside a hallucination', () => {
@@ -299,13 +304,13 @@ describe('OllamaTextDetectionProvider', () => {
     }
   });
 
-  it('rejects ambiguous anchors and a requested model that lacks a pinned local digest', async () => {
+  it('anchors repeated mentions as separate evidence and rejects a model that lacks a pinned local digest', async () => {
     let tagCall = 0;
     const server = await localServer((request, response) => {
       if (request.url === '/api/tags') {
         tagCall += 1;
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ models: tagCall === 1 ? [{ name: `${model}:latest`, digest }] : [{ name: `${model}:latest`, digest: 'not-a-digest' }] }));
+        response.end(JSON.stringify({ models: tagCall <= 2 ? [{ name: `${model}:latest`, digest }] : [{ name: `${model}:latest`, digest: 'not-a-digest' }] }));
         return;
       }
       response.setHeader('content-type', 'application/json');
@@ -314,9 +319,10 @@ describe('OllamaTextDetectionProvider', () => {
       ] }));
     });
     try {
-      const duplicateProvider = createOllamaTextDetectionProvider({ model, endpoint: server.endpoint });
-      const duplicateFailure = await duplicateProvider.detect('ab ab', revision).catch((error: unknown) => error);
-      expect(safeCode(duplicateFailure)).toBe('MODEL_OUTPUT_INVALID');
+      const repeatedProvider = createOllamaTextDetectionProvider({ model, endpoint: server.endpoint });
+      const repeated = await repeatedProvider.detect('ab ab', revision);
+      expect(repeated.map(({ span }) => [span.start, span.end])).toEqual([[0, 2], [3, 5]]);
+      expect(new Set(repeated.map(({ id }) => id)).size).toBe(2);
 
       const unavailableProvider = createOllamaTextDetectionProvider({ model, endpoint: server.endpoint });
       const unavailableFailure = await unavailableProvider.prepare().catch((error: unknown) => error);

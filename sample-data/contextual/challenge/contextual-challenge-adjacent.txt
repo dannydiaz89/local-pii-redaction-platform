@@ -1,0 +1,2 @@
+Synthetic adjacency challenge with minimal separators.
+Sender:Yara Blackwood;Employer:Quince Meadow Trust;Town:Perrin Shoals;Street:19 Fictional Osprey Lane;BirthDate:1978-03-09;AccountNo:QMT-7710

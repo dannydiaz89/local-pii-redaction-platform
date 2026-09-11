@@ -1,0 +1,4 @@
+Synthetic dense list challenge.
+Columns: name; employer; town; street address; birth date; account number.
+1. Ezra Fenwick-Loe; Marigold Static Co.; Oxbow Landing; 3 Mock Juniper Way; 1987-06-06; MS-101
+2. Talia Brenner-Oduya; Gravel Kite Society; Sorrel Bight; 81 Sample Linnet Drive; 1993-02-14; GK-202

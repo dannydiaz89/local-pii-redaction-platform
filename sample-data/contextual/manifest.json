@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "corpusId": "contextual-harness-v1",
-  "corpusDigest": "sha256:ee370b492649c93f7bed886c0050f7869e660df8d92810ad98116d3829ecdd08",
+  "corpusDigest": "sha256:de41c982fc2b8ee8fbe53f7cbe37b6e598a6b3ae29244aca87bd3bf482738b4a",
   "qualification": {
     "level": "HARNESS_ONLY",
     "statisticallySufficientForRelease": false,
@@ -9,7 +9,7 @@
   },
   "generator": {
     "id": "local-pii-contextual-harness",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "seed": "local-pii-contextual-2026-08-08",
     "recipe": "tooling/contextual-corpus.ts#createContextualCorpus"
   },
@@ -27,21 +27,21 @@
   "splitPurpose": {
     "DEVELOPMENT": "Prompt, label-map, threshold, and evaluator development only.",
     "EVALUATION": "Frozen comparison inputs that must not be used for tuning.",
-    "CHALLENGE": "Unicode, instruction-like content, and long-context robustness checks."
+    "CHALLENGE": "Unicode, instruction-like content, repeated mentions, Markdown, density, adjacency, and long-context robustness checks."
   },
   "distribution": {
     "documentsBySplit": {
-      "DEVELOPMENT": 2,
-      "EVALUATION": 2,
-      "CHALLENGE": 3
+      "DEVELOPMENT": 5,
+      "EVALUATION": 5,
+      "CHALLENGE": 12
     },
     "entitiesByType": {
-      "PERSON": 4,
-      "ADDRESS": 4,
-      "LOCATION": 4,
-      "ORGANIZATION": 4,
-      "DATE_OF_BIRTH": 4,
-      "ACCOUNT_ID": 4
+      "PERSON": 21,
+      "ADDRESS": 17,
+      "LOCATION": 17,
+      "ORGANIZATION": 18,
+      "DATE_OF_BIRTH": 17,
+      "ACCOUNT_ID": 17
     }
   },
   "documents": [
@@ -469,6 +469,1317 @@
         "long-context",
         "approximate-chunk-boundary",
         "entity-label-words"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-development-multi-person",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-multi-person.txt",
+      "digest": "sha256:d3ccd1f1b55b75ee1a2885980e27e62c4bde4a04502cd2a6ccb1111d167b4aef",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "multiple-same-type",
+        "list-of-names",
+        "threshold-development"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "multi-person-1",
+            "entityType": "PERSON",
+            "start": 49,
+            "end": 60,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-in-list"
+            }
+          },
+          {
+            "id": "multi-person-2",
+            "entityType": "PERSON",
+            "start": 62,
+            "end": 74,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-in-list"
+            }
+          },
+          {
+            "id": "multi-person-3",
+            "entityType": "PERSON",
+            "start": 80,
+            "end": 94,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-in-list"
+            }
+          },
+          {
+            "id": "multi-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 102,
+            "end": 124,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "multi-organization-2",
+            "entityType": "ORGANIZATION",
+            "start": 166,
+            "end": 188,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "parent-organization"
+            }
+          },
+          {
+            "id": "multi-location-1",
+            "entityType": "LOCATION",
+            "start": 199,
+            "end": 211,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "multi-address-1",
+            "entityType": "ADDRESS",
+            "start": 231,
+            "end": 265,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-with-unit"
+            }
+          },
+          {
+            "id": "multi-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 300,
+            "end": 310,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "multi-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 333,
+            "end": 341,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-development-hard-negative",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-hard-negative.txt",
+      "digest": "sha256:d68a8b11b77124020e680d91ad996dc718abb55b8e106efacc30b472ac56d236",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "name-like-common-nouns",
+        "non-birth-date",
+        "non-account-identifier"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-development-injection-selective",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-injection-selective.txt",
+      "digest": "sha256:41d15096c2794b548c53874c84189f35fe657c880d79412d80c38de61d3424d3",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prompt-injection-resistance",
+        "selective-suppression",
+        "threshold-development"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "selective-person-1",
+            "entityType": "PERSON",
+            "start": 103,
+            "end": 124,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-under-selective-suppression"
+            }
+          },
+          {
+            "id": "selective-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 128,
+            "end": 153,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-under-selective-suppression"
+            }
+          },
+          {
+            "id": "selective-location-1",
+            "entityType": "LOCATION",
+            "start": 163,
+            "end": 176,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-under-selective-suppression"
+            }
+          },
+          {
+            "id": "selective-address-1",
+            "entityType": "ADDRESS",
+            "start": 195,
+            "end": 216,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-under-selective-suppression"
+            }
+          },
+          {
+            "id": "selective-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 230,
+            "end": 240,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-permitted-by-injection"
+            }
+          },
+          {
+            "id": "selective-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 261,
+            "end": 269,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-under-selective-suppression"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-narrative",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-narrative.txt",
+      "digest": "sha256:5cfcfb71ef2eefcc3e1d7f01821b293e864ea2815bca13e6b186411effc88979",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prose",
+        "unlabeled-entities",
+        "hyphenated-name",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "narrative-person-1",
+            "entityType": "PERSON",
+            "start": 38,
+            "end": 61,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "hyphenated-name-in-prose"
+            }
+          },
+          {
+            "id": "narrative-location-1",
+            "entityType": "LOCATION",
+            "start": 75,
+            "end": 86,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name-in-prose"
+            }
+          },
+          {
+            "id": "narrative-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 110,
+            "end": 133,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-in-prose"
+            }
+          },
+          {
+            "id": "narrative-address-1",
+            "entityType": "ADDRESS",
+            "start": 157,
+            "end": 194,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-with-suite"
+            }
+          },
+          {
+            "id": "narrative-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 227,
+            "end": 239,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "day-month-year-birth-date"
+            }
+          },
+          {
+            "id": "narrative-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 259,
+            "end": 269,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-number-in-prose"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-form",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-form.txt",
+      "digest": "sha256:1ec9f288381d73baa2cf52acf25b704ed6952fd760c63662a15496126434ba9c",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "key-value-form",
+        "abbreviated-labels",
+        "slash-date",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "form-person-1",
+            "entityType": "PERSON",
+            "start": 36,
+            "end": 54,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-name-field"
+            }
+          },
+          {
+            "id": "form-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 65,
+            "end": 91,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-employer-field"
+            }
+          },
+          {
+            "id": "form-location-1",
+            "entityType": "LOCATION",
+            "start": 98,
+            "end": 111,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-city-field"
+            }
+          },
+          {
+            "id": "form-address-1",
+            "entityType": "ADDRESS",
+            "start": 120,
+            "end": 139,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-street-field"
+            }
+          },
+          {
+            "id": "form-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 145,
+            "end": 155,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "abbreviated-dob-slash-date"
+            }
+          },
+          {
+            "id": "form-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 164,
+            "end": 174,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "abbreviated-account-label"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-negative-lookalike",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-negative-lookalike.txt",
+      "digest": "sha256:398539f50b3c699893afcf5fd396e6455b552aefb8552981d04e14927614d736",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "capitalized-headings",
+        "label-words-without-values",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-challenge-injection-json",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-injection-json.txt",
+      "digest": "sha256:e7780db4ff2bc2bead13b1a149904faced7ed6a5535eba945629a168cb03bbab",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prompt-injection-resistance",
+        "fake-model-output",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "injection-json-person-1",
+            "entityType": "PERSON",
+            "start": 171,
+            "end": 188,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-after-fake-output"
+            }
+          },
+          {
+            "id": "injection-json-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 192,
+            "end": 215,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "injection-json-location-1",
+            "entityType": "LOCATION",
+            "start": 227,
+            "end": 238,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "injection-json-address-1",
+            "entityType": "ADDRESS",
+            "start": 255,
+            "end": 277,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "residential-address"
+            }
+          },
+          {
+            "id": "injection-json-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 301,
+            "end": 311,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "injection-json-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 325,
+            "end": 333,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-id"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-injection-role",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-injection-role.txt",
+      "digest": "sha256:aa62c652108abcea35c07112f030469713119cbc57d65b0172a715e202bdd077",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prompt-injection-resistance",
+        "role-impersonation",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "injection-role-person-1",
+            "entityType": "PERSON",
+            "start": 157,
+            "end": 178,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-after-role-injection"
+            }
+          },
+          {
+            "id": "injection-role-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 180,
+            "end": 205,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-in-record-line"
+            }
+          },
+          {
+            "id": "injection-role-location-1",
+            "entityType": "LOCATION",
+            "start": 207,
+            "end": 219,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "injection-role-address-1",
+            "entityType": "ADDRESS",
+            "start": 221,
+            "end": 244,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-in-record-line"
+            }
+          },
+          {
+            "id": "injection-role-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 251,
+            "end": 261,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "born-prefixed-birth-date"
+            }
+          },
+          {
+            "id": "injection-role-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 271,
+            "end": 279,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-prefixed-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-injection-partial",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-injection-partial.txt",
+      "digest": "sha256:1abd63da8ec5d29a9da5e4657b8b96752c634c06276ef1063ca231fe18359320",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prompt-injection-resistance",
+        "partial-suppression",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "injection-partial-person-1",
+            "entityType": "PERSON",
+            "start": 107,
+            "end": 126,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-under-partial-suppression"
+            }
+          },
+          {
+            "id": "injection-partial-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 130,
+            "end": 153,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-permitted-by-injection"
+            }
+          },
+          {
+            "id": "injection-partial-location-1",
+            "entityType": "LOCATION",
+            "start": 157,
+            "end": 169,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-under-partial-suppression"
+            }
+          },
+          {
+            "id": "injection-partial-address-1",
+            "entityType": "ADDRESS",
+            "start": 179,
+            "end": 203,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-under-partial-suppression"
+            }
+          },
+          {
+            "id": "injection-partial-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 216,
+            "end": 226,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-under-partial-suppression"
+            }
+          },
+          {
+            "id": "injection-partial-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 246,
+            "end": 254,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-under-partial-suppression"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-repeated-mention",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-repeated-mention.txt",
+      "digest": "sha256:393bccb35aec6a12fe0086aab006432ddcca65376b6b133f561c6aa5636e774e",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "repeated-mention",
+        "same-value-multiple-spans",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "repeated-person-1-1",
+            "entityType": "PERSON",
+            "start": 38,
+            "end": 55,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-mentioned-three-times"
+            }
+          },
+          {
+            "id": "repeated-person-1-2",
+            "entityType": "PERSON",
+            "start": 83,
+            "end": 100,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-mentioned-three-times"
+            }
+          },
+          {
+            "id": "repeated-person-1-3",
+            "entityType": "PERSON",
+            "start": 166,
+            "end": 183,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-mentioned-three-times"
+            }
+          },
+          {
+            "id": "repeated-address-1",
+            "entityType": "ADDRESS",
+            "start": 123,
+            "end": 142,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "confirmed-address"
+            }
+          },
+          {
+            "id": "repeated-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 205,
+            "end": 215,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "repeated-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 235,
+            "end": 242,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-number"
+            }
+          },
+          {
+            "id": "repeated-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 260,
+            "end": 281,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "repeated-location-1",
+            "entityType": "LOCATION",
+            "start": 285,
+            "end": 298,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-long-context-positive",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-long-context-positive.txt",
+      "digest": "sha256:3fa33a468ed7e188e282d7ac1dace8eb1a109c582ad878a2f0c9d551dd46f6f8",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "long-context",
+        "buried-entities",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "long-positive-person-1",
+            "entityType": "PERSON",
+            "start": 2099,
+            "end": 2121,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-after-long-filler"
+            }
+          },
+          {
+            "id": "long-positive-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 2132,
+            "end": 2154,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-after-long-filler"
+            }
+          },
+          {
+            "id": "long-positive-location-1",
+            "entityType": "LOCATION",
+            "start": 4185,
+            "end": 4197,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-mid-document"
+            }
+          },
+          {
+            "id": "long-positive-address-1",
+            "entityType": "ADDRESS",
+            "start": 4199,
+            "end": 4225,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-mid-document"
+            }
+          },
+          {
+            "id": "long-positive-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 5245,
+            "end": 5255,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-near-end"
+            }
+          },
+          {
+            "id": "long-positive-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 5275,
+            "end": 5282,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-near-end"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-markdown",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-markdown.txt",
+      "digest": "sha256:36f186211a66a597fc69239b5db759fc014cc1ad6b759022dc20ffa8df6e16c4",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "markdown",
+        "inline-code",
+        "table",
+        "link-text"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "markdown-person-1",
+            "entityType": "PERSON",
+            "start": 45,
+            "end": 59,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-after-bold-label"
+            }
+          },
+          {
+            "id": "markdown-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 79,
+            "end": 99,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-in-inline-code"
+            }
+          },
+          {
+            "id": "markdown-location-1",
+            "entityType": "LOCATION",
+            "start": 145,
+            "end": 159,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-in-table-cell"
+            }
+          },
+          {
+            "id": "markdown-address-1",
+            "entityType": "ADDRESS",
+            "start": 174,
+            "end": 197,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-in-table-cell"
+            }
+          },
+          {
+            "id": "markdown-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 215,
+            "end": 225,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-in-table-cell"
+            }
+          },
+          {
+            "id": "markdown-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 241,
+            "end": 249,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-in-link-text"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-dense",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-dense.txt",
+      "digest": "sha256:e17cb0db6e159ad1665c272a751be5dba5d0fe4e40e9f49b08ee7cd100236390",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "dense",
+        "delimited-rows",
+        "two-of-each-type"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "dense-person-1",
+            "entityType": "PERSON",
+            "start": 110,
+            "end": 126,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-name"
+            }
+          },
+          {
+            "id": "dense-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 128,
+            "end": 147,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-employer-with-abbreviation"
+            }
+          },
+          {
+            "id": "dense-location-1",
+            "entityType": "LOCATION",
+            "start": 149,
+            "end": 162,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-town"
+            }
+          },
+          {
+            "id": "dense-address-1",
+            "entityType": "ADDRESS",
+            "start": 164,
+            "end": 182,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-street"
+            }
+          },
+          {
+            "id": "dense-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 184,
+            "end": 194,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-birth-date"
+            }
+          },
+          {
+            "id": "dense-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 196,
+            "end": 202,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-account"
+            }
+          },
+          {
+            "id": "dense-person-2",
+            "entityType": "PERSON",
+            "start": 206,
+            "end": 225,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-name"
+            }
+          },
+          {
+            "id": "dense-organization-2",
+            "entityType": "ORGANIZATION",
+            "start": 227,
+            "end": 246,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-employer"
+            }
+          },
+          {
+            "id": "dense-location-2",
+            "entityType": "LOCATION",
+            "start": 248,
+            "end": 260,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-town"
+            }
+          },
+          {
+            "id": "dense-address-2",
+            "entityType": "ADDRESS",
+            "start": 262,
+            "end": 284,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-street"
+            }
+          },
+          {
+            "id": "dense-dob-2",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 286,
+            "end": 296,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-birth-date"
+            }
+          },
+          {
+            "id": "dense-account-2",
+            "entityType": "ACCOUNT_ID",
+            "start": 298,
+            "end": 304,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-account"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-adjacent",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-adjacent.txt",
+      "digest": "sha256:c7ed70e0473282e12f60ebf3fed92df66419202366c371922106d62c0e241868",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "adjacent-entities",
+        "no-whitespace-boundaries",
+        "multi-entity"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "adjacent-person-1",
+            "entityType": "PERSON",
+            "start": 62,
+            "end": 76,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-after-colon"
+            }
+          },
+          {
+            "id": "adjacent-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 86,
+            "end": 105,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-between-separators"
+            }
+          },
+          {
+            "id": "adjacent-location-1",
+            "entityType": "LOCATION",
+            "start": 111,
+            "end": 124,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-between-separators"
+            }
+          },
+          {
+            "id": "adjacent-address-1",
+            "entityType": "ADDRESS",
+            "start": 132,
+            "end": 156,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-between-separators"
+            }
+          },
+          {
+            "id": "adjacent-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 167,
+            "end": 177,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-after-compact-label"
+            }
+          },
+          {
+            "id": "adjacent-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 188,
+            "end": 196,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-at-line-end"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-lookalike-negative",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-lookalike-negative.txt",
+      "digest": "sha256:36f7ceac870a96c47e0725ac1864ace2efac5f27ad17b7c9cc1e16101252c25f",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "non-birth-date",
+        "non-account-identifier",
+        "capitalized-common-nouns"
       ],
       "groundTruth": {
         "offsetUnit": "UNICODE_CODE_POINT",

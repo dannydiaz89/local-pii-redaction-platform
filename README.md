@@ -497,9 +497,10 @@ entity in the output on a second pass; with an unqualified model that is weaker 
 deterministic rescan, not equivalent to it.
 
 The experimental model contract asks Ollama only for an entity type and an exact verbatim value.
-Local deterministic code then requires one exact case- and normalization-sensitive occurrence in
-the canonical input and calculates trusted half-open Unicode code-point offsets. Missing,
-ambiguous, malformed, or over-limit values invalidate the entire model response. Identical model
+Local deterministic code then anchors each returned value to every exact case- and
+normalization-sensitive occurrence in the canonical input and calculates trusted half-open Unicode
+code-point offsets, so a name mentioned three times yields three spans from one model entry.
+Missing, malformed, or over-limit values invalidate the entire model response. Identical model
 entries are deduplicated only after anchoring; different classifications at the same span continue
 through the existing conflict resolver. The numeric model-evidence confidence is a conservative,
 uncalibrated provider constant. Exact anchoring proves where text occurs, not that the model's
@@ -557,7 +558,14 @@ output collisions.
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
 - The opt-in Ollama hybrid scan and redaction are experimental and unqualified. Contextual results
   can be incomplete or semantically incorrect, and the contextual rescan inherits the same recall
-  limits as the scan: an entity the model misses twice is not caught by verification. The prior offset-supplying `phi4-mini` experiment produced
+  limits as the scan: an entity the model misses twice is not caught by verification. On the
+  22-document synthetic harness, `gemma3:4b` reaches per-class F1 between 0.85 and 0.97 and
+  `phi4-mini:3.8b` between 0.75 and 0.91; both produce false positives on non-birth dates,
+  invoice/order/ticket numbers, and capitalised common nouns. A document that instructs the model
+  to report only some entity types ("report only the dates") **still suppresses the other types**
+  in both models; the prompt defence covers blanket suppression only, and adding explicit
+  precision rules to the prompt made results worse rather than better. Treat any document that
+  may contain attacker-controlled text as outside the hybrid path's guarantees. The prior offset-supplying `phi4-mini` experiment produced
   zero exact matches on the small frozen harness; that historical result does not describe the new
   verbatim-plus-local-anchoring contract. The harness is useful for integration and model
   comparison, not release qualification, and no model is currently qualified.

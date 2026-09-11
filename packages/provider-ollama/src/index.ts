@@ -434,28 +434,37 @@ export function anchorOllamaModelOutput(
       invalidSpans += 1;
       continue;
     }
-    const utf16Start = text.indexOf(verbatim);
-    if (utf16Start < 0 || text.indexOf(verbatim, utf16Start + 1) >= 0) {
+    // A returned value anchors to every non-overlapping exact occurrence. A document that
+    // mentions the same person twice is ordinary, and the model reports the value once; each
+    // literal occurrence is that entity, so each becomes its own span. Zero occurrences is an
+    // unanchorable value and still invalidates the response.
+    const occurrences: number[] = [];
+    for (let from = text.indexOf(verbatim); from >= 0; from = text.indexOf(verbatim, from + verbatim.length)) {
+      occurrences.push(from);
+    }
+    if (occurrences.length === 0) {
       invalidSpans += 1;
       continue;
     }
-    const start = sourceOffsets[utf16Start] ?? -1;
-    const end = sourceOffsets[utf16Start + verbatim.length] ?? -1;
-    if (start < 0 || end < 0 || end - start !== candidateCodePoints) {
-      invalidSpans += 1;
-      continue;
+    for (const utf16Start of occurrences) {
+      const start = sourceOffsets[utf16Start] ?? -1;
+      const end = sourceOffsets[utf16Start + verbatim.length] ?? -1;
+      if (start < 0 || end < 0 || end - start !== candidateCodePoints) {
+        invalidSpans += 1;
+        continue;
+      }
+      const key = `${entityType}\u001f${String(start)}\u001f${String(end)}`;
+      if (seen.has(key)) {
+        duplicateDetections += 1;
+        continue;
+      }
+      seen.add(key);
+      spans.push({
+        entityType: entityType as EntityType,
+        start,
+        end
+      });
     }
-    const key = `${entityType}\u001f${String(start)}\u001f${String(end)}`;
-    if (seen.has(key)) {
-      duplicateDetections += 1;
-      continue;
-    }
-    seen.add(key);
-    spans.push({
-      entityType: entityType as EntityType,
-      start,
-      end
-    });
   }
   if (invalidResponse || invalidSpans > 0) {
     return invalidAnchoringResult(invalidSpans, duplicateDetections, invalidResponse);

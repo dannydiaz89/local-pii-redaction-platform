@@ -7,8 +7,8 @@ Experimental loopback-only Ollama contextual detection provider.
 - Validates numeric-loopback endpoints and pinned model identity/digest.
 - Builds the shared strict extraction prompt, schema, and fixed-seed request.
 - Reads bounded UTF-8 responses with redirects disabled and cancellation/timeouts preserved.
-- Strictly parses model-returned verbatim values and anchors unique exact matches to trusted local
-  Unicode code-point offsets.
+- Strictly parses model-returned verbatim values and anchors every exact occurrence to trusted
+  local Unicode code-point offsets.
 - Emits privacy-minimized evidence with an explicitly uncalibrated classification confidence.
 
 ## Boundary and limitations
