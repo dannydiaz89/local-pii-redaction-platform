@@ -5,3 +5,4 @@ export * from './server.js';
 export * from './web-shell.js';
 export * from './preview-scan.js';
 export * from './processing.js';
+export * from './startup-options.js';

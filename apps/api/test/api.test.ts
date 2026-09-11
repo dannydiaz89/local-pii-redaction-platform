@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,6 +14,7 @@ import {
 } from '@local-pii/contracts';
 import { SafeError } from '@local-pii/domain';
 import {
+  createExperimentalOllamaTextApplication,
   createLocalPolicyCatalog,
   createProcessLocalApiPolicyCatalog,
   localApiApplication,
@@ -1063,6 +1066,191 @@ describe('local API composition', () => {
     expect(downloaded.body).toBe(`Synthetic identifier: ${sourceValue}`);
     expect(redaction.body).not.toContain(sourceValue);
     expect(reviewed.body).not.toContain(sourceValue);
+  });
+
+  it('runs a hybrid model candidate through review and a rescanned reviewed redaction', async () => {
+    const value = '1991-07-14';
+    const text = `Synthetic record. The birth date is ${value}.`;
+    const chatBodies: string[] = [];
+    const ollama = createServer((request, response) => {
+      if (request.url === '/api/tags') {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ models: [{ name: 'phi4-mini:latest', digest: 'a'.repeat(64) }] }));
+        return;
+      }
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => { body += chunk; });
+      request.once('end', () => {
+        chatBodies.push(body);
+        const detections = body.includes(value) ? [{ entityType: 'DATE_OF_BIRTH', verbatim: value }] : [];
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({
+          model: 'phi4-mini:latest',
+          message: { role: 'assistant', content: JSON.stringify({ detections }) },
+          done: true
+        }));
+      });
+    });
+    ollama.listen(0, '127.0.0.1');
+    await once(ollama, 'listening');
+    const address = ollama.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected a local test server address.');
+
+    try {
+      const application = await createExperimentalOllamaTextApplication({
+        model: 'phi4-mini',
+        endpoint: `http://127.0.0.1:${String(address.port)}`,
+        timeoutMs: 5_000,
+        profile: 'process-local-api'
+      });
+      const catalog = createProcessLocalApiPolicyCatalog();
+      const processing = createVolatileProcessingControl(application, catalog.policies, { engine: 'ollama' });
+      const instance = server(dependencies({
+        application,
+        jobs: processing,
+        processing,
+        policies: { get: () => Promise.resolve(catalog) },
+        preview: createLocalPreviewScan(application, { engine: 'ollama' })
+      }));
+      const policyBinding = {
+        id: catalog.policies[0].id, version: catalog.policies[0].version, digest: catalog.policies[0].digest
+      };
+
+      const capabilities = await instance.inject({ method: 'GET', url: '/v1/capabilities', headers: authorization() });
+      expect(capabilities.statusCode).toBe(200);
+      const manifest = capabilities.json<CapabilityManifest>();
+      expect(manifest.engineMode).toBe('LOCAL_HYBRID');
+      expect(manifest.formats.map(({ id }) => id)).toEqual(['text']);
+      expect(manifest.verificationProfiles).toEqual([expect.objectContaining({
+        id: 'text-rescan-v1', version: '0.2.0',
+        checks: ['UTF8_REOPEN', 'DETERMINISTIC_RESCAN', 'CONTEXTUAL_RESCAN', 'SPAN_RESOLUTION']
+      })]);
+      expect(manifest.detectors).toContainEqual(expect.objectContaining({ id: 'ollama-local-model', qualification: 'EXPERIMENTAL' }));
+
+      // Structured formats are refused before any bytes are accepted.
+      const structured = await instance.inject({
+        method: 'POST', url: '/v1/artifacts', headers: authorization(),
+        payload: { schemaVersion: '2.0.0', mediaType: 'application/json', byteLength: 2, digest: `sha256:${'c'.repeat(64)}` }
+      });
+      expect(structured.statusCode, structured.body).toBe(415);
+      expect(structured.json()).toMatchObject({ error: { code: 'FORMAT_UNSUPPORTED' } });
+
+      const upload = async (): Promise<string> => {
+        const bytes = Buffer.from(text, 'utf8');
+        const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+        const initiated = await instance.inject({
+          method: 'POST', url: '/v1/artifacts', headers: authorization(),
+          payload: { schemaVersion: '1.0.0', mediaType: 'text/plain', byteLength: bytes.length, digest }
+        });
+        expect(initiated.statusCode).toBe(201);
+        const artifactId = initiated.json<{ readonly id: string }>().id;
+        const uploaded = await instance.inject({
+          method: 'PUT', url: `/v1/artifacts/${artifactId}/content`,
+          headers: { ...authorization(), 'content-type': 'application/octet-stream' }, payload: bytes
+        });
+        expect(uploaded.statusCode).toBe(200);
+        return artifactId;
+      };
+      // Model calls cross a real loopback socket, so give the worker wall-clock time between polls.
+      const settle = async (jobId: string, terminal: readonly string[]): Promise<Record<string, unknown> & { readonly state: string }> => {
+        let job: Record<string, unknown> & { readonly state: string } = { state: 'QUEUED' };
+        for (let attempt = 0; attempt < 250 && !terminal.includes(job.state); attempt += 1) {
+          const response = await instance.inject({ method: 'GET', url: `/v1/jobs/${jobId}`, headers: authorization() });
+          expect(response.statusCode).toBe(200);
+          job = response.json<typeof job>();
+          if (!terminal.includes(job.state)) await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        return job;
+      };
+
+      // Scan: the model candidate is surfaced with its provenance and uncalibrated confidence.
+      const scanArtifactId = await upload();
+      const scan = await instance.inject({
+        method: 'POST', url: '/v1/jobs', headers: { ...authorization(), 'idempotency-key': randomUUID() },
+        payload: { schemaVersion: '2.0.0', operation: 'SCAN', inputArtifactId: scanArtifactId, policy: policyBinding }
+      });
+      expect(scan.statusCode).toBe(201);
+      const scanJobId = scan.json<{ readonly id: string }>().id;
+      expect((await settle(scanJobId, ['SUCCEEDED', 'NEEDS_REVIEW', 'FAILED'])).state).toBe('SUCCEEDED');
+      const detections = await instance.inject({
+        method: 'GET', url: `/v1/jobs/${scanJobId}/detections?cursor=0&limit=10`, headers: authorization()
+      });
+      expect(detections.statusCode).toBe(200);
+      const page = detections.json<{ readonly total: number; readonly detections: readonly { readonly id: string; readonly entityType: string; readonly confidence: number; readonly sources: readonly string[] }[] }>();
+      expect(page.total).toBe(1);
+      expect(page.detections[0]).toMatchObject({ entityType: 'DATE_OF_BIRTH', confidence: 0.5, sources: ['MODEL'] });
+      expect(chatBodies).toHaveLength(1);
+
+      // Unreviewed hybrid redaction is held: the policy requires review on model evidence.
+      const unreviewed = await instance.inject({
+        method: 'POST', url: '/v1/jobs', headers: { ...authorization(), 'idempotency-key': randomUUID() },
+        payload: { schemaVersion: '3.0.0', operation: 'REDACT', inputArtifactId: await upload(), policy: policyBinding }
+      });
+      expect(unreviewed.statusCode).toBe(201);
+      const heldJobId = unreviewed.json<{ readonly id: string }>().id;
+      const held = await settle(heldJobId, ['VERIFIED', 'FAILED']);
+      // Job metadata is privacy-minimised and carries no failure code; the observable
+      // contract is that the job fails and no output is ever served for it.
+      expect(held.state).toBe('FAILED');
+      expect((await instance.inject({
+        method: 'GET', url: `/v1/jobs/${heldJobId}/output`, headers: authorization()
+      })).statusCode).not.toBe(200);
+      expect(JSON.stringify(held)).not.toContain(value);
+
+      // Reviewer accepts the model candidate; the redaction carries the decision and is rescanned.
+      const initialReview = await instance.inject({
+        method: 'GET', url: `/v1/jobs/${scanJobId}/review-decisions`, headers: authorization()
+      });
+      const extractionRevision = initialReview.json<{ readonly extractionRevision: string }>().extractionRevision;
+      const reviewed = await instance.inject({
+        method: 'POST', url: `/v1/jobs/${scanJobId}/review-decisions`, headers: authorization(),
+        payload: {
+          schemaVersion: '1.0.0', expectedJobRevision: 6, expectedExtractionRevision: extractionRevision,
+          expectedReviewRevision: 0,
+          decisions: [{
+            clientDecisionId: randomUUID(), targetDetectionId: page.detections[0]?.id,
+            action: 'ACCEPT', reasonCode: 'CONFIRMED_BY_REVIEWER'
+          }]
+        }
+      });
+      expect(reviewed.statusCode).toBe(200);
+      const reviewSet = reviewed.json<{ readonly jobRevision: number; readonly extractionRevision: string; readonly reviewRevision: number; readonly digest: string }>();
+      const redaction = await instance.inject({
+        method: 'POST', url: '/v1/jobs', headers: { ...authorization(), 'idempotency-key': randomUUID() },
+        payload: {
+          schemaVersion: '4.0.0', operation: 'REDACT', inputArtifactId: await upload(), policy: policyBinding,
+          review: {
+            sourceJobId: scanJobId, expectedJobRevision: reviewSet.jobRevision,
+            expectedExtractionRevision: reviewSet.extractionRevision,
+            expectedReviewRevision: reviewSet.reviewRevision, expectedReviewDigest: reviewSet.digest
+          }
+        }
+      });
+      expect(redaction.statusCode).toBe(201);
+      const redactionJobId = redaction.json<{ readonly id: string }>().id;
+      const verified = await settle(redactionJobId, ['VERIFIED', 'FAILED']);
+      expect(verified.state, JSON.stringify(verified)).toBe('VERIFIED');
+      const output = (await instance.inject({
+        method: 'GET', url: `/v1/jobs/${redactionJobId}/output`, headers: authorization()
+      })).json<{ readonly id: string }>();
+      const downloaded = await instance.inject({
+        method: 'GET', url: `/v1/artifacts/${output.id}/content`, headers: authorization()
+      });
+      expect(downloaded.statusCode).toBe(200);
+      expect(downloaded.body).toBe('Synthetic record. The birth date is [DATE_OF_BIRTH_1].');
+
+      // The model saw the source for scan and redaction, then the reopened output for the rescan.
+      const rescan = chatBodies.at(-1);
+      expect(rescan).toBeDefined();
+      expect(rescan).not.toContain(value);
+      expect(rescan).toContain('DATE_OF_BIRTH_1');
+      expect(`${scan.body}${detections.body}${reviewed.body}${redaction.body}${JSON.stringify(verified)}`).not.toContain(value);
+    } finally {
+      ollama.closeAllConnections();
+      ollama.close();
+      await once(ollama, 'close');
+    }
   });
 
   it('rejects mismatched artifact bytes without creating a scanable artifact', async () => {

@@ -37,6 +37,7 @@ import {
 
 import {
   createCurrentCapabilityManifest,
+  createOllamaHybridApiCapabilityManifest,
   createOllamaHybridCapabilityManifest,
   createProcessLocalApiCapabilityManifest,
   createTextOnlyCapabilityManifest
@@ -211,6 +212,8 @@ export interface ExperimentalOllamaApplicationOptions {
   readonly endpoint?: string;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
+  /** Which transport's capability manifest to publish; defaults to the command-line profile. */
+  readonly profile?: 'cli' | 'process-local-api';
 }
 
 export async function createExperimentalOllamaTextApplication(
@@ -261,9 +264,8 @@ export async function createExperimentalOllamaTextApplication(
       );
     }
   };
-  return application(
-    createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion),
-    detector,
-    hybridVerifier
-  );
+  const manifest = options.profile === 'process-local-api'
+    ? createOllamaHybridApiCapabilityManifest(contextual.detectorBundleVersion)
+    : createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion);
+  return application(manifest, detector, hybridVerifier);
 }

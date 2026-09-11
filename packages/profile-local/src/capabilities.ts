@@ -228,3 +228,27 @@ export function createOllamaHybridCapabilityManifest(
   assertCapabilityManifest(manifest, 'cor_cli_hybrid_capabilities');
   return manifest;
 }
+
+/**
+ * Text-only hybrid manifest for the process-local API transport. The admission bound is the
+ * smaller of the browser preview limit and the experimental provider limit, so nothing the API
+ * accepts can exceed what the provider is declared to handle.
+ */
+export function createOllamaHybridApiCapabilityManifest(
+  detectorVersion: string = ollamaLocalCapabilityDescriptor.detector.version
+): CapabilityManifest {
+  const hybrid = createOllamaHybridCapabilityManifest(detectorVersion);
+  const maximumInputBytes = Math.min(localPreviewMaximumInputBytes, ollamaExperimentalDefaultLimits.maximumInputBytes);
+  const manifest: CapabilityManifest = {
+    ...hybrid,
+    id: 'local-hybrid-api-text',
+    version: '0.1.0',
+    formats: hybrid.formats.map((format) => ({
+      ...format,
+      limits: { ...format.limits, maximumInputBytes }
+    })) as CapabilityManifest['formats'],
+    limits: { ...hybrid.limits, maximumInputBytes }
+  };
+  assertCapabilityManifest(manifest, 'cor_api_hybrid_capabilities');
+  return manifest;
+}

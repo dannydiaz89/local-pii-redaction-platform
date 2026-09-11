@@ -93,13 +93,17 @@ export function scanLocalTextBytes(
   bytes: Uint8Array,
   format: PreviewFormat,
   context: ApplicationContext,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  engine: PreviewScanEngine = 'rules'
 ): Promise<TextScanResult> {
   signal?.throwIfAborted();
   const artifact = decodeLocalTextArtifact(bytes, format, context.correlationId);
+  const base = textCapabilityRequirement('SCAN', engine);
   const requirement = {
-    ...textCapabilityRequirement('SCAN'),
-    maximumInputBytes: localPreviewMaximumInputBytes
+    ...base,
+    maximumInputBytes: engine === 'ollama'
+      ? Math.min(localPreviewMaximumInputBytes, base.maximumInputBytes)
+      : localPreviewMaximumInputBytes
   };
   return application.scan({
     session: { input: () => Promise.resolve(artifact) },
@@ -118,11 +122,21 @@ function entityCounts(entityTypes: readonly EntityType[]): Readonly<Partial<Reco
  * Synchronous process-local preview composition. It creates no artifact or job record and returns
  * only bounded aggregate counts; request bytes become unreachable when the operation completes.
  */
-export function createLocalPreviewScan(application: TextProcessingApplication): PreviewScanPort {
+export type PreviewScanEngine = 'rules' | 'ollama';
+
+export interface LocalPreviewScanOptions {
+  readonly engine?: PreviewScanEngine;
+}
+
+export function createLocalPreviewScan(
+  application: TextProcessingApplication,
+  options: LocalPreviewScanOptions = {}
+): PreviewScanPort {
+  const engine = options.engine ?? 'rules';
   const port: PreviewScanPort = {
     async scan(bytes, format, context, signal) {
       signal?.throwIfAborted();
-      const result = await scanLocalTextBytes(application, bytes, format, context, signal);
+      const result = await scanLocalTextBytes(application, bytes, format, context, signal, engine);
       signal?.throwIfAborted();
       const evidenceById = new Map<string, (typeof result.evidence)[number]>(
         result.evidence.map((item) => [item.id, item])

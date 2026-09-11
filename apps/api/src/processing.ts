@@ -116,7 +116,11 @@ export interface ProcessingPolicyReference {
   readonly digest: string;
 }
 
+export type ProcessingEngine = 'rules' | 'ollama';
+
 export interface VolatileProcessingOptions {
+  /** Which detection engine the injected application was composed with; defaults to rules. */
+  readonly engine?: ProcessingEngine;
   readonly now?: () => Date;
   readonly randomArtifactBytes?: () => Uint8Array;
   readonly randomJobBytes?: () => Uint8Array;
@@ -265,7 +269,20 @@ function genericRedactedDisplayName(format: ArtifactFormat): string {
   return 'document.redacted.txt';
 }
 
-function requirementFor(format: ArtifactFormat, operation: 'SCAN' | 'REDACT') {
+function requirementFor(
+  format: ArtifactFormat,
+  operation: 'SCAN' | 'REDACT',
+  engine: ProcessingEngine,
+  correlationId: string
+) {
+  if (engine === 'ollama') {
+    // The experimental hybrid engine is text-only; structured formats never reach the provider.
+    if (format === 'json' || format === 'csv') {
+      fail('FORMAT_UNSUPPORTED', 'The experimental hybrid profile accepts only text and Markdown artifacts.', false, correlationId);
+    }
+    const requirement = textCapabilityRequirement(operation, 'ollama');
+    return { ...requirement, maximumInputBytes: Math.min(localPreviewMaximumInputBytes, requirement.maximumInputBytes) };
+  }
   const requirement = format === 'json'
     ? jsonCapabilityRequirement(operation)
     : format === 'csv'
@@ -413,6 +430,7 @@ export function createVolatileProcessingControl(
   policies: readonly ProcessingPolicyReference[],
   options: VolatileProcessingOptions = {}
 ): ProcessingControlPort {
+  const engine: ProcessingEngine = options.engine ?? 'rules';
   const now = options.now ?? (() => new Date());
   const randomArtifactBytes = options.randomArtifactBytes ?? (() => randomBytes(16));
   const createEventId = options.createEventId ?? randomUUID;
@@ -545,7 +563,7 @@ export function createVolatileProcessingControl(
       if (job.operation === 'SCAN') {
         const scan = await application.scan({
           session: { input: () => Promise.resolve(source) },
-          requirement: requirementFor(artifact.format, 'SCAN'),
+          requirement: requirementFor(artifact.format, 'SCAN', engine, correlationId),
           policy,
           signal: controller.signal
         }, { correlationId });
@@ -569,7 +587,7 @@ export function createVolatileProcessingControl(
         try {
           const redaction = await application.redact({
             session: handle.session,
-            requirement: requirementFor(artifact.format, 'REDACT'),
+            requirement: requirementFor(artifact.format, 'REDACT', engine, correlationId),
             policy,
             ...(reviewSnapshot === undefined ? {} : { review: reviewSnapshot }),
             signal: controller.signal
@@ -659,6 +677,10 @@ export function createVolatileProcessingControl(
       if (closed) fail('STORAGE_UNAVAILABLE', 'The local processing session is unavailable.', true, correlationId);
       if (artifacts.size >= maximumArtifacts || retainedBytes + request.byteLength > maximumRetainedBytes) {
         fail('RATE_LIMITED', 'The local processing session has reached its artifact limit.', true, correlationId);
+      }
+      if (engine === 'ollama' && (request.mediaType === 'application/json' || request.mediaType === 'text/csv')) {
+        // Refuse structured formats before any bytes are accepted; the hybrid engine is text-only.
+        fail('FORMAT_UNSUPPORTED', 'The experimental hybrid profile accepts only text and Markdown artifacts.', false, correlationId);
       }
       const createdAt = now();
       const id = createArtifactId(createdAt, randomArtifactBytes());

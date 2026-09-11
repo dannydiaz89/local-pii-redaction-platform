@@ -471,6 +471,20 @@ bundled policy; it is bounded to 80,000 input bytes/20,000 Unicode code points a
 rather than silently falling back to rules-only behavior. Batch, `--policy-file`, and other formats
 remain rules-only.
 
+The local web review application can run on the same engine. Engine selection is a server
+startup decision — the model is digest-pinned once and every job in the session uses it:
+
+```sh
+pnpm start:local -- --engine ollama --model phi4-mini:3.8b --allow-experimental
+```
+
+In that mode the capability manifest reports `LOCAL_HYBRID`, only TXT and Markdown artifacts are
+admitted, and model detections appear in review with their `MODEL` provenance and uncalibrated
+confidence. The bundled policy holds every model span for review, so a hybrid redaction in the
+browser is always a reviewed redaction: the reviewer accepts, rejects, or retypes each model
+candidate, and the redaction job carries those decisions. No `--accept-model-evidence` equivalent
+exists for the web; the review workflow is the acceptance path.
+
 A hybrid redaction is verified under the `text-rescan-v1` profile at version `0.2.0`, which adds a
 `CONTEXTUAL_RESCAN` check to the rules-only profile. After the staged output is independently
 reopened, the same digest-pinned model instance that produced the plan is asked to extract from the
