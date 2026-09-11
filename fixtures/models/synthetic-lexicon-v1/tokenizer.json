@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "1.0.0",
+  "runtime": "synthetic-lexicon-v1",
+  "unit": "UNICODE_CODE_POINT",
+  "notice": "Placeholder tokenizer descriptor; the synthetic runtime indexes code points directly."
+}

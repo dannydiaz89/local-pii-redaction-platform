@@ -9,6 +9,7 @@
     { "path": "packages/profile-local" },
     { "path": "packages/detectors" },
     { "path": "packages/provider-ollama" },
+    { "path": "packages/provider-inference" },
     { "path": "packages/span-resolution" },
     { "path": "packages/redaction" },
     { "path": "packages/adapter-text" },

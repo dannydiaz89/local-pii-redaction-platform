@@ -20,6 +20,11 @@ import { defaultMaximumPdfInputBytes } from '@local-pii/adapter-pdf';
 import { defaultMaximumJsonInputBytes } from '@local-pii/adapter-json';
 import { parseSha256Digest } from '@local-pii/domain';
 import {
+  createInferenceTextDetectionProvider,
+  inferenceExperimentalDefaultLimits,
+  inferenceLocalDetectorId
+} from '@local-pii/provider-inference';
+import {
   createOllamaTextDetectionProvider,
   ollamaExperimentalDefaultLimits,
   ollamaLocalDetectorId
@@ -37,33 +42,41 @@ import {
 
 import {
   createCurrentCapabilityManifest,
+  createInferenceHybridCapabilityManifest,
   createOllamaHybridApiCapabilityManifest,
   createOllamaHybridCapabilityManifest,
   createProcessLocalApiCapabilityManifest,
   createTextOnlyCapabilityManifest
 } from './capabilities.js';
 
+export { inferenceExperimentalDefaultLimits } from '@local-pii/provider-inference';
+export { ollamaExperimentalDefaultLimits } from '@local-pii/provider-ollama';
+
 const detectorIds = deterministicDetectorCapabilities.map(({ id }) => id);
 const detectorKinds = [...new Set(deterministicDetectorCapabilities.flatMap(({ kinds }) => kinds))];
 
-export type LocalEngine = 'rules' | 'ollama';
+export type LocalEngine = 'rules' | 'ollama' | 'inference';
 
 export function textCapabilityRequirement(
   operation: CapabilityOperation,
   engine: LocalEngine = 'rules'
 ): CapabilityRequirement {
   const needsDetection = operation !== 'INSPECT';
-  const hybrid = engine === 'ollama';
+  const hybrid = engine !== 'rules';
+  const contextualDetectorId = engine === 'ollama' ? ollamaLocalDetectorId : inferenceLocalDetectorId;
+  const hybridMaximumInputBytes = engine === 'ollama'
+    ? ollamaExperimentalDefaultLimits.maximumInputBytes
+    : inferenceExperimentalDefaultLimits.maximumInputBytes;
   return {
     contractVersion: '1.0.0',
     engineModes: ['RULES_ONLY', 'LOCAL_HYBRID'],
     formatId: 'text',
     operation,
-    detectorIds: needsDetection ? [...detectorIds, ...(hybrid ? [ollamaLocalDetectorId] : [])] : [],
+    detectorIds: needsDetection ? [...detectorIds, ...(hybrid ? [contextualDetectorId] : [])] : [],
     detectorKinds: needsDetection ? [...detectorKinds, ...(hybrid ? ['MODEL' as const] : [])] : [],
     transformationActions: operation === 'REDACT' ? ['TYPED_LABEL'] : [],
     verificationProfile: 'text-rescan-v1',
-    maximumInputBytes: hybrid ? ollamaExperimentalDefaultLimits.maximumInputBytes : defaultMaximumInputBytes,
+    maximumInputBytes: hybrid ? hybridMaximumInputBytes : defaultMaximumInputBytes,
     minimumQualification: hybrid ? 'EXPERIMENTAL' : 'DEVELOPMENT'
   };
 }
@@ -234,13 +247,25 @@ export async function createExperimentalOllamaTextApplication(
     },
     correlationId: 'cor_cli_hybrid_detection'
   });
-  // Verification rescans the reopened output with the same digest-pinned provider instance
-  // that produced the plan. The provider re-checks the model digest after every inference,
-  // and the composite detector validates the returned evidence, so the rescan sees exactly
-  // the trust boundary the redaction scan saw. A provider failure during the rescan makes the
-  // attestation INCOMPLETE; nothing is published on an unverified hybrid output.
-  const detectorBundle = createHybridTextVerificationDetectorBundle(contextual.detectorBundleVersion);
-  const hybridVerifier: TextVerificationPort = {
+  const manifest = options.profile === 'process-local-api'
+    ? createOllamaHybridApiCapabilityManifest(contextual.detectorBundleVersion)
+    : createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion);
+  return application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion));
+}
+
+/**
+ * Verification rescans the reopened output with the same digest-pinned provider instance that
+ * produced the plan. The provider re-checks the model identity after every inference, and the
+ * composite detector validates the returned evidence, so the rescan sees exactly the trust
+ * boundary the redaction scan saw. A provider failure during the rescan makes the attestation
+ * INCOMPLETE; nothing is published on an unverified hybrid output.
+ */
+function hybridVerifier(
+  detector: ReturnType<typeof createCompositeTextDetector>,
+  contextualDetectorBundleVersion: string
+): TextVerificationPort {
+  const detectorBundle = createHybridTextVerificationDetectorBundle(contextualDetectorBundleVersion);
+  return {
     attestation: {
       profile: textHybridVerificationProfile,
       verifier: textVerificationVerifier,
@@ -264,8 +289,43 @@ export async function createExperimentalOllamaTextApplication(
       );
     }
   };
-  const manifest = options.profile === 'process-local-api'
-    ? createOllamaHybridApiCapabilityManifest(contextual.detectorBundleVersion)
-    : createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion);
-  return application(manifest, detector, hybridVerifier);
+}
+
+export interface ExperimentalInferenceApplicationOptions {
+  /** Operator-supplied, digest-pinned bundle directory; never derived from document content. */
+  readonly bundleDirectory: string;
+  readonly pythonExecutable?: string;
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+  readonly profile?: 'cli' | 'process-local-api';
+}
+
+/** Composes the rules with the local inference service over its subprocess profile. */
+export async function createExperimentalInferenceTextApplication(
+  options: ExperimentalInferenceApplicationOptions
+) {
+  const contextual = createInferenceTextDetectionProvider({
+    bundleDirectory: options.bundleDirectory,
+    ...(options.pythonExecutable === undefined ? {} : { pythonExecutable: options.pythonExecutable }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+  });
+  await contextual.prepare(options.signal);
+  const capabilities = contextual.capabilities;
+  if (capabilities === undefined) throw new TypeError('The inference provider did not publish capabilities.');
+  const detector = createCompositeTextDetector({
+    contextual,
+    limits: {
+      maximumCodePoints: inferenceExperimentalDefaultLimits.maximumInputCodePoints,
+      maximumDetections: inferenceExperimentalDefaultLimits.maximumDetections,
+      maximumCandidateLength: 256
+    },
+    correlationId: 'cor_cli_hybrid_detection'
+  });
+  const manifest = createInferenceHybridCapabilityManifest({
+    detectorVersion: contextual.detectorBundleVersion,
+    entityTypes: capabilities.entityTypes,
+    languages: capabilities.languages,
+    profile: options.profile ?? 'cli'
+  });
+  return application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion));
 }

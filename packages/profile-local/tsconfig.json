@@ -14,6 +14,7 @@
     { "path": "../core" },
     { "path": "../detectors" },
     { "path": "../domain" },
+    { "path": "../provider-inference" },
     { "path": "../provider-ollama" },
     { "path": "../policy" },
     { "path": "../redaction" },

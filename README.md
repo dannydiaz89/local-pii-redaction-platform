@@ -485,6 +485,29 @@ browser is always a reviewed redaction: the reviewer accepts, rejects, or retype
 candidate, and the redaction job carries those decisions. No `--accept-model-evidence` equivalent
 exists for the web; the review workflow is the acceptance path.
 
+### Local inference service (subprocess profile)
+
+The Python inference service from the service design now runs behind a second experimental
+engine. It speaks length-prefixed JSON frames over stdio — no socket is opened — and loads an
+operator-supplied, digest-pinned model bundle. The only runtime today is a deterministic
+**synthetic lexicon** built from the DEVELOPMENT harness split; it exercises every contract path
+without a trained model and is labelled `SYNTHETIC` throughout:
+
+```sh
+pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-development-positive.txt \
+  --engine inference --bundle ./fixtures/models/synthetic-lexicon-v1 --python ./.venv/bin/python \
+  --allow-experimental --json
+```
+
+The bundle manifest on disk is compared with the identity the service reports at readiness, the
+model digest is bound into the detector bundle version and re-checked on every response, and
+responses are validated against the detect-response contract and the source text bounds before
+any span becomes evidence. A tampered or missing bundle fails closed with `SUPPLY_CHAIN_INVALID`
+naming only the failing component. Redaction on this engine is verified with the same
+`CONTEXTUAL_RESCAN` profile as the Ollama engine. Replacing the synthetic runtime with a real
+token-classification model is a separate operator acquisition step with its own licence and
+provenance review; nothing here downloads or selects a model.
+
 A hybrid redaction is verified under the `text-rescan-v1` profile at version `0.2.0`, which adds a
 `CONTEXTUAL_RESCAN` check to the rules-only profile. After the staged output is independently
 reopened, the same digest-pinned model instance that produced the plan is asked to extract from the

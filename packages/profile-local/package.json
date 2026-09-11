@@ -21,6 +21,7 @@
     "@local-pii/contracts": "workspace:*",
     "@local-pii/detectors": "workspace:*",
     "@local-pii/domain": "workspace:*",
+    "@local-pii/provider-inference": "workspace:*",
     "@local-pii/provider-ollama": "workspace:*",
     "@local-pii/policy": "workspace:*",
     "@local-pii/redaction": "workspace:*",

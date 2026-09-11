@@ -35,13 +35,16 @@ import {
 } from '@local-pii/provider-ollama';
 
 import {
+  createExperimentalInferenceTextApplication,
   createExperimentalOllamaTextApplication,
   csvCapabilityRequirement,
   docxCapabilityRequirement,
+  inferenceExperimentalDefaultLimits,
   pdfCapabilityRequirement,
   jsonCapabilityRequirement,
   localFileApplication,
-  textCapabilityRequirement
+  textCapabilityRequirement,
+  type LocalEngine
 } from './application.js';
 import { createCurrentCapabilityManifest } from './capabilities.js';
 import {
@@ -78,9 +81,11 @@ interface ParsedArguments {
   readonly selectedPolicy: keyof typeof bundledPolicies | undefined;
   readonly policyFile: string | undefined;
   readonly output: string | undefined;
-  readonly engine: 'rules' | 'ollama';
+  readonly engine: LocalEngine;
   readonly engineSpecified: boolean;
   readonly model: string | undefined;
+  readonly bundle: string | undefined;
+  readonly python: string | undefined;
   readonly ollamaUrl: string | undefined;
   readonly timeoutMs: number | undefined;
   readonly batchTimeoutMs: number | undefined;
@@ -98,11 +103,11 @@ interface ParsedArguments {
 const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
-  pii-redact capabilities [--engine rules|ollama] [--model <local-model>] [--json]
+  pii-redact capabilities [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--json]
   pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--json]
-  pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--accept-model-evidence] [--json]
+  pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--json]
+  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--accept-model-evidence] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
   pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx|file.pdf> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
@@ -114,6 +119,10 @@ Experimental Ollama options:
   [--ollama-url http://127.0.0.1:11434] [--timeout-ms <1000-300000>]
   --accept-model-evidence   redact only: record an explicit operator ACCEPT decision for each span the
                             policy holds for review when that span is supported by model evidence
+
+Experimental local inference options:
+  --engine inference --bundle <dir> --allow-experimental
+  [--python <executable>] [--timeout-ms <1000-300000>]
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
@@ -134,9 +143,11 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let output: string | undefined;
   let selectedPolicy: keyof typeof bundledPolicies | undefined;
   let policyFile: string | undefined;
-  let engine: 'rules' | 'ollama' = 'rules';
+  let engine: LocalEngine = 'rules';
   let engineSpecified = false;
   let model: string | undefined;
+  let bundle: string | undefined;
+  let python: string | undefined;
   let ollamaUrl: string | undefined;
   let timeoutMs: number | undefined;
   let batchTimeoutMs: number | undefined;
@@ -185,12 +196,20 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     } else if (value === '--engine') {
       engineSpecified = true;
       const selected = valueAfter(index, '--engine');
-      if (selected !== 'rules' && selected !== 'ollama') throw new Error('unknown engine');
+      if (selected !== 'rules' && selected !== 'ollama' && selected !== 'inference') throw new Error('unknown engine');
       engine = selected;
       index += 1;
     } else if (value === '--model') {
       model = valueAfter(index, '--model');
       if (model.length > 200) throw new Error('model name is too long');
+      index += 1;
+    } else if (value === '--bundle') {
+      bundle = valueAfter(index, '--bundle');
+      if (bundle.length > 4096 || bundle.includes('\u0000')) throw new Error('bundle path is invalid');
+      index += 1;
+    } else if (value === '--python') {
+      python = valueAfter(index, '--python');
+      if (!/^[A-Za-z0-9._/-]{1,512}$/u.test(python)) throw new Error('python executable is invalid');
       index += 1;
     } else if (value === '--ollama-url') {
       ollamaUrl = valueAfter(index, '--ollama-url');
@@ -230,6 +249,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     engine,
     engineSpecified,
     model,
+    bundle,
+    python,
     ollamaUrl,
     timeoutMs,
     batchTimeoutMs,
@@ -351,7 +372,7 @@ function runPolicyExplain(policyName: keyof typeof bundledPolicies, json: boolea
 async function runCapabilities(parsed: ParsedArguments, io: CliIo, signal?: AbortSignal): Promise<number> {
   const selected = await selectedApplication(parsed, signal);
   const manifest = await selected.getCapabilities({ correlationId: 'cor_cli_capabilities' }, signal);
-  if (parsed.engine === 'ollama') experimentalWarning(io);
+  if (parsed.engine !== 'rules') experimentalWarning(io);
   if (parsed.json) {
     io.stdout(`${JSON.stringify(manifest, null, 2)}\n`);
   } else {
@@ -369,11 +390,26 @@ async function runCapabilities(parsed: ParsedArguments, io: CliIo, signal?: Abor
 }
 
 function experimentalWarning(io: CliIo): void {
-  io.stderr('EXPERIMENTAL: Ollama hybrid detection is unqualified; classifications may be wrong and confidence is an uncalibrated provider constant.\n');
+  io.stderr('EXPERIMENTAL: contextual model detection is unqualified; classifications may be wrong and confidence may be uncalibrated.\n');
+}
+
+/** Experimental engines bound input more tightly than the rules; the tighter bound always wins. */
+function experimentalInputLimit(engine: LocalEngine, policyLimit: number | undefined): number | undefined {
+  if (engine === 'ollama') return Math.min(policyLimit ?? Infinity, ollamaExperimentalDefaultLimits.maximumInputBytes);
+  if (engine === 'inference') return Math.min(policyLimit ?? Infinity, inferenceExperimentalDefaultLimits.maximumInputBytes);
+  return policyLimit;
 }
 
 async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal) {
   if (parsed.engine === 'rules') return localFileApplication;
+  if (parsed.engine === 'inference') {
+    return createExperimentalInferenceTextApplication({
+      bundleDirectory: parsed.bundle ?? '',
+      ...(parsed.python === undefined ? {} : { pythonExecutable: parsed.python }),
+      ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+      ...(signal === undefined ? {} : { signal })
+    });
+  }
   return createExperimentalOllamaTextApplication({
     model: parsed.model ?? '',
     ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
@@ -417,13 +453,13 @@ function localSession(
   return createLocalTextArtifactSession(input, output, maximumInputBytes);
 }
 
-function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'REDACT' | 'VERIFY', engine: 'rules' | 'ollama' = 'rules') {
+function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'REDACT' | 'VERIFY', engine: LocalEngine = 'rules') {
   const format = localFormat(input);
   if (format !== 'text') {
-    if (engine === 'ollama') {
+    if (engine !== 'rules') {
       throw new SafeError({
         code: 'FORMAT_UNSUPPORTED',
-        message: 'Experimental Ollama detection currently supports TXT and Markdown only.',
+        message: 'Experimental contextual detection currently supports TXT and Markdown only.',
         retryable: false,
         correlationId: 'cor_cli_format'
       });
@@ -438,7 +474,7 @@ function capabilityRequirement(input: string, operation: 'INSPECT' | 'SCAN' | 'R
 
 function scanCapabilityRequirement(
   input: string,
-  engine: 'rules' | 'ollama',
+  engine: LocalEngine,
   policy: EffectivePolicy | undefined
 ) {
   const requirement = capabilityRequirement(input, 'SCAN', engine);
@@ -458,9 +494,7 @@ async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal
     : await loadPolicyFile(parsed.policyFile, signal);
   const requirement = scanCapabilityRequirement(input, parsed.engine, policy);
   const selected = await selectedApplication(parsed, signal);
-  const maximumInputBytes = parsed.engine === 'ollama'
-    ? ollamaExperimentalDefaultLimits.maximumInputBytes
-    : policy?.limits.maximumInputBytes;
+  const maximumInputBytes = experimentalInputLimit(parsed.engine, policy?.limits.maximumInputBytes);
   const result = await selected.scan({
     session: localSession(input, undefined, maximumInputBytes, policy),
     requirement,
@@ -479,7 +513,7 @@ async function runScan(input: string, parsed: ParsedArguments, io: CliIo, signal
     detections: resolution.spans.map((span) => ({ id: span.id, entityType: span.entityType, start: span.start, end: span.end, confidence: span.confidence, evidenceIds: span.evidenceIds })),
     conflicts: resolution.conflicts
   };
-  if (parsed.engine === 'ollama') experimentalWarning(io);
+  if (parsed.engine !== 'rules') experimentalWarning(io);
   writeResult(io, parsed.json, report, `Found ${String(resolution.spans.length)} resolved detection(s) and ${String(resolution.conflicts.length)} conflict(s).`);
   return resolution.conflicts.length === 0 ? 0 : 5;
 }
@@ -764,9 +798,20 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
   const modelOptionsSelected = parsed.model !== undefined
     || parsed.ollamaUrl !== undefined
     || parsed.timeoutMs !== undefined
+    || parsed.bundle !== undefined
+    || parsed.python !== undefined
     || parsed.allowExperimental
     || parsed.acceptModelEvidence;
   if (parsed.engine === 'rules') return !modelOptionsSelected;
+  const commandAllowed = (parsed.command === 'scan' || parsed.command === 'capabilities' || parsed.command === 'redact')
+    && (!parsed.acceptModelEvidence || parsed.command === 'redact');
+  if (parsed.engine === 'inference') {
+    return parsed.allowExperimental
+      && commandAllowed
+      && parsed.bundle !== undefined
+      && parsed.model === undefined
+      && parsed.ollamaUrl === undefined;
+  }
   const modelIsValid = parsed.model !== undefined
     && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(parsed.model);
   let endpointIsValid = true;
@@ -780,8 +825,9 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
   return parsed.allowExperimental
     && modelIsValid
     && endpointIsValid
-    && (parsed.command === 'scan' || parsed.command === 'capabilities' || parsed.command === 'redact')
-    && (!parsed.acceptModelEvidence || parsed.command === 'redact');
+    && commandAllowed
+    && parsed.bundle === undefined
+    && parsed.python === undefined;
 }
 
 function validCommandOptions(parsed: ParsedArguments): boolean {
@@ -799,6 +845,8 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && !parsed.allowPartial
       && !parsed.allowExperimental
       && !parsed.acceptModelEvidence
+      && parsed.bundle === undefined
+      && parsed.python === undefined
       && !parsed.apply
       && !parsed.help
       && !parsed.license;
@@ -823,6 +871,8 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && !parsed.allowPartial
       && !parsed.allowExperimental
       && !parsed.acceptModelEvidence
+      && parsed.bundle === undefined
+      && parsed.python === undefined
       && !parsed.help
       && !parsed.license;
   }
@@ -842,6 +892,8 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && (isScan || !parsed.allowPartial)
       && !parsed.allowExperimental
       && !parsed.acceptModelEvidence
+      && parsed.bundle === undefined
+      && parsed.python === undefined
       && !parsed.apply
       && !parsed.license;
   }
@@ -914,10 +966,8 @@ async function runRedact(
   // format or engine combination fails without any model request.
   const requirement = capabilityRequirement(input, 'REDACT', engine);
   const selected = parsed === undefined ? localFileApplication : await selectedApplication(parsed, signal);
-  if (engine === 'ollama') experimentalWarning(io);
-  const maximumInputBytes = engine === 'ollama'
-    ? Math.min(policy.limits.maximumInputBytes, ollamaExperimentalDefaultLimits.maximumInputBytes)
-    : policy.limits.maximumInputBytes;
+  if (engine !== 'rules') experimentalWarning(io);
+  const maximumInputBytes = experimentalInputLimit(engine, policy.limits.maximumInputBytes);
   const review = parsed?.acceptModelEvidence === true
     ? await operatorModelEvidenceReview(input, policy, engine, selected, maximumInputBytes, io, signal)
     : undefined;
@@ -975,7 +1025,7 @@ async function runRedact(
 async function operatorModelEvidenceReview(
   input: string,
   policy: EffectivePolicy,
-  engine: 'rules' | 'ollama',
+  engine: LocalEngine,
   selected: Awaited<ReturnType<typeof selectedApplication>>,
   maximumInputBytes: number | undefined,
   io: CliIo,

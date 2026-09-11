@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0.0",
+  "runtime": "synthetic-lexicon-v1",
+  "notice": "Synthetic fixture lexicon built from the DEVELOPMENT harness split. Not a trained model.",
+  "entries": [
+    {
+      "entityType": "PERSON",
+      "value": "Mara Vellum",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ORGANIZATION",
+      "value": "Northwind Lantern Cooperative",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "LOCATION",
+      "value": "Alder Point",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ADDRESS",
+      "value": "17 Example Cedar Lane",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "DATE_OF_BIRTH",
+      "value": "1988-02-29",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ACCOUNT_ID",
+      "value": "ACCT-SYN-1042",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "PERSON",
+      "value": "Tobias Wren",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "PERSON",
+      "value": "Selene Marsh",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "PERSON",
+      "value": "Anouk Ferrante",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ORGANIZATION",
+      "value": "Halcyon Tidewater Labs",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ORGANIZATION",
+      "value": "Orrin Coastal Holdings",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "LOCATION",
+      "value": "Gullwing Bay",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ADDRESS",
+      "value": "2 Placeholder Kestrel Row, Apt 12C",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "DATE_OF_BIRTH",
+      "value": "1990-11-05",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ACCOUNT_ID",
+      "value": "HTL-0091",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "PERSON",
+      "value": "Wendeline Marrow-Tate",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ORGANIZATION",
+      "value": "Ashfall Ridge Cooperative",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "LOCATION",
+      "value": "Kestrel Point",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ADDRESS",
+      "value": "21 Sample Wicker Lane",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "DATE_OF_BIRTH",
+      "value": "1969-08-08",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "ACCOUNT_ID",
+      "value": "ARC-3131",
+      "confidence": 0.93
+    },
+    {
+      "entityType": "DATE_OF_BIRTH",
+      "pattern": "(?<![0-9])(?:19|20)[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])(?![0-9])",
+      "confidence": 0.71
+    }
+  ]
+}

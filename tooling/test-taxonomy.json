@@ -47,6 +47,7 @@
     "packages/i18n/test/i18n.test.ts": ["unit", "localization"],
     "packages/job-store/test/job-store.test.ts": ["unit", "contract", "integration", "security-privacy", "recovery"],
     "packages/policy/test/policy.test.ts": ["unit", "contract", "security-privacy"],
+    "packages/provider-inference/test/provider-inference.test.ts": ["unit", "integration", "security-privacy"],
     "packages/provider-ollama/test/provider-ollama.test.ts": ["unit", "integration", "security-privacy"],
     "packages/redaction/test/redaction.test.ts": ["unit", "integration"],
     "packages/sdk/test/sdk.test.ts": ["unit", "contract", "security-privacy"],

@@ -1,5 +1,7 @@
 export {
+  createExperimentalInferenceTextApplication,
   createExperimentalOllamaTextApplication,
+  inferenceExperimentalDefaultLimits,
   csvCapabilityRequirement,
   docxCapabilityRequirement,
   pdfCapabilityRequirement,
@@ -7,6 +9,7 @@ export {
   localFileApplication,
   localTextApplication,
   textCapabilityRequirement,
+  type ExperimentalInferenceApplicationOptions,
   type ExperimentalOllamaApplicationOptions,
   type LocalEngine
 } from '@local-pii/profile-local';

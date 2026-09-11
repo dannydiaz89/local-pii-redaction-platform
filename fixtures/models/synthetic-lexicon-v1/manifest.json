@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "synthetic-lexicon",
+  "version": "0.1.0",
+  "modelDigest": "sha256:b335add720d2279a56ae2ff856ad51ea4bf1c12e921754db1ecba20bdd93c104",
+  "tokenizerDigest": "sha256:a3abfe7a24bfc78bf8bdd259eaa92a77b46c2a444459275f2d21f94868a99039",
+  "runtime": "synthetic-lexicon-v1",
+  "protocolVersions": [
+    "1.0.0"
+  ],
+  "entityTypes": [
+    "PERSON",
+    "ADDRESS",
+    "LOCATION",
+    "ORGANIZATION",
+    "DATE_OF_BIRTH",
+    "ACCOUNT_ID"
+  ],
+  "languages": [
+    "en"
+  ],
+  "license": {
+    "spdxId": "AGPL-3.0-only",
+    "notice": "Synthetic fixture bundle generated from the repository's own synthetic harness. It is not a trained model and carries no accuracy claim."
+  },
+  "provenance": {
+    "source": "https://local-pii.dev/fixtures/models/synthetic-lexicon-v1",
+    "retrievedAt": "2026-09-11T00:00:00Z"
+  }
+}

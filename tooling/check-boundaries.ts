@@ -20,6 +20,7 @@ type WorkspacePackage =
   | 'job-store'
   | 'policy'
   | 'profile-local'
+  | 'provider-inference'
   | 'provider-ollama'
   | 'redaction'
   | 'sdk'
@@ -58,6 +59,7 @@ const workspacePackages: readonly WorkspacePackage[] = [
   'job-store',
   'policy',
   'profile-local',
+  'provider-inference',
   'provider-ollama',
   'redaction',
   'sdk',
@@ -85,7 +87,8 @@ const allowedRuntimeWorkspaceDependencies: Readonly<Record<WorkspacePackage, rea
   i18n: [],
   'job-store': ['contracts', 'domain'],
   policy: ['contracts', 'domain'],
-  'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-pdf', 'adapter-text', 'contracts', 'core', 'detectors', 'domain', 'policy', 'provider-ollama', 'redaction', 'verification'],
+  'profile-local': ['adapter-csv', 'adapter-docx', 'adapter-json', 'adapter-pdf', 'adapter-text', 'contracts', 'core', 'detectors', 'domain', 'policy', 'provider-inference', 'provider-ollama', 'redaction', 'verification'],
+  'provider-inference': ['contracts', 'domain'],
   'provider-ollama': ['domain'],
   redaction: ['domain', 'span-resolution'],
   sdk: ['contracts'],
@@ -109,6 +112,7 @@ const allowedDevelopmentWorkspaceDependencies: Readonly<Record<WorkspacePackage,
   'job-store': [],
   policy: [],
   'profile-local': [],
+  'provider-inference': [],
   'provider-ollama': [],
   redaction: ['detectors'],
   sdk: [],

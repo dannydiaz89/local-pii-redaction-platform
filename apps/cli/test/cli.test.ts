@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { EventEmitter } from 'node:events';
@@ -455,7 +455,11 @@ describe('CLI TXT vertical slice', () => {
       ['redact', 'sample.txt', '--output', 'out.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--policy', 'development-labels'],
       ['redact', 'sample.txt', '--output', 'out.txt', '--policy-file', 'policy.json', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental'],
       ['redact', 'sample.txt', '--output', 'out.txt', '--policy', 'development-labels', '--accept-model-evidence'],
-      ['scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--accept-model-evidence']
+      ['scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--accept-model-evidence'],
+      ['scan', 'sample.txt', '--engine', 'inference', '--allow-experimental'],
+      ['scan', 'sample.txt', '--engine', 'inference', '--bundle', 'bundle', '--allow-experimental', '--model', 'phi4-mini'],
+      ['scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--bundle', 'bundle'],
+      ['scan', 'sample.txt', '--bundle', 'bundle']
     ]) {
       const invalidPolicy = capture();
       expect(await executeCli([...argv, '--json'], invalidPolicy.io), argv.join(' ')).toBe(2);
@@ -736,6 +740,66 @@ describe('CLI TXT vertical slice', () => {
     } finally {
       await fixture.close();
     }
+  });
+
+  it('scans and verifiably redacts through the local inference subprocess with the synthetic bundle', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-inference-'));
+    directories.push(root);
+    const python = new URL('../../../.venv/bin/python', import.meta.url).pathname;
+    const bundle = new URL('../../../fixtures/models/synthetic-lexicon-v1', import.meta.url).pathname;
+    const input = join(root, 'record.txt');
+    const output = join(root, 'record.redacted.txt');
+    const value = 'Mara Vellum';
+    await writeFile(input, `😀 Synthetic record. ${value} was born 1988-02-29.`);
+    const common = ['--engine', 'inference', '--bundle', bundle, '--python', python, '--allow-experimental', '--timeout-ms', '30000'];
+
+    const scan = capture();
+    expect(await executeCli(['scan', input, ...common, '--json'], scan.io), scan.stderr.join('')).toBe(0);
+    const report = JSON.parse(scan.stdout.join('')) as {
+      readonly detectorBundleVersion: string;
+      readonly counts: { readonly byEntity: Readonly<Record<string, number>> };
+      readonly detections: readonly { readonly confidence: number; readonly entityType: string }[];
+    };
+    expect(report.detectorBundleVersion).toMatch(/^composite-v1-/u);
+    expect(report.counts.byEntity.PERSON).toBe(1);
+    expect(report.counts.byEntity.DATE_OF_BIRTH).toBe(1);
+    expect(report.detections.find(({ entityType }) => entityType === 'PERSON')?.confidence).toBe(0.93);
+    expect(scan.stderr.join('')).toContain('EXPERIMENTAL');
+    expect(scan.stdout.join('')).not.toContain(value);
+
+    const capabilities = capture();
+    expect(await executeCli(['capabilities', ...common, '--json'], capabilities.io)).toBe(0);
+    const manifest = JSON.parse(capabilities.stdout.join('')) as {
+      readonly id: string; readonly engineMode: string;
+      readonly detectors: readonly { readonly id: string; readonly version: string }[];
+    };
+    expect(manifest).toMatchObject({ id: 'local-hybrid-inference-text', engineMode: 'LOCAL_HYBRID' });
+    const inferenceDetector = manifest.detectors.find(({ id }) => id === 'local-inference-model');
+    expect(inferenceDetector?.version).toMatch(/^0\.1\.0-inference-experimental\.1\.sha256-[a-f0-9]{64}$/u);
+
+    // Synthetic confidence 0.93 clears the policy threshold, so no operator acceptance is needed.
+    const redact = capture();
+    expect(await executeCli(['redact', input, '--output', output, '--policy', 'development-labels', ...common, '--json'], redact.io), redact.stderr.join('')).toBe(0);
+    const redaction = JSON.parse(redact.stdout.join('')) as {
+      readonly outcome: string;
+      readonly plan: { readonly byEntity: Readonly<Record<string, number>> };
+      readonly verification: { readonly outcome: string; readonly checks: readonly string[]; readonly detectorBundle: { readonly id: string } };
+    };
+    expect(redaction.outcome).toBe('VERIFIED');
+    expect(redaction.plan.byEntity).toEqual({ PERSON: 1, DATE_OF_BIRTH: 1 });
+    expect(redaction.verification.outcome).toBe('PASS');
+    expect(redaction.verification.checks).toContain('CONTEXTUAL_RESCAN');
+    expect(redaction.verification.detectorBundle.id).toBe('hybrid-text');
+    const published = await readFile(output, 'utf8');
+    expect(published).toBe('😀 Synthetic record. [PERSON_1] was born [DATE_OF_BIRTH_1].');
+
+    const tampered = join(root, 'bundle');
+    await cp(bundle, tampered, { recursive: true });
+    await writeFile(join(tampered, 'model.json'), '{}');
+    const failed = capture();
+    expect(await executeCli(['scan', input, '--engine', 'inference', '--bundle', tampered, '--python', python, '--allow-experimental', '--json'], failed.io)).not.toBe(0);
+    expect(JSON.parse(hybridEnvelope(failed.stderr))).toMatchObject({ error: { code: 'SUPPLY_CHAIN_INVALID' } });
+    expect(failed.stderr.join('')).not.toContain(tampered);
   });
 
   it('fails closed without exposing an unanchored model value in the machine error', async () => {

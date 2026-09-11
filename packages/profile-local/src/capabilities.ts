@@ -24,6 +24,10 @@ import { deterministicDetectorCapabilities, defaultDetectorLimits } from '@local
 import { assertCapabilityManifest, type CapabilityManifest } from '@local-pii/core';
 import { localPreviewMaximumInputBytes } from '@local-pii/contracts';
 import {
+  inferenceExperimentalDefaultLimits,
+  inferenceLocalDetectorId
+} from '@local-pii/provider-inference';
+import {
   ollamaExperimentalDefaultLimits,
   ollamaLocalCapabilityDescriptor
 } from '@local-pii/provider-ollama';
@@ -187,21 +191,26 @@ export function createProcessLocalApiCapabilityManifest(): CapabilityManifest {
   return manifest;
 }
 
-export function createOllamaHybridCapabilityManifest(
-  detectorVersion: string = ollamaLocalCapabilityDescriptor.detector.version
-): CapabilityManifest {
+export interface HybridCapabilityManifestOptions {
+  readonly id: string;
+  readonly detector: CapabilityManifest['detectors'][number];
+  readonly maximumInputBytes: number;
+  readonly maximumCanonicalCodePoints: number;
+  readonly maximumDetections: number;
+}
+
+/** Text-only manifest for any experimental contextual provider composed beside the rules. */
+export function createHybridCapabilityManifest(options: HybridCapabilityManifestOptions): CapabilityManifest {
   const rules = createTextOnlyCapabilityManifest();
-  const maximumInputBytes = ollamaExperimentalDefaultLimits.maximumInputBytes;
+  const { maximumInputBytes } = options;
   const manifest: CapabilityManifest = {
     ...rules,
-    id: 'local-hybrid-text',
+    id: options.id,
     engineMode: 'LOCAL_HYBRID',
     formats: rules.formats.filter(({ id }) => id === 'text').map((format) => ({
       ...format,
       limits: { maximumInputBytes }
     })) as CapabilityManifest['formats'],
-    // The hybrid composition verifies with a contextual rescan of the reopened output, so it
-    // declares the 0.2.0 text profile rather than inheriting the rules-only 0.1.0 one.
     verificationProfiles: [{
       ...textHybridVerificationCapabilityDescriptor,
       formats: [...textHybridVerificationCapabilityDescriptor.formats],
@@ -209,24 +218,33 @@ export function createOllamaHybridCapabilityManifest(
       availability: 'AVAILABLE',
       qualification: 'EXPERIMENTAL'
     } as unknown as CapabilityManifest['verificationProfiles'][number]],
-    detectors: [
-      ...rules.detectors,
-      {
-        ...ollamaLocalCapabilityDescriptor.detector,
-        version: detectorVersion,
-        kinds: [...ollamaLocalCapabilityDescriptor.detector.kinds],
-        entityTypes: [...ollamaLocalCapabilityDescriptor.detector.entityTypes],
-        languages: [...ollamaLocalCapabilityDescriptor.detector.languages]
-      }
-    ],
+    detectors: [...rules.detectors, options.detector],
     limits: {
       maximumInputBytes,
-      maximumCanonicalCodePoints: ollamaExperimentalDefaultLimits.maximumInputCodePoints,
-      maximumDetections: ollamaExperimentalDefaultLimits.maximumDetections
+      maximumCanonicalCodePoints: options.maximumCanonicalCodePoints,
+      maximumDetections: options.maximumDetections
     }
   };
-  assertCapabilityManifest(manifest, 'cor_cli_hybrid_capabilities');
+  assertCapabilityManifest(manifest, 'cor_hybrid_capabilities');
   return manifest;
+}
+
+export function createOllamaHybridCapabilityManifest(
+  detectorVersion: string = ollamaLocalCapabilityDescriptor.detector.version
+): CapabilityManifest {
+  return createHybridCapabilityManifest({
+    id: 'local-hybrid-text',
+    detector: {
+      ...ollamaLocalCapabilityDescriptor.detector,
+      version: detectorVersion,
+      kinds: [...ollamaLocalCapabilityDescriptor.detector.kinds],
+      entityTypes: [...ollamaLocalCapabilityDescriptor.detector.entityTypes],
+      languages: [...ollamaLocalCapabilityDescriptor.detector.languages]
+    } as unknown as CapabilityManifest['detectors'][number],
+    maximumInputBytes: ollamaExperimentalDefaultLimits.maximumInputBytes,
+    maximumCanonicalCodePoints: ollamaExperimentalDefaultLimits.maximumInputCodePoints,
+    maximumDetections: ollamaExperimentalDefaultLimits.maximumDetections
+  });
 }
 
 /**
@@ -251,4 +269,34 @@ export function createOllamaHybridApiCapabilityManifest(
   };
   assertCapabilityManifest(manifest, 'cor_api_hybrid_capabilities');
   return manifest;
+}
+
+export interface InferenceHybridManifestOptions {
+  readonly detectorVersion: string;
+  readonly entityTypes: readonly string[];
+  readonly languages: readonly string[];
+  readonly profile: 'cli' | 'process-local-api';
+}
+
+/** Manifest for the local inference service provider; entity types come from its verified bundle. */
+export function createInferenceHybridCapabilityManifest(options: InferenceHybridManifestOptions): CapabilityManifest {
+  const api = options.profile === 'process-local-api';
+  const maximumInputBytes = api
+    ? Math.min(localPreviewMaximumInputBytes, inferenceExperimentalDefaultLimits.maximumInputBytes)
+    : inferenceExperimentalDefaultLimits.maximumInputBytes;
+  return createHybridCapabilityManifest({
+    id: api ? 'local-hybrid-api-inference-text' : 'local-hybrid-inference-text',
+    detector: {
+      id: inferenceLocalDetectorId,
+      version: options.detectorVersion,
+      kinds: ['MODEL'],
+      entityTypes: [...options.entityTypes],
+      languages: [...options.languages],
+      availability: 'AVAILABLE',
+      qualification: 'EXPERIMENTAL'
+    } as unknown as CapabilityManifest['detectors'][number],
+    maximumInputBytes,
+    maximumCanonicalCodePoints: inferenceExperimentalDefaultLimits.maximumInputCodePoints,
+    maximumDetections: inferenceExperimentalDefaultLimits.maximumDetections
+  });
 }

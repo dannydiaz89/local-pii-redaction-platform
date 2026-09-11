@@ -95,12 +95,12 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../../packages/adapter-docx
-      '@local-pii/adapter-pdf':
-        specifier: workspace:*
-        version: link:../../packages/adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../../packages/adapter-json
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../../packages/adapter-pdf
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../../packages/adapter-text
@@ -184,15 +184,6 @@ importers:
         specifier: workspace:*
         version: link:../redaction
 
-  packages/adapter-pdf:
-    dependencies:
-      '@local-pii/adapter-text':
-        specifier: workspace:*
-        version: link:../adapter-text
-      '@local-pii/domain':
-        specifier: workspace:*
-        version: link:../domain
-
   packages/adapter-job-sqlite:
     dependencies:
       '@local-pii/contracts':
@@ -219,6 +210,15 @@ importers:
       '@local-pii/redaction':
         specifier: workspace:*
         version: link:../redaction
+
+  packages/adapter-pdf:
+    dependencies:
+      '@local-pii/adapter-text':
+        specifier: workspace:*
+        version: link:../adapter-text
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/adapter-text:
     dependencies:
@@ -292,21 +292,21 @@ importers:
       '@local-pii/adapter-docx':
         specifier: workspace:*
         version: link:../adapter-docx
-      '@local-pii/adapter-pdf':
-        specifier: workspace:*
-        version: link:../adapter-pdf
       '@local-pii/adapter-json':
         specifier: workspace:*
         version: link:../adapter-json
+      '@local-pii/adapter-pdf':
+        specifier: workspace:*
+        version: link:../adapter-pdf
       '@local-pii/adapter-text':
         specifier: workspace:*
         version: link:../adapter-text
-      '@local-pii/core':
-        specifier: workspace:*
-        version: link:../core
       '@local-pii/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@local-pii/core':
+        specifier: workspace:*
+        version: link:../core
       '@local-pii/detectors':
         specifier: workspace:*
         version: link:../detectors
@@ -316,6 +316,9 @@ importers:
       '@local-pii/policy':
         specifier: workspace:*
         version: link:../policy
+      '@local-pii/provider-inference':
+        specifier: workspace:*
+        version: link:../provider-inference
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:../provider-ollama
@@ -325,6 +328,15 @@ importers:
       '@local-pii/verification':
         specifier: workspace:*
         version: link:../verification
+
+  packages/provider-inference:
+    dependencies:
+      '@local-pii/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@local-pii/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/provider-ollama:
     dependencies:
