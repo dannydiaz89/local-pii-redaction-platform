@@ -8820,7 +8820,7 @@ export const schemaCatalog = [
         "description": "Closed set of required checks completed by the profile. Action reconciliation is mandatory for every v2 attestation.",
         "type": "array",
         "minItems": 1,
-        "maxItems": 7,
+        "maxItems": 8,
         "uniqueItems": true,
         "contains": {
           "const": "ACTION_RECONCILIATION"
@@ -8829,6 +8829,7 @@ export const schemaCatalog = [
           "enum": [
             "UTF8_REOPEN",
             "DETERMINISTIC_RESCAN",
+            "CONTEXTUAL_RESCAN",
             "SPAN_RESOLUTION",
             "ACTION_RECONCILIATION",
             "NATIVE_SURFACE",
@@ -8920,6 +8921,7 @@ export const schemaCatalog = [
               "enum": [
                 "UTF8_REOPEN",
                 "DETERMINISTIC_RESCAN",
+                "CONTEXTUAL_RESCAN",
                 "SPAN_RESOLUTION",
                 "ACTION_RECONCILIATION",
                 "NATIVE_SURFACE",

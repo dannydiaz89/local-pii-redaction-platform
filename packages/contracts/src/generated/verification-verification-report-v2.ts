@@ -92,12 +92,13 @@ export interface VerificationAttestationV2 {
    * Closed set of required checks completed by the profile. Action reconciliation is mandatory for every v2 attestation.
    *
    * @minItems 1
-   * @maxItems 7
+   * @maxItems 8
    */
   checks:
     | [
         | 'UTF8_REOPEN'
         | 'DETERMINISTIC_RESCAN'
+        | 'CONTEXTUAL_RESCAN'
         | 'SPAN_RESOLUTION'
         | 'ACTION_RECONCILIATION'
         | 'NATIVE_SURFACE'
@@ -108,6 +109,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -117,6 +119,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -128,6 +131,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -137,6 +141,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -146,6 +151,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -157,6 +163,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -166,6 +173,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -175,6 +183,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -184,6 +193,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -195,6 +205,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -204,6 +215,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -213,6 +225,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -222,6 +235,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -231,6 +245,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -242,6 +257,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -251,6 +267,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -260,6 +277,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -269,6 +287,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -278,6 +297,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -287,6 +307,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -298,6 +319,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -307,6 +329,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -316,6 +339,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -325,6 +349,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -334,6 +359,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -343,6 +369,7 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -352,6 +379,89 @@ export interface VerificationAttestationV2 {
         (
           | 'UTF8_REOPEN'
           | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        )
+      ]
+    | [
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
+          | 'SPAN_RESOLUTION'
+          | 'ACTION_RECONCILIATION'
+          | 'NATIVE_SURFACE'
+          | 'STRUCTURE'
+          | 'FIDELITY'
+        ),
+        (
+          | 'UTF8_REOPEN'
+          | 'DETERMINISTIC_RESCAN'
+          | 'CONTEXTUAL_RESCAN'
           | 'SPAN_RESOLUTION'
           | 'ACTION_RECONCILIATION'
           | 'NATIVE_SURFACE'
@@ -394,6 +504,7 @@ export interface VerificationAttestationV2 {
     check:
       | 'UTF8_REOPEN'
       | 'DETERMINISTIC_RESCAN'
+      | 'CONTEXTUAL_RESCAN'
       | 'SPAN_RESOLUTION'
       | 'ACTION_RECONCILIATION'
       | 'NATIVE_SURFACE'

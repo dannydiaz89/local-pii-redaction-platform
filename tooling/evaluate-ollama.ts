@@ -8,6 +8,7 @@ import {
   assertOllamaModelName,
   createOllamaExtractionChatRequest,
   createOllamaExtractionResponseSchema,
+  ollamaExperimentalContextTokens,
   ollamaExperimentalDefaultLimits,
   ollamaExperimentalFixedSeed,
   ollamaExtractionSystemPrompt,
@@ -410,12 +411,13 @@ export async function runOllamaEvaluation(
     schemaVersion: '1.0.0',
     evaluator: {
       id: 'local-ollama-verbatim-anchor',
-      version: '2.0.0',
+      version: '2.1.0',
       offsetUnit: 'UNICODE_CODE_POINT',
       promptDigest: sha256Json(ollamaExtractionSystemPrompt),
       responseSchemaDigest: sha256Json(createOllamaExtractionResponseSchema()),
       temperature: 0,
-      seed: ollamaExperimentalFixedSeed
+      seed: ollamaExperimentalFixedSeed,
+      contextTokens: ollamaExperimentalContextTokens
     },
     model: {
       requestedName: options.model,

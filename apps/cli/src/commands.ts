@@ -18,12 +18,13 @@ import {
   inventoryTextStages,
   readLocalUtf8Artifact
 } from '@local-pii/adapter-text';
-import { assertContract } from '@local-pii/contracts';
+import { assertContract, computeReviewSnapshotDigest } from '@local-pii/contracts';
 import { deterministicDetectorBundleVersion } from '@local-pii/detectors';
-import { SafeError, unicodeCodePointLength, type EntityType, type ErrorCode } from '@local-pii/domain';
+import { SafeError, parseSha256Digest, unicodeCodePointLength, type EntityType, type ErrorCode } from '@local-pii/domain';
 import {
   bundledPolicies,
   compilePolicy,
+  evaluateAcceptedSpan,
   evaluateCapabilities,
   type EffectivePolicy
 } from '@local-pii/policy';
@@ -87,6 +88,7 @@ interface ParsedArguments {
   readonly excludes: readonly string[];
   readonly allowPartial: boolean;
   readonly allowExperimental: boolean;
+  readonly acceptModelEvidence: boolean;
   readonly apply: boolean;
   readonly json: boolean;
   readonly help: boolean;
@@ -100,7 +102,7 @@ const usage = `Usage:
   pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--json]
-  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--json]
+  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama] [--model <local-model>] [--accept-model-evidence] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
   pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx|file.pdf> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
@@ -110,6 +112,8 @@ const usage = `Usage:
 Experimental Ollama options:
   --engine ollama --model <local-model> --allow-experimental
   [--ollama-url http://127.0.0.1:11434] [--timeout-ms <1000-300000>]
+  --accept-model-evidence   redact only: record an explicit operator ACCEPT decision for each span the
+                            policy holds for review when that span is supported by model evidence
 `;
 
 const cliReportSchemaId = 'https://local-pii.dev/schemas/cli/cli-report/1.0.0';
@@ -140,6 +144,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   const excludes: string[] = [];
   let allowPartial = false;
   let allowExperimental = false;
+  let acceptModelEvidence = false;
   let apply = false;
   let json = false;
   let help = false;
@@ -158,6 +163,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (value === '--help' || value === '-h') help = true;
     else if (value === '--license') license = true;
     else if (value === '--allow-experimental') allowExperimental = true;
+    else if (value === '--accept-model-evidence') acceptModelEvidence = true;
     else if (value === '--apply') apply = true;
     else if (value === '--policy') {
       if (selectedPolicy !== undefined || policyFile !== undefined) throw new Error('duplicate policy');
@@ -231,6 +237,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     excludes: Object.freeze(excludes),
     allowPartial,
     allowExperimental,
+    acceptModelEvidence,
     apply,
     json,
     help,
@@ -757,7 +764,8 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
   const modelOptionsSelected = parsed.model !== undefined
     || parsed.ollamaUrl !== undefined
     || parsed.timeoutMs !== undefined
-    || parsed.allowExperimental;
+    || parsed.allowExperimental
+    || parsed.acceptModelEvidence;
   if (parsed.engine === 'rules') return !modelOptionsSelected;
   const modelIsValid = parsed.model !== undefined
     && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(parsed.model);
@@ -772,7 +780,8 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
   return parsed.allowExperimental
     && modelIsValid
     && endpointIsValid
-    && (parsed.command === 'scan' || parsed.command === 'capabilities');
+    && (parsed.command === 'scan' || parsed.command === 'capabilities' || parsed.command === 'redact')
+    && (!parsed.acceptModelEvidence || parsed.command === 'redact');
 }
 
 function validCommandOptions(parsed: ParsedArguments): boolean {
@@ -789,6 +798,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.excludes.length === 0
       && !parsed.allowPartial
       && !parsed.allowExperimental
+      && !parsed.acceptModelEvidence
       && !parsed.apply
       && !parsed.help
       && !parsed.license;
@@ -812,6 +822,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.excludes.length === 0
       && !parsed.allowPartial
       && !parsed.allowExperimental
+      && !parsed.acceptModelEvidence
       && !parsed.help
       && !parsed.license;
   }
@@ -830,6 +841,7 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && parsed.timeoutMs === undefined
       && (isScan || !parsed.allowPartial)
       && !parsed.allowExperimental
+      && !parsed.acceptModelEvidence
       && !parsed.apply
       && !parsed.license;
   }
@@ -891,15 +903,29 @@ async function runRedact(
   policyFile: string | undefined,
   json: boolean,
   io: CliIo,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  parsed?: ParsedArguments
 ): Promise<number> {
+  const engine = parsed?.engine ?? 'rules';
   const policy = policyFile === undefined
     ? compilePolicy(bundledPolicies[policyName ?? 'development-labels'])
     : await loadPolicyFile(policyFile, signal);
-  const result = await localFileApplication.redact({
-    session: localSession(input, output, policy.limits.maximumInputBytes, policy),
-    requirement: capabilityRequirement(input, 'REDACT'),
+  // Resolve the capability requirement before contacting a provider so an unsupported
+  // format or engine combination fails without any model request.
+  const requirement = capabilityRequirement(input, 'REDACT', engine);
+  const selected = parsed === undefined ? localFileApplication : await selectedApplication(parsed, signal);
+  if (engine === 'ollama') experimentalWarning(io);
+  const maximumInputBytes = engine === 'ollama'
+    ? Math.min(policy.limits.maximumInputBytes, ollamaExperimentalDefaultLimits.maximumInputBytes)
+    : policy.limits.maximumInputBytes;
+  const review = parsed?.acceptModelEvidence === true
+    ? await operatorModelEvidenceReview(input, policy, engine, selected, maximumInputBytes, io, signal)
+    : undefined;
+  const result = await selected.redact({
+    session: localSession(input, output, maximumInputBytes, policy),
+    requirement,
     policy,
+    ...(review === undefined ? {} : { review }),
     ...(signal === undefined ? {} : { signal })
   }, { correlationId: 'cor_cli_redact' });
   const report = {
@@ -934,6 +960,57 @@ async function runRedact(
   };
   writeResult(io, json, report, `Wrote attested output under ${policy.id} ${policy.version} with ${String(result.plan.actions.length)} replacement(s).`);
   return 0;
+}
+
+/**
+ * Builds an explicit operator review that accepts every span the policy would hold for review
+ * when that span is supported by model evidence. This is the command-line counterpart of the web
+ * review flow: the operator, not the policy, takes the decision, and the plan records each
+ * accepted span so the waiver is bound into the plan digest and the verification attestation.
+ * Spans held for review on rules-only evidence are not accepted and still block. Accepting a
+ * span only ever adds a typed-label replacement, so a wrong acceptance over-redacts rather than
+ * leaks. The scan is repeated inside redaction; the fixed-seed model is repeatable, and any drift
+ * between the two passes is rejected there as a review/plan conflict.
+ */
+async function operatorModelEvidenceReview(
+  input: string,
+  policy: EffectivePolicy,
+  engine: 'rules' | 'ollama',
+  selected: Awaited<ReturnType<typeof selectedApplication>>,
+  maximumInputBytes: number | undefined,
+  io: CliIo,
+  signal?: AbortSignal
+) {
+  const scanned = await selected.scan({
+    session: localSession(input, undefined, maximumInputBytes),
+    requirement: capabilityRequirement(input, 'SCAN', engine),
+    ...(signal === undefined ? {} : { signal })
+  }, { correlationId: 'cor_cli_redact_review' });
+  const modelEvidenceIds = new Set<string>(scanned.evidence.filter(({ source }) => source === 'MODEL').map(({ id }) => id));
+  const extractionRevision = scanned.resolution.extractionRevision;
+  const decisions = scanned.resolution.spans
+    .filter((span) => span.evidenceIds.some((id) => modelEvidenceIds.has(id)))
+    .filter((span) => evaluateAcceptedSpan(policy, { ...span, extractionRevision }, scanned.evidence).action === 'REQUIRE_REVIEW')
+    .map((span) => ({ sourceSpanId: span.id, action: 'ACCEPT' as const }));
+  if (decisions.length > 1000) {
+    throw new SafeError({
+      code: 'POLICY_REVIEW_REQUIRED',
+      message: 'Too many spans require review to accept from the command line.',
+      retryable: false,
+      correlationId: 'cor_cli_redact_review'
+    });
+  }
+  io.stderr(`EXPERIMENTAL: accepting ${String(decisions.length)} model-evidence span(s) the policy holds for review; this operator decision is recorded in the plan.\n`);
+  const digest = computeReviewSnapshotDigest({ reviewer: 'cli-operator', extractionRevision, decisions });
+  return {
+    binding: {
+      extractionRevision,
+      revision: decisions.length,
+      decisionCount: decisions.length,
+      digest: parseSha256Digest(digest)
+    },
+    decisions
+  };
 }
 
 async function runVerify(input: string, json: boolean, io: CliIo, signal?: AbortSignal): Promise<number> {
@@ -1101,7 +1178,8 @@ export async function executeCli(
         parsed.policyFile,
         parsed.json,
         io,
-        signal
+        signal,
+        parsed
       );
     }
     if (parsed.command === 'verify') return await runVerify(parsed.input, parsed.json, io, signal);

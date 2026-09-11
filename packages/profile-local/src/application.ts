@@ -3,7 +3,8 @@ import {
   type BoundTextVerificationRequest,
   type CapabilityOperation,
   type CapabilityRequirement,
-  type TextDetectionPort
+  type TextDetectionPort,
+  type TextVerificationPort
 } from '@local-pii/core';
 import {
   createCompositeTextDetector,
@@ -24,10 +25,13 @@ import {
   ollamaLocalDetectorId
 } from '@local-pii/provider-ollama';
 import {
+  createHybridTextVerificationDetectorBundle,
+  textHybridVerificationProfile,
   textVerificationProfile,
   textVerificationDetectorBundle,
   textVerificationVerifier,
   verifyBoundCanonicalText,
+  verifyBoundHybridText,
   verifyCanonicalText
 } from '@local-pii/verification';
 
@@ -183,7 +187,8 @@ const verifier = {
 
 function application(
   manifest: ReturnType<typeof createCurrentCapabilityManifest>,
-  detector: TextDetectionPort
+  detector: TextDetectionPort,
+  verificationPort: TextVerificationPort = verifier
 ) {
   return createTextProcessingApplication({
     capabilityProvider: {
@@ -193,7 +198,7 @@ function application(
       }
     },
     detector,
-    verifier
+    verifier: verificationPort
   });
 }
 
@@ -226,5 +231,39 @@ export async function createExperimentalOllamaTextApplication(
     },
     correlationId: 'cor_cli_hybrid_detection'
   });
-  return application(createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion), detector);
+  // Verification rescans the reopened output with the same digest-pinned provider instance
+  // that produced the plan. The provider re-checks the model digest after every inference,
+  // and the composite detector validates the returned evidence, so the rescan sees exactly
+  // the trust boundary the redaction scan saw. A provider failure during the rescan makes the
+  // attestation INCOMPLETE; nothing is published on an unverified hybrid output.
+  const detectorBundle = createHybridTextVerificationDetectorBundle(contextual.detectorBundleVersion);
+  const hybridVerifier: TextVerificationPort = {
+    attestation: {
+      profile: textHybridVerificationProfile,
+      verifier: textVerificationVerifier,
+      detectorBundle,
+      application: verifier.attestation.application
+    },
+    verify: (text, extractionRevision, signal) => verifier.verify(text, extractionRevision, signal),
+    attest(request: BoundTextVerificationRequest, signal?: AbortSignal) {
+      signal?.throwIfAborted();
+      const startedAt = new Date().toISOString();
+      return verifyBoundHybridText(
+        { ...request, application: verifier.attestation.application, startedAt, completedAt: startedAt },
+        {
+          contextualRescan: async (text, extractionRevision, rescanSignal) =>
+            (await detector.detectWithResult(text, extractionRevision, rescanSignal)).evidence
+              .filter(({ source }) => source === 'MODEL'),
+          detectorBundle,
+          ...(signal === undefined ? {} : { signal }),
+          completedAt: () => new Date().toISOString()
+        }
+      );
+    }
+  };
+  return application(
+    createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion),
+    detector,
+    hybridVerifier
+  );
 }

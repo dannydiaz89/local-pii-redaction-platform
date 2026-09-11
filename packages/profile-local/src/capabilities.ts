@@ -28,7 +28,10 @@ import {
   ollamaLocalCapabilityDescriptor
 } from '@local-pii/provider-ollama';
 import { typedLabelTransformationCapabilityDescriptor } from '@local-pii/redaction';
-import { textVerificationCapabilityDescriptor } from '@local-pii/verification';
+import {
+  textHybridVerificationCapabilityDescriptor,
+  textVerificationCapabilityDescriptor
+} from '@local-pii/verification';
 
 export function createCurrentCapabilityManifest(): CapabilityManifest {
   const detectors = deterministicDetectorCapabilities.map((detector) => ({
@@ -197,10 +200,15 @@ export function createOllamaHybridCapabilityManifest(
       ...format,
       limits: { maximumInputBytes }
     })) as CapabilityManifest['formats'],
-    verificationProfiles: rules.verificationProfiles.map((profile) => ({
-      ...profile,
-      formats: profile.formats.filter((format) => format === 'text')
-    })) as CapabilityManifest['verificationProfiles'],
+    // The hybrid composition verifies with a contextual rescan of the reopened output, so it
+    // declares the 0.2.0 text profile rather than inheriting the rules-only 0.1.0 one.
+    verificationProfiles: [{
+      ...textHybridVerificationCapabilityDescriptor,
+      formats: [...textHybridVerificationCapabilityDescriptor.formats],
+      checks: [...textHybridVerificationCapabilityDescriptor.checks],
+      availability: 'AVAILABLE',
+      qualification: 'EXPERIMENTAL'
+    } as unknown as CapabilityManifest['verificationProfiles'][number]],
     detectors: [
       ...rules.detectors,
       {

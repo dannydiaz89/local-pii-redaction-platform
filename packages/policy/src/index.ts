@@ -121,6 +121,8 @@ export interface CapabilityRequirementContext {
   readonly formatId: string;
   readonly operation: PolicyOperation;
   readonly minimumQualification: Qualification;
+  /** The input bound the caller's session enforces; omitted means the policy ceiling applies. */
+  readonly maximumInputBytes?: number;
 }
 
 export interface PolicyDecision {
@@ -443,7 +445,15 @@ export function compileCapabilityRequirement(
     detectorKinds: Object.freeze([...policy.requirements.detectorKinds]),
     transformationActions: Object.freeze([...policy.requirements.transformationActions]),
     verificationProfile: policy.requirements.verificationProfile,
-    maximumInputBytes: policy.requirements.maximumInputBytes,
+    // A policy limit is a ceiling on what the policy permits, not a demand that every engine
+    // accept inputs that large. The caller's context carries the bound its session actually
+    // enforces, so the capability only has to satisfy the tighter of the two. A narrower engine
+    // such as the bounded hybrid path therefore remains usable under a broad policy without the
+    // policy, its digest, or the session bound being loosened.
+    maximumInputBytes: Math.min(
+      context.maximumInputBytes ?? policy.requirements.maximumInputBytes,
+      policy.requirements.maximumInputBytes
+    ),
     minimumQualification
   });
 }

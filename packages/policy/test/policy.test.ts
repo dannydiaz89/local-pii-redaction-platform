@@ -273,6 +273,19 @@ describe('policy validation and compilation', () => {
       operation: 'REDACT', minimumQualification: 'EXPERIMENTAL'
     });
     expect(highRiskRequirement.minimumQualification).toBe('QUALIFIED');
+
+    // A caller whose session enforces a tighter bound needs a capability for that bound only;
+    // a looser caller bound never raises the requirement above the policy ceiling.
+    const narrowed = compileCapabilityRequirement(effective, {
+      contractVersion: '1.0.0', engineModes: ['LOCAL_HYBRID'], formatId: 'text',
+      operation: 'REDACT', minimumQualification: 'EXPERIMENTAL', maximumInputBytes: 80_000
+    });
+    expect(narrowed.maximumInputBytes).toBe(80_000);
+    const loosened = compileCapabilityRequirement(effective, {
+      contractVersion: '1.0.0', engineModes: ['RULES_ONLY'], formatId: 'text',
+      operation: 'REDACT', minimumQualification: 'DEVELOPMENT', maximumInputBytes: 1_073_741_824
+    });
+    expect(loosened.maximumInputBytes).toBe(104_857_600);
   });
 
   it('evaluates action, review, and uncertain confidence bands deterministically', () => {

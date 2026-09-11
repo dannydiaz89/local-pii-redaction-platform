@@ -40,6 +40,7 @@
     { "file": "valid/preview-review-report.json", "schemaId": "https://local-pii.dev/schemas/jobs/preview-review-report/1.0.0", "valid": true },
     { "file": "valid/preview-review-report-v2.json", "schemaId": "https://local-pii.dev/schemas/jobs/preview-review-report/2.0.0", "valid": true },
     { "file": "valid/verification-attestation-v2-pass.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": true },
+    { "file": "valid/verification-attestation-v2-hybrid-residual.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": true },
     { "file": "invalid/detection-unknown-field.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/1.0.0", "valid": false },
     { "file": "invalid/detection-pdf-text-item-value-v4.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/4.0.0", "valid": false },
     { "file": "invalid/detection-pdf-metadata-value-v5.json", "schemaId": "https://local-pii.dev/schemas/detection/detection/5.0.0", "valid": false },

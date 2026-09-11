@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "2.0.0",
+  "input": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "byteLength": 42
+  },
+  "output": {
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "byteLength": 38,
+    "mediaType": "text/plain",
+    "extractionRevision": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "plan": {
+    "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "riskTier": "LOW"
+  },
+  "capabilityDigest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "writerReceiptDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "profile": {
+    "id": "text-rescan-v1",
+    "version": "0.2.0",
+    "digest": "sha256:feebc689f0a7531ce0e2c509a7fda892b2e090e6a532a4bff359bdfaace7263f"
+  },
+  "verifier": {
+    "id": "text-verifier",
+    "version": "0.1.0",
+    "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+  },
+  "detectorBundle": {
+    "id": "hybrid-text",
+    "version": "0.1.0",
+    "digest": "sha256:4aa15dc074201ff894ab2578f50b255c708fd5e1b393a575351adc502d5003c7"
+  },
+  "writer": {
+    "id": "text-adapter",
+    "version": "0.1.0",
+    "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616"
+  },
+  "application": {
+    "id": "local-pii-cli",
+    "version": "0.1.0",
+    "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+  },
+  "outcome": "FAIL",
+  "checks": [
+    "UTF8_REOPEN",
+    "DETERMINISTIC_RESCAN",
+    "CONTEXTUAL_RESCAN",
+    "SPAN_RESOLUTION",
+    "ACTION_RECONCILIATION"
+  ],
+  "reconciliation": {
+    "expectedActionCount": 2,
+    "appliedActionCount": 2,
+    "missingActionCount": 0,
+    "unexpectedActionCount": 0,
+    "duplicateActionCount": 0
+  },
+  "findings": [
+    {
+      "code": "RESIDUAL_ENTITY",
+      "severity": "ERROR",
+      "blocking": true,
+      "check": "CONTEXTUAL_RESCAN",
+      "entityType": "PERSON",
+      "count": 1
+    }
+  ],
+  "startedAt": "2026-08-08T18:00:30Z",
+  "completedAt": "2026-08-08T18:01:00Z",
+  "reportDigest": "sha256:08385bb02882b6f5558c454aced27331a0590dff3d70cdffca5f71463a162a14"
+}

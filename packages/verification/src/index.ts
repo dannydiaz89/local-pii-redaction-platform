@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   computeVerificationAttestationDigest,
   computeWriterReceiptDigest,
@@ -5,8 +7,12 @@ import {
   type RedactionWriterReceiptContract,
   type VerificationVerificationReportV2Contract
 } from '@local-pii/contracts';
-import { detectDeterministic, deterministicDetectorBundleVersion } from '@local-pii/detectors';
-import type { EntityType, Sha256Digest } from '@local-pii/domain';
+import {
+  compositeDetectorBundleVersion,
+  detectDeterministic,
+  deterministicDetectorBundleVersion
+} from '@local-pii/detectors';
+import type { DetectionEvidence, EntityType, Sha256Digest } from '@local-pii/domain';
 import { entityTypes, parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
 import { resolveEvidence } from '@local-pii/span-resolution';
 
@@ -38,6 +44,39 @@ export const textVerificationDetectorBundle = Object.freeze({
   version: deterministicDetectorBundleVersion,
   digest: parseSha256Digest('sha256:afc4a7a4e0e81af7244cb023b9b16575127998858f35270aab36a934419b0480')
 });
+
+/**
+ * The hybrid text profile keeps the rules-only checks and adds a contextual model rescan of
+ * the reopened output. It shares the `text-rescan-v1` identifier so a policy that names that
+ * profile is satisfied, and it moves to 0.2.0 so the changed check set is visible in every
+ * capability manifest and attestation that carries it.
+ */
+export const textHybridVerificationCapabilityDescriptor = {
+  id: 'text-rescan-v1',
+  version: '0.2.0',
+  formats: ['text'],
+  checks: ['UTF8_REOPEN', 'DETERMINISTIC_RESCAN', 'CONTEXTUAL_RESCAN', 'SPAN_RESOLUTION']
+} as const;
+
+export const textHybridVerificationProfile = Object.freeze({
+  id: 'text-rescan-v1',
+  version: '0.2.0',
+  digest: parseSha256Digest('sha256:feebc689f0a7531ce0e2c509a7fda892b2e090e6a532a4bff359bdfaace7263f')
+});
+
+/**
+ * Binds a hybrid attestation to the exact contextual model that rescanned the output. The
+ * attestation `component` contract requires a semantic version, so the model identity is
+ * carried in the digest, which is derived from the composite detector bundle version and
+ * therefore from the provider's reported model digest.
+ */
+export function createHybridTextVerificationDetectorBundle(
+  contextualDetectorBundleVersion: string
+): VerificationComponentBinding {
+  const compositeVersion = compositeDetectorBundleVersion({ detectorBundleVersion: contextualDetectorBundleVersion });
+  const digest = createHash('sha256').update(`hybrid-text\u001f${compositeVersion}`, 'utf8').digest('hex');
+  return Object.freeze({ id: 'hybrid-text', version: '0.1.0', digest: parseSha256Digest(`sha256:${digest}`) });
+}
 
 export interface VerificationFinding {
   readonly code: 'RESIDUAL_DETECTION' | 'SPAN_CONFLICT';
@@ -188,6 +227,27 @@ const v2Checks = [
   'SPAN_RESOLUTION',
   'ACTION_RECONCILIATION'
 ] as unknown as VerificationAttestation['checks'];
+const hybridChecks = [
+  'UTF8_REOPEN',
+  'DETERMINISTIC_RESCAN',
+  'CONTEXTUAL_RESCAN',
+  'SPAN_RESOLUTION',
+  'ACTION_RECONCILIATION'
+] as unknown as VerificationAttestation['checks'];
+
+interface VerificationIdentity {
+  readonly profile: VerificationComponentBinding;
+  readonly verifier: VerificationComponentBinding;
+  readonly detectorBundle: VerificationComponentBinding;
+  readonly checks: VerificationAttestation['checks'];
+}
+
+const deterministicIdentity: VerificationIdentity = {
+  profile: textVerificationProfile,
+  verifier: textVerificationVerifier,
+  detectorBundle: textVerificationDetectorBundle,
+  checks: v2Checks
+};
 const fallbackDigest = `sha256:${'0'.repeat(64)}`;
 const fallbackPlanId = 'plan_00000000000000000000000000';
 const fallbackCompletedAt = '1970-01-01T00:00:00Z';
@@ -453,12 +513,38 @@ function permittedReviewedResiduals(plan: VerificationPlanBinding): ReadonlySet<
   return allowed;
 }
 
+function withoutReportDigest(attestation: VerificationAttestation): UnsignedVerificationAttestation {
+  const copy: Partial<VerificationAttestation> = { ...attestation };
+  delete copy.reportDigest;
+  return copy as UnsignedVerificationAttestation;
+}
+
+/** Output-coordinate spans of every replacement the plan wrote, in the same mapping as reviewed residuals. */
+function replacementOutputSpans(plan: VerificationPlanBinding): readonly { readonly start: number; readonly end: number }[] {
+  const actions = plan.actions
+    .filter((action) => Number.isSafeInteger(action.start) && Number.isSafeInteger(action.end) && typeof action.replacement === 'string')
+    .map((action) => ({
+      start: action.start as number,
+      end: action.end as number,
+      replacementLength: unicodeCodePointLength(action.replacement as string)
+    }))
+    .sort((left, right) => left.start - right.start);
+  const spans: { start: number; end: number }[] = [];
+  let delta = 0;
+  for (const action of actions) {
+    const start = action.start + delta;
+    spans.push({ start, end: start + action.replacementLength });
+    delta += action.replacementLength - (action.end - action.start);
+  }
+  return spans;
+}
+
 /**
  * Independently verifies an exact reopened text output and emits a bound,
  * canonical v2 attestation. This function intentionally has no publish side
  * effects and never returns clear values, paths, spans, or action IDs.
  */
-export function verifyBoundCanonicalText(request: BoundTextVerificationRequest): VerificationAttestation {
+function verifyBoundText(request: BoundTextVerificationRequest, identity: VerificationIdentity): VerificationAttestation {
   const reportInput: VerificationAttestation['input'] = {
     digest: safeDigest(request.input.digest),
     byteLength: safeByteLength(request.input.byteLength)
@@ -482,9 +568,9 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
     policy: reportPolicy,
     capabilityDigest: safeDigest(request.capabilityDigest),
     writerReceiptDigest: safeDigest(request.writerReceipt.receiptDigest),
-    profile: { ...textVerificationProfile },
-    verifier: { ...textVerificationVerifier },
-    detectorBundle: { ...textVerificationDetectorBundle },
+    profile: { ...identity.profile },
+    verifier: { ...identity.verifier },
+    detectorBundle: { ...identity.detectorBundle },
     writer: {
       id: request.writer.id,
       version: request.writer.version,
@@ -495,7 +581,7 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
       version: request.application.version,
       digest: safeDigest(request.application.digest)
     },
-    checks: v2Checks,
+    checks: identity.checks,
     startedAt: safeTime(request.startedAt),
     completedAt: safeTime(request.completedAt)
   };
@@ -585,4 +671,93 @@ export function verifyBoundCanonicalText(request: BoundTextVerificationRequest):
     };
     return { ...unsigned, reportDigest: computeVerificationAttestationDigest(unsigned) };
   }
+}
+
+export function verifyBoundCanonicalText(request: BoundTextVerificationRequest): VerificationAttestation {
+  return verifyBoundText(request, deterministicIdentity);
+}
+
+/** Rescans reopened text with a contextual model and returns already-validated evidence. */
+export type ContextualRescan = (
+  text: string,
+  extractionRevision: Sha256Digest,
+  signal?: AbortSignal
+) => Promise<readonly DetectionEvidence[]>;
+
+export interface HybridTextVerificationOptions {
+  readonly contextualRescan: ContextualRescan;
+  /** Built by `createHybridTextVerificationDetectorBundle` from the rescanning provider. */
+  readonly detectorBundle: VerificationComponentBinding;
+  readonly signal?: AbortSignal;
+  /** Stamped after the asynchronous rescan completes; defaults to the request's `completedAt`. */
+  readonly completedAt?: () => string;
+}
+
+/**
+ * Hybrid verification runs the deterministic profile first and then asks the contextual model
+ * to extract from the reopened output. Any anchored model evidence that is not an exact
+ * rejected-review residual is a blocking finding. A rescan failure of any kind yields an
+ * INCOMPLETE attestation rather than a PASS: a model that could not be consulted has not
+ * verified anything. A clean rescan is evidence that the model found nothing on a second pass,
+ * which with an unqualified model is weaker than the deterministic rescan, not equivalent to it.
+ */
+export async function verifyBoundHybridText(
+  request: BoundTextVerificationRequest,
+  options: HybridTextVerificationOptions
+): Promise<VerificationAttestation> {
+  const identity: VerificationIdentity = {
+    profile: textHybridVerificationProfile,
+    verifier: textVerificationVerifier,
+    detectorBundle: options.detectorBundle,
+    checks: hybridChecks
+  };
+  const finalize = (unsigned: UnsignedVerificationAttestation): VerificationAttestation => {
+    const stamped = { ...unsigned, completedAt: safeTime(options.completedAt?.() ?? request.completedAt) };
+    return { ...stamped, reportDigest: computeVerificationAttestationDigest(stamped) };
+  };
+  const deterministic = withoutReportDigest(verifyBoundText(request, identity));
+  if (deterministic.outcome === 'INCOMPLETE') return finalize(deterministic);
+
+  let evidence: readonly DetectionEvidence[];
+  try {
+    options.signal?.throwIfAborted();
+    evidence = await options.contextualRescan(request.reopenedText, request.output.extractionRevision, options.signal);
+    options.signal?.throwIfAborted();
+  } catch (error: unknown) {
+    // Cancellation is the caller's signal, not a verification outcome.
+    if (options.signal?.aborted === true) throw error;
+    return finalize({
+      ...deterministic,
+      outcome: 'INCOMPLETE',
+      findings: [...deterministic.findings, finding('VERIFIER_INCOMPLETE', 'CONTEXTUAL_RESCAN')]
+    });
+  }
+
+  const reopenedLength = unicodeCodePointLength(request.reopenedText);
+  const permittedResiduals = permittedReviewedResiduals(request.plan);
+  const replacementSpans = replacementOutputSpans(request.plan);
+  const residualCounts = new Map<EntityType, number>();
+  for (const item of evidence) {
+    if (item.source !== 'MODEL') continue;
+    const { start, end } = item.span;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > reopenedLength || start >= end) {
+      return finalize({
+        ...deterministic,
+        outcome: 'INCOMPLETE',
+        findings: [...deterministic.findings, finding('VERIFIER_INCOMPLETE', 'CONTEXTUAL_RESCAN')]
+      });
+    }
+    if (permittedResiduals.has(`${item.entityType}:${String(start)}:${String(end)}`)) continue;
+    // A span that lies entirely inside a typed-label replacement this plan wrote is the label
+    // itself, which contains no source text. Models routinely classify "[PERSON_1]" as a person;
+    // counting that would block every hybrid redaction. Any span that reaches outside a
+    // replacement, even by one code point, remains a residual.
+    if (replacementSpans.some((span) => span.start <= start && end <= span.end)) continue;
+    residualCounts.set(item.entityType, (residualCounts.get(item.entityType) ?? 0) + 1);
+  }
+  const findings = [...deterministic.findings];
+  for (const [entityType, count] of residualCounts) {
+    findings.push(finding('RESIDUAL_ENTITY', 'CONTEXTUAL_RESCAN', count, entityType));
+  }
+  return finalize({ ...deterministic, outcome: findings.length === 0 ? 'PASS' : 'FAIL', findings });
 }

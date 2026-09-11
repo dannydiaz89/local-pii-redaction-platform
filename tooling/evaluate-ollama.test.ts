@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   anchorOllamaModelOutput,
   createOllamaExtractionResponseSchema,
+  ollamaExperimentalContextTokens,
   ollamaExperimentalFixedSeed,
   ollamaExtractionSystemPrompt
 } from '@local-pii/provider-ollama';
@@ -88,7 +89,11 @@ describe('Ollama evaluation safety boundary', () => {
     expect(chatBodies[0]).toMatchObject({
       model: 'synthetic-local-model',
       stream: false,
-      options: { temperature: 0, seed: ollamaExperimentalFixedSeed },
+      options: {
+        temperature: 0,
+        seed: ollamaExperimentalFixedSeed,
+        num_ctx: ollamaExperimentalContextTokens
+      },
       format: createOllamaExtractionResponseSchema(),
       messages: [
         { role: 'system', content: ollamaExtractionSystemPrompt },
@@ -96,7 +101,11 @@ describe('Ollama evaluation safety boundary', () => {
       ]
     });
     expect(report).toMatchObject({
-      evaluator: { id: 'local-ollama-verbatim-anchor', version: '2.0.0' },
+      evaluator: {
+        id: 'local-ollama-verbatim-anchor',
+        version: '2.1.0',
+        contextTokens: ollamaExperimentalContextTokens
+      },
       model: { reportedName: 'synthetic-local-model:latest', localMetadata: { digest: `sha256:${'a'.repeat(64)}` } },
       resourceUse: { externalProcessRssBytes: { status: 'UNAVAILABLE' } }
     });

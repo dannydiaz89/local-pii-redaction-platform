@@ -626,7 +626,8 @@ export function createTextProcessingApplication(
           engineModes: command.requirement.engineModes,
           formatId: command.requirement.formatId,
           operation: command.requirement.operation,
-          minimumQualification: command.requirement.minimumQualification
+          minimumQualification: command.requirement.minimumQualification,
+          maximumInputBytes: command.requirement.maximumInputBytes
         });
         assertCapabilities(policyRequirement, manifest, requestCorrelationId);
         assertWriterMatchesCapability(command, manifest, requestCorrelationId);

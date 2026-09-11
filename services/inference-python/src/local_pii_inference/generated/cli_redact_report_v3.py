@@ -241,6 +241,7 @@ class Outcome1(Enum):
 class Check1(Enum):
     UTF8_REOPEN = 'UTF8_REOPEN'
     DETERMINISTIC_RESCAN = 'DETERMINISTIC_RESCAN'
+    CONTEXTUAL_RESCAN = 'CONTEXTUAL_RESCAN'
     SPAN_RESOLUTION = 'SPAN_RESOLUTION'
     ACTION_RECONCILIATION = 'ACTION_RECONCILIATION'
     NATIVE_SURFACE = 'NATIVE_SURFACE'
@@ -376,7 +377,7 @@ class VerificationAttestationV2(BaseModel):
     checks: list[Check1] = Field(
         ...,
         description='Closed set of required checks completed by the profile. Action reconciliation is mandatory for every v2 attestation.',
-        max_length=7,
+        max_length=8,
         min_length=1,
     )
     reconciliation: Reconciliation = Field(

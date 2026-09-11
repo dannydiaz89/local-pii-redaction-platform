@@ -452,7 +452,10 @@ describe('CLI TXT vertical slice', () => {
       ['redact', 'sample.txt', '--policy', 'unknown-policy'],
       ['redact', 'sample.txt', '--policy', 'development-labels', '--policy', 'development-labels'],
       ['redact', 'sample.txt', '--output', 'first.txt', '--output', 'second.txt'],
-      ['redact', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--policy', 'development-labels']
+      ['redact', 'sample.txt', '--output', 'out.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--policy', 'development-labels'],
+      ['redact', 'sample.txt', '--output', 'out.txt', '--policy-file', 'policy.json', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental'],
+      ['redact', 'sample.txt', '--output', 'out.txt', '--policy', 'development-labels', '--accept-model-evidence'],
+      ['scan', 'sample.txt', '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--accept-model-evidence']
     ]) {
       const invalidPolicy = capture();
       expect(await executeCli([...argv, '--json'], invalidPolicy.io), argv.join(' ')).toBe(2);
@@ -552,7 +555,7 @@ describe('CLI TXT vertical slice', () => {
       expect(capabilityReport.detectors).toContainEqual(
         expect.objectContaining({
           id: 'ollama-local-model',
-          version: `0.1.0-ollama-experimental.2.sha256-${'a'.repeat(64)}`,
+          version: `0.1.0-ollama-experimental.3.sha256-${'a'.repeat(64)}`,
           availability: 'AVAILABLE',
           qualification: 'EXPERIMENTAL'
         })
@@ -571,6 +574,167 @@ describe('CLI TXT vertical slice', () => {
       server.closeAllConnections();
       server.close();
       await once(server, 'close');
+    }
+  });
+
+  /** The experimental warning precedes the machine envelope on stderr. */
+  function hybridEnvelope(stderr: readonly string[]): string {
+    return stderr.join('').replace(/^(?:EXPERIMENTAL:[^\n]*\n)+/u, '');
+  }
+
+  interface HybridRescanBehaviour {
+    readonly status?: number;
+    readonly detections?: readonly { readonly entityType: string; readonly verbatim: string }[];
+  }
+
+  /** Fake Ollama that answers the redaction scan with one DOB and lets each test script the rescan. */
+  async function hybridRedactFixture(onRescan: () => HybridRescanBehaviour) {
+    const root = await mkdtemp(join(tmpdir(), 'local-pii-hybrid-redact-'));
+    directories.push(root);
+    const input = join(root, 'context.txt');
+    const output = join(root, 'context.redacted.txt');
+    const value = '1991-07-14';
+    await writeFile(input, `😀 Synthetic record. The birth date is ${value}.`);
+    const chatBodies: string[] = [];
+    const server = createServer((request, response) => {
+      if (request.url === '/api/tags') {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ models: [{ name: 'phi4-mini:latest', digest: 'a'.repeat(64) }] }));
+        return;
+      }
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => { body += chunk; });
+      request.once('end', () => {
+        chatBodies.push(body);
+        const isRescan = !body.includes(value);
+        const behaviour: HybridRescanBehaviour = isRescan
+          ? onRescan()
+          : { detections: [{ entityType: 'DATE_OF_BIRTH', verbatim: value }] };
+        if (behaviour.status !== undefined) {
+          response.statusCode = behaviour.status;
+          response.end();
+          return;
+        }
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({
+          model: 'phi4-mini:latest',
+          message: { role: 'assistant', content: JSON.stringify({ detections: behaviour.detections ?? [] }) },
+          done: true
+        }));
+      });
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected local test server address.');
+    const argv = [
+      'redact', input, '--output', output, '--policy', 'development-labels',
+      '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--accept-model-evidence',
+      '--ollama-url', `http://127.0.0.1:${String(address.port)}`, '--timeout-ms', '5000', '--json'
+    ];
+    const close = async () => {
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
+    };
+    return { root, input, output, value, chatBodies, argv, close };
+  }
+
+  it('redacts and publishes only after the pinned model rescans the reopened output', async () => {
+    const fixture = await hybridRedactFixture(() => ({ detections: [] }));
+    try {
+      const stream = capture();
+      const exit = await executeCli(fixture.argv, stream.io);
+      expect(exit, stream.stderr.join('')).toBe(0);
+      expect(stream.stderr.join('')).toContain('EXPERIMENTAL');
+      const report = JSON.parse(stream.stdout.join('')) as {
+        readonly outcome: string;
+        readonly plan: { readonly byEntity: Readonly<Record<string, number>>; readonly detectorBundleVersion: string };
+        readonly verification: {
+          readonly outcome: string;
+          readonly checks: readonly string[];
+          readonly profile: { readonly id: string; readonly version: string };
+          readonly detectorBundle: { readonly id: string; readonly version: string; readonly digest: string };
+          readonly findings: readonly unknown[];
+        };
+      };
+      expect(report.outcome).toBe('VERIFIED');
+      expect(report.plan.byEntity.DATE_OF_BIRTH).toBe(1);
+      expect(report.plan.detectorBundleVersion).toMatch(/^composite-v1-/u);
+      expect(report.verification.outcome).toBe('PASS');
+      expect(report.verification.findings).toEqual([]);
+      expect(report.verification.checks).toEqual([
+        'UTF8_REOPEN', 'DETERMINISTIC_RESCAN', 'CONTEXTUAL_RESCAN', 'SPAN_RESOLUTION', 'ACTION_RECONCILIATION'
+      ]);
+      expect(report.verification.profile).toMatchObject({ id: 'text-rescan-v1', version: '0.2.0' });
+      expect(report.verification.detectorBundle).toMatchObject({ id: 'hybrid-text' });
+
+      // The model saw the source for the operator review and the redaction scan, then the
+      // reopened output for the rescan, which must not carry the value.
+      expect(fixture.chatBodies).toHaveLength(3);
+      expect(fixture.chatBodies[0]).toContain(fixture.value);
+      expect(fixture.chatBodies[1]).toContain(fixture.value);
+      expect(fixture.chatBodies[2]).not.toContain(fixture.value);
+      expect(fixture.chatBodies[2]).toContain('DATE_OF_BIRTH');
+      expect(stream.stderr.join('')).toContain('accepting 1 model-evidence span(s)');
+
+      const published = await readFile(fixture.output, 'utf8');
+      expect(published).not.toContain(fixture.value);
+      expect(published).toContain('DATE_OF_BIRTH');
+      expect(stream.stdout.join('')).not.toContain(fixture.value);
+      expect(stream.stderr.join('')).not.toContain(fixture.value);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('holds uncalibrated model evidence for review unless the operator explicitly accepts it', async () => {
+    const fixture = await hybridRedactFixture(() => ({ detections: [] }));
+    try {
+      const stream = capture();
+      const argv = fixture.argv.filter((argument) => argument !== '--accept-model-evidence');
+      expect(await executeCli(argv, stream.io)).not.toBe(0);
+      expect(stream.stdout).toHaveLength(0);
+      expect(JSON.parse(hybridEnvelope(stream.stderr))).toMatchObject({ error: { code: 'POLICY_REVIEW_REQUIRED' } });
+      expect(fixture.chatBodies).toHaveLength(1);
+      await expect(stat(fixture.output)).rejects.toThrow();
+      expect(await readdir(fixture.root)).toEqual(['context.txt']);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('blocks publication when the model still anchors an entity in the reopened output', async () => {
+    const fixture = await hybridRedactFixture(() => ({ detections: [{ entityType: 'PERSON', verbatim: 'Synthetic' }] }));
+    try {
+      const stream = capture();
+      expect(await executeCli(fixture.argv, stream.io)).not.toBe(0);
+      expect(stream.stdout).toHaveLength(0);
+      expect(JSON.parse(hybridEnvelope(stream.stderr))).toMatchObject({ error: { code: 'VERIFICATION_RESIDUAL' } });
+      expect(fixture.chatBodies).toHaveLength(3);
+      await expect(stat(fixture.output)).rejects.toThrow();
+      expect(await readdir(fixture.root)).toEqual(['context.txt']);
+      expect(stream.stderr.join('')).not.toContain(fixture.value);
+      expect(stream.stderr.join('')).not.toContain('Synthetic');
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('treats an unavailable model during the rescan as incomplete verification, not a pass', async () => {
+    const fixture = await hybridRedactFixture(() => ({ status: 500 }));
+    try {
+      const stream = capture();
+      expect(await executeCli(fixture.argv, stream.io)).not.toBe(0);
+      expect(stream.stdout).toHaveLength(0);
+      expect(JSON.parse(hybridEnvelope(stream.stderr))).toMatchObject({ error: { code: 'VERIFICATION_INCOMPLETE' } });
+      expect(fixture.chatBodies).toHaveLength(3);
+      await expect(stat(fixture.output)).rejects.toThrow();
+      expect(await readdir(fixture.root)).toEqual(['context.txt']);
+      expect(stream.stderr.join('')).not.toContain(fixture.value);
+    } finally {
+      await fixture.close();
     }
   });
 

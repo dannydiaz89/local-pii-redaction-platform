@@ -444,11 +444,43 @@ pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-de
   --engine ollama --model phi4-mini:3.8b --allow-experimental --json
 ```
 
+The same engine can produce a verified redaction:
+
+```sh
+pnpm --silent pii-redact redact ./sample-data/contextual/development/contextual-development-positive.txt \
+  --output ./contextual-development-positive.redacted.txt --policy development-labels \
+  --engine ollama --model phi4-mini:3.8b --allow-experimental --accept-model-evidence --json
+```
+
+`--accept-model-evidence` is required for a hybrid redaction to proceed under the bundled
+policies. Model evidence carries a deliberately uncalibrated 0.5 confidence, which is below the
+policies' `minimumConfidence`, so the policy holds every model span for review rather than
+redacting on it. The flag is the command-line counterpart of the web review flow: it records an
+explicit operator `ACCEPT` decision for each span the policy holds for review *and* that is
+supported by model evidence, and the plan carries those decisions so the waiver is bound into the
+plan digest and the verification attestation. Spans held for review on rules-only evidence are not
+accepted by the flag and still block. Accepting a span only adds a typed-label replacement, so a
+wrong acceptance over-redacts rather than leaks. Without the flag, a hybrid redaction with model
+evidence stops with `POLICY_REVIEW_REQUIRED` and publishes nothing.
+
 The application never pulls a model itself. Ollama must already be running, and the requested model
 must be installed with a digest reported by Ollama. The provider accepts only unauthenticated numeric
 loopback URLs; `--ollama-url http://127.0.0.1:11434` and `--timeout-ms 60000` may be supplied
-explicitly. This path is scan-only, bounded to 80,000 input bytes/20,000 Unicode code points, and
-fails closed rather than silently falling back to rules-only behavior.
+explicitly. The path covers `scan`, `capabilities`, and single-file TXT/Markdown `redact` with a
+bundled policy; it is bounded to 80,000 input bytes/20,000 Unicode code points and fails closed
+rather than silently falling back to rules-only behavior. Batch, `--policy-file`, and other formats
+remain rules-only.
+
+A hybrid redaction is verified under the `text-rescan-v1` profile at version `0.2.0`, which adds a
+`CONTEXTUAL_RESCAN` check to the rules-only profile. After the staged output is independently
+reopened, the same digest-pinned model instance that produced the plan is asked to extract from the
+reopened text again, and any model evidence that anchors there is a blocking `RESIDUAL_ENTITY`
+finding. If the model is unavailable, times out, or returns an unanchorable response during that
+rescan, the attestation is `INCOMPLETE` and nothing is published. The attestation binds a
+`hybrid-text` detector bundle whose digest is derived from the exact model digest, so a report from
+one model cannot be presented as verification by another. A clean rescan proves the model found no
+entity in the output on a second pass; with an unqualified model that is weaker evidence than the
+deterministic rescan, not equivalent to it.
 
 The experimental model contract asks Ollama only for an entity type and an exact verbatim value.
 Local deterministic code then requires one exact case- and normalization-sensitive occurrence in
@@ -509,8 +541,9 @@ output collisions.
   parent-directory entries requires a future dirfd/openat-style traversal boundary.
 - Rules-only remains the default. It covers email, general phone shapes, structurally valid US SSNs,
   Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/access-token/password assignments.
-- The opt-in Ollama hybrid scan is experimental and unqualified. Its contextual results can be
-  incomplete or semantically incorrect. The prior offset-supplying `phi4-mini` experiment produced
+- The opt-in Ollama hybrid scan and redaction are experimental and unqualified. Contextual results
+  can be incomplete or semantically incorrect, and the contextual rescan inherits the same recall
+  limits as the scan: an entity the model misses twice is not caught by verification. The prior offset-supplying `phi4-mini` experiment produced
   zero exact matches on the small frozen harness; that historical result does not describe the new
   verbatim-plus-local-anchoring contract. The harness is useful for integration and model
   comparison, not release qualification, and no model is currently qualified.
