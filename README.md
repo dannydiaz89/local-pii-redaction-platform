@@ -508,6 +508,17 @@ naming only the failing component. Redaction on this engine is verified with the
 token-classification model is a separate operator acquisition step with its own licence and
 provenance review; nothing here downloads or selects a model.
 
+### Batch with a contextual engine
+
+`batch scan` and `batch redact` accept the same `--engine ollama|inference` selection and consent
+options as the single-file commands. The engine is prepared and digest-pinned once before any file
+is read; every file must report that same composite detector bundle or the batch stops. The default
+selection under a contextual engine is text-only (`**/*.txt`, `**/*.md`, `**/*.markdown`); a JSON
+or CSV file that is explicitly included fails per file as `FORMAT_UNSUPPORTED` without reaching the
+model. An unspecified `--batch-timeout-ms` uses the 300 000 ms maximum for contextual engines,
+because each file costs a model call; the bound is otherwise unchanged. `--accept-model-evidence`
+applies per file for `batch redact` with the same recording as the single-file flag.
+
 A hybrid redaction is verified under the `text-rescan-v1` profile at version `0.2.0`, which adds a
 `CONTEXTUAL_RESCAN` check to the rules-only profile. After the staged output is independently
 reopened, the same digest-pinned model instance that produced the plan is asked to extract from the

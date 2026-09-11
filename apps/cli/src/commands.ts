@@ -19,7 +19,7 @@ import {
   readLocalUtf8Artifact
 } from '@local-pii/adapter-text';
 import { assertContract, computeReviewSnapshotDigest } from '@local-pii/contracts';
-import { deterministicDetectorBundleVersion } from '@local-pii/detectors';
+import { compositeDetectorBundleVersion, deterministicDetectorBundleVersion } from '@local-pii/detectors';
 import { SafeError, parseSha256Digest, unicodeCodePointLength, type EntityType, type ErrorCode } from '@local-pii/domain';
 import {
   bundledPolicies,
@@ -52,6 +52,7 @@ import {
   assertBatchFileUnchanged,
   batchTraversalLimits,
   defaultBatchIncludes,
+  defaultBatchTextIncludes,
   discoverBatchFiles
 } from './batch.js';
 import {
@@ -104,8 +105,8 @@ const usage = `Usage:
   pii-redact policies list [--json]
   pii-redact policies explain <development-labels|high-risk-disclosure> [--json]
   pii-redact capabilities [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--json]
-  pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--json]
-  pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--json]
+  pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--engine rules|ollama|inference] [--json]
+  pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--engine rules|ollama|inference] [--accept-model-evidence] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--json]
   pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--accept-model-evidence] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
@@ -393,6 +394,45 @@ function experimentalWarning(io: CliIo): void {
   io.stderr('EXPERIMENTAL: contextual model detection is unqualified; classifications may be wrong and confidence may be uncalibrated.\n');
 }
 
+/** Contextual engines are slow per file, so an unspecified batch deadline uses the maximum bound. */
+function batchTimeoutFor(parsed: ParsedArguments): number {
+  return parsed.batchTimeoutMs
+    ?? (parsed.engine === 'rules' ? batchTraversalLimits.defaultTimeoutMs : batchTraversalLimits.maximumTimeoutMs);
+}
+
+function batchIncludesFor(parsed: ParsedArguments): readonly string[] {
+  if (parsed.includes.length > 0) return parsed.includes;
+  return parsed.engine === 'rules' ? defaultBatchIncludes : defaultBatchTextIncludes;
+}
+
+/** The bundle version every file in a batch must report; hybrid engines bind the model digest. */
+async function batchDetectorBundleVersion(
+  parsed: ParsedArguments,
+  selected: Awaited<ReturnType<typeof selectedApplication>>,
+  signal: AbortSignal
+): Promise<string> {
+  if (parsed.engine === 'rules') return deterministicDetectorBundleVersion;
+  const manifest = await selected.getCapabilities({ correlationId: 'cor_cli_batch' }, signal);
+  const model = manifest.detectors.find(({ kinds }) => kinds.includes('MODEL'));
+  if (model === undefined) {
+    throw new SafeError({
+      code: 'MODEL_UNAVAILABLE',
+      message: 'The selected engine did not publish a model detector.',
+      retryable: false,
+      correlationId: 'cor_cli_batch'
+    });
+  }
+  return compositeDetectorBundleVersion({ detectorBundleVersion: model.version });
+}
+
+/** Experimental compositions may hold a subprocess; every command releases them on exit. */
+const activeApplications = new Set<{ dispose(): void }>();
+
+function disposeActiveApplications(): void {
+  for (const active of activeApplications) active.dispose();
+  activeApplications.clear();
+}
+
 /** Experimental engines bound input more tightly than the rules; the tighter bound always wins. */
 function experimentalInputLimit(engine: LocalEngine, policyLimit: number | undefined): number | undefined {
   if (engine === 'ollama') return Math.min(policyLimit ?? Infinity, ollamaExperimentalDefaultLimits.maximumInputBytes);
@@ -402,20 +442,21 @@ function experimentalInputLimit(engine: LocalEngine, policyLimit: number | undef
 
 async function selectedApplication(parsed: ParsedArguments, signal?: AbortSignal) {
   if (parsed.engine === 'rules') return localFileApplication;
-  if (parsed.engine === 'inference') {
-    return createExperimentalInferenceTextApplication({
+  const experimental = parsed.engine === 'inference'
+    ? await createExperimentalInferenceTextApplication({
       bundleDirectory: parsed.bundle ?? '',
       ...(parsed.python === undefined ? {} : { pythonExecutable: parsed.python }),
       ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
       ...(signal === undefined ? {} : { signal })
+    })
+    : await createExperimentalOllamaTextApplication({
+      model: parsed.model ?? '',
+      ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
+      ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+      ...(signal === undefined ? {} : { signal })
     });
-  }
-  return createExperimentalOllamaTextApplication({
-    model: parsed.model ?? '',
-    ...(parsed.ollamaUrl === undefined ? {} : { endpoint: parsed.ollamaUrl }),
-    ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
-    ...(signal === undefined ? {} : { signal })
-  });
+  activeApplications.add(experimental);
+  return experimental;
 }
 
 type LocalFormat = 'text' | 'json' | 'csv' | 'docx' | 'pdf';
@@ -525,7 +566,7 @@ async function runBatchScan(
   signal?: AbortSignal
 ): Promise<number> {
   const timeoutController = new AbortController();
-  const timeoutMs = parsed.batchTimeoutMs ?? batchTraversalLimits.defaultTimeoutMs;
+  const timeoutMs = batchTimeoutFor(parsed);
   const timer = setTimeout(() => {
     timeoutController.abort();
   }, timeoutMs);
@@ -533,8 +574,14 @@ async function runBatchScan(
     ? timeoutController.signal
     : AbortSignal.any([signal, timeoutController.signal]);
   try {
+    // The engine is prepared once, before any file is read; a model that cannot be pinned fails
+    // the whole batch here rather than partway through.
+    const selected = await selectedApplication(parsed, batchSignal);
+    if (parsed.engine !== 'rules') experimentalWarning(io);
+    const expectedBundleVersion = await batchDetectorBundleVersion(parsed, selected, batchSignal);
+    const includes = batchIncludesFor(parsed);
     const traversal = await discoverBatchFiles(root, {
-      includes: parsed.includes.length === 0 ? defaultBatchIncludes : parsed.includes,
+      includes,
       excludes: parsed.excludes,
       signal: batchSignal
     });
@@ -549,9 +596,9 @@ async function runBatchScan(
       let result;
       try {
         await assertBatchFileUnchanged(file);
-        result = await localFileApplication.scan({
-          session: localSession(file.path),
-          requirement: scanCapabilityRequirement(file.path, 'rules', undefined),
+        result = await selected.scan({
+          session: localSession(file.path, undefined, experimentalInputLimit(parsed.engine, undefined)),
+          requirement: scanCapabilityRequirement(file.path, parsed.engine, undefined),
           signal: batchSignal
         }, { correlationId: 'cor_cli_batch_scan' });
         await assertBatchFileUnchanged(file);
@@ -569,7 +616,7 @@ async function runBatchScan(
         failuresByCode[error.code] = (failuresByCode[error.code] ?? 0) + 1;
         continue;
       }
-      if (result.detectorBundleVersion !== deterministicDetectorBundleVersion) {
+      if (result.detectorBundleVersion !== expectedBundleVersion) {
         throw new SafeError({
           code: 'JOB_CONFLICT',
           message: 'The batch detector bundle changed during processing.',
@@ -602,7 +649,7 @@ async function runBatchScan(
       operation: 'BATCH_SCAN',
       outcome,
       completionPolicy: parsed.allowPartial ? 'ALLOW_PARTIAL' : 'REQUIRE_COMPLETE',
-      detectorBundleVersion: deterministicDetectorBundleVersion,
+      detectorBundleVersion: expectedBundleVersion,
       manifest: {
         complete: failedFileCount === 0,
         selectedFileCount: traversal.files.length,
@@ -618,7 +665,7 @@ async function runBatchScan(
         failuresByCode
       },
       selection: {
-        includePatternCount: parsed.includes.length === 0 ? defaultBatchIncludes.length : parsed.includes.length,
+        includePatternCount: includes.length,
         excludePatternCount: parsed.excludes.length
       },
       limits: {
@@ -664,7 +711,7 @@ async function runBatchRedact(
   signal?: AbortSignal
 ): Promise<number> {
   const timeoutController = new AbortController();
-  const timeoutMs = parsed.batchTimeoutMs ?? batchTraversalLimits.defaultTimeoutMs;
+  const timeoutMs = batchTimeoutFor(parsed);
   const timer = setTimeout(() => {
     timeoutController.abort();
   }, timeoutMs);
@@ -676,8 +723,13 @@ async function runBatchRedact(
     const policy = parsed.policyFile === undefined
       ? compilePolicy(bundledPolicies[parsed.selectedPolicy ?? 'development-labels'])
       : await loadPolicyFile(parsed.policyFile, batchSignal);
+    const selected = await selectedApplication(parsed, batchSignal);
+    if (parsed.engine !== 'rules') experimentalWarning(io);
+    const expectedBundleVersion = await batchDetectorBundleVersion(parsed, selected, batchSignal);
+    const maximumInputBytes = experimentalInputLimit(parsed.engine, policy.limits.maximumInputBytes);
+    const includes = batchIncludesFor(parsed);
     const traversal = await discoverBatchFiles(root, {
-      includes: parsed.includes.length === 0 ? defaultBatchIncludes : parsed.includes,
+      includes,
       excludes: parsed.excludes,
       signal: batchSignal
     });
@@ -695,18 +747,31 @@ async function runBatchRedact(
       try {
         await assertBatchFileUnchanged(target.input);
         await assertBatchRedactionTarget(target, prepared.outputRoot);
-        const result = await localFileApplication.redact({
+        const requirement = capabilityRequirement(target.input.path, 'REDACT', parsed.engine);
+        const review = parsed.acceptModelEvidence
+          ? await operatorModelEvidenceReview(target.input.path, policy, parsed.engine, selected, maximumInputBytes, io, batchSignal)
+          : undefined;
+        const result = await selected.redact({
           session: localSession(
             target.input.path,
             target.outputPath,
-            policy.limits.maximumInputBytes,
+            maximumInputBytes,
             policy
           ),
-          requirement: capabilityRequirement(target.input.path, 'REDACT'),
+          requirement,
           policy,
+          ...(review === undefined ? {} : { review }),
           signal: batchSignal
         }, { correlationId: 'cor_cli_batch_redact' });
         publicationReturned = true;
+        if (result.detectorBundleVersion !== expectedBundleVersion) {
+          throw new SafeError({
+            code: 'JOB_CONFLICT',
+            message: 'The batch detector bundle changed during processing.',
+            retryable: true,
+            correlationId: 'cor_cli_batch_redact'
+          });
+        }
         await assertBatchFileUnchanged(target.input);
         if (result.input.byteLength !== target.input.byteLength) {
           throw new SafeError({
@@ -740,7 +805,7 @@ async function runBatchRedact(
       operation: 'BATCH_REDACT',
       outcome,
       completionPolicy: 'REQUIRE_COMPLETE',
-      detectorBundleVersion: deterministicDetectorBundleVersion,
+      detectorBundleVersion: expectedBundleVersion,
       policy: policySummary(policy, parsed.policyFile === undefined),
       manifest: {
         complete: failedFileCount === 0,
@@ -757,7 +822,7 @@ async function runBatchRedact(
         failuresByCode
       },
       selection: {
-        includePatternCount: parsed.includes.length === 0 ? defaultBatchIncludes.length : parsed.includes.length,
+        includePatternCount: includes.length,
         excludePatternCount: parsed.excludes.length
       },
       limits: {
@@ -803,8 +868,13 @@ function validEngineSelection(parsed: ParsedArguments): boolean {
     || parsed.allowExperimental
     || parsed.acceptModelEvidence;
   if (parsed.engine === 'rules') return !modelOptionsSelected;
-  const commandAllowed = (parsed.command === 'scan' || parsed.command === 'capabilities' || parsed.command === 'redact')
-    && (!parsed.acceptModelEvidence || parsed.command === 'redact');
+  const redacting = parsed.command === 'redact' || (parsed.command === 'batch' && parsed.input === 'redact');
+  const commandAllowed = (
+    parsed.command === 'scan'
+    || parsed.command === 'capabilities'
+    || parsed.command === 'redact'
+    || (parsed.command === 'batch' && (parsed.input === 'scan' || parsed.input === 'redact'))
+  ) && (!parsed.acceptModelEvidence || redacting);
   if (parsed.engine === 'inference') {
     return parsed.allowExperimental
       && commandAllowed
@@ -884,16 +954,10 @@ function validCommandOptions(parsed: ParsedArguments): boolean {
       && (isRedact ? parsed.output !== undefined : parsed.output === undefined)
       && (isRedact || parsed.selectedPolicy === undefined)
       && (isRedact || parsed.policyFile === undefined)
-      && !parsed.engineSpecified
-      && parsed.engine === 'rules'
-      && parsed.model === undefined
-      && parsed.ollamaUrl === undefined
-      && parsed.timeoutMs === undefined
+      // External policy files stay rules-only, as for single-file redaction.
+      && (parsed.policyFile === undefined || parsed.engine === 'rules')
+      && validEngineSelection(parsed)
       && (isScan || !parsed.allowPartial)
-      && !parsed.allowExperimental
-      && !parsed.acceptModelEvidence
-      && parsed.bundle === undefined
-      && parsed.python === undefined
       && !parsed.apply
       && !parsed.license;
   }
@@ -1243,5 +1307,7 @@ export async function executeCli(
       retryable: false,
       correlationId: 'cor_cli_internal'
     }), parsed.json, io);
+  } finally {
+    disposeActiveApplications();
   }
 }

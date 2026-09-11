@@ -403,6 +403,88 @@ describe('bounded batch scan', () => {
   });
 });
 
+describe('batch with a contextual engine', () => {
+  const python = new URL('../../../.venv/bin/python', import.meta.url).pathname;
+  const bundle = new URL('../../../fixtures/models/synthetic-lexicon-v1', import.meta.url).pathname;
+  const engine = ['--engine', 'inference', '--bundle', bundle, '--python', python, '--allow-experimental'];
+
+  it('scans text files through the inference engine and reports the composite bundle', async () => {
+    const root = await temporaryRoot('batch-inference-');
+    await mkdir(join(root, 'nested'));
+    await writeFile(join(root, 'one.txt'), 'Mara Vellum joined the team.');
+    await writeFile(join(root, 'nested', 'two.md'), 'Born 1988-02-29 with alpha@example.test.');
+    await writeFile(join(root, 'three.json'), '{"contact":"Mara Vellum"}');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'scan', root, ...engine, '--json'], stream.io), stream.stderr.join('')).toBe(0);
+    const report = JSON.parse(stream.stdout.join('')) as {
+      readonly outcome: string;
+      readonly detectorBundleVersion: string;
+      readonly manifest: { readonly selectedFileCount: number; readonly processedFileCount: number; readonly detectionCount: number; readonly byEntity: Readonly<Record<string, number>> };
+      readonly selection: { readonly includePatternCount: number };
+      readonly limits: { readonly timeoutMs: number };
+    };
+    // The default selection under a contextual engine is text-only, so three.json is not selected.
+    expect(report).toMatchObject({
+      outcome: 'SUCCEEDED',
+      manifest: { selectedFileCount: 2, processedFileCount: 2, detectionCount: 3, byEntity: { PERSON: 1, DATE_OF_BIRTH: 1, EMAIL: 1 } },
+      selection: { includePatternCount: 3 },
+      limits: { timeoutMs: 300_000 }
+    });
+    expect(report.detectorBundleVersion).toMatch(/^composite-v1-/u);
+    expect(stream.stderr.join('')).toContain('EXPERIMENTAL');
+    expect(stream.stdout.join('')).not.toContain('Mara');
+  });
+
+  it('fails explicitly selected structured files per file instead of sending them to the model', async () => {
+    const root = await temporaryRoot('batch-inference-json-');
+    await writeFile(join(root, 'one.txt'), 'Mara Vellum joined the team.');
+    await writeFile(join(root, 'two.json'), '{"contact":"Mara Vellum"}');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'scan', root, ...engine, '--include', '**/*', '--allow-partial', '--json'], stream.io)).toBe(0);
+    expect(JSON.parse(stream.stdout.join(''))).toMatchObject({
+      outcome: 'PARTIAL',
+      completionPolicy: 'ALLOW_PARTIAL',
+      manifest: { selectedFileCount: 2, processedFileCount: 1, failedFileCount: 1, failuresByCode: { FORMAT_UNSUPPORTED: 1 } }
+    });
+  });
+
+  it('publishes verified redactions through the inference engine', async () => {
+    const input = await temporaryRoot('batch-inference-redact-in-');
+    const output = await temporaryRoot('batch-inference-redact-out-');
+    await writeFile(join(input, 'one.txt'), 'Mara Vellum was born 1988-02-29.');
+    await writeFile(join(input, 'two.md'), 'Nothing contextual here, only alpha@example.test.');
+    const stream = capture();
+
+    expect(await executeCli(['batch', 'redact', input, '--output', output, ...engine, '--json'], stream.io), stream.stderr.join('')).toBe(0);
+    const report = JSON.parse(stream.stdout.join('')) as {
+      readonly outcome: string;
+      readonly detectorBundleVersion: string;
+      readonly manifest: { readonly publishedFileCount: number; readonly replacementCount: number; readonly byEntity: Readonly<Record<string, number>> };
+    };
+    expect(report).toMatchObject({ outcome: 'SUCCEEDED', manifest: { publishedFileCount: 2, replacementCount: 3, byEntity: { PERSON: 1, DATE_OF_BIRTH: 1, EMAIL: 1 } } });
+    expect(report.detectorBundleVersion).toMatch(/^composite-v1-/u);
+    expect(await readFile(join(output, 'one.txt'), 'utf8')).toBe('[PERSON_1] was born [DATE_OF_BIRTH_1].');
+    expect(await readFile(join(output, 'two.md'), 'utf8')).toBe('Nothing contextual here, only [EMAIL_1].');
+  });
+
+  it('rejects unconsented, mismatched, or rules-only option combinations as usage errors', async () => {
+    const root = await temporaryRoot('batch-inference-usage-');
+    for (const argv of [
+      ['batch', 'scan', root, '--engine', 'inference', '--bundle', bundle],
+      ['batch', 'scan', root, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--accept-model-evidence'],
+      ['batch', 'scan', root, '--engine', 'inference', '--bundle', bundle, '--allow-experimental', '--model', 'phi4-mini'],
+      ['batch', 'redact', root, '--output', join(root, 'out'), '--policy-file', 'policy.json', ...engine],
+      ['batch', 'scan', root, '--accept-model-evidence']
+    ]) {
+      const stream = capture();
+      expect(await executeCli([...argv, '--json'], stream.io), argv.join(' ')).toBe(2);
+      expect(JSON.parse(stream.stderr.join(''))).toMatchObject({ error: { code: 'SCHEMA_INVALID' } });
+    }
+  });
+});
+
 describe('bounded batch redact', () => {
   it.each([
     'stage_cleanup_failed_after_publication',

@@ -26,6 +26,13 @@ export const defaultBatchIncludes = Object.freeze([
   '**/*.csv'
 ]);
 
+/** Contextual engines are text-only, so their default selection never reaches JSON or CSV. */
+export const defaultBatchTextIncludes = Object.freeze([
+  '**/*.txt',
+  '**/*.md',
+  '**/*.markdown'
+]);
+
 export interface BatchTraversalLimits {
   readonly maximumFiles: number;
   readonly maximumDirectories: number;

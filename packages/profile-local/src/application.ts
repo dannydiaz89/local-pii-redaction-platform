@@ -250,7 +250,27 @@ export async function createExperimentalOllamaTextApplication(
   const manifest = options.profile === 'process-local-api'
     ? createOllamaHybridApiCapabilityManifest(contextual.detectorBundleVersion)
     : createOllamaHybridCapabilityManifest(contextual.detectorBundleVersion);
-  return application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion));
+  return disposable(application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion)), () => undefined);
+}
+
+export type DisposableTextProcessingApplication = ReturnType<typeof application> & {
+  /** Releases any subprocess or connection the composition holds; idempotent. */
+  dispose(): void;
+};
+
+function disposable(
+  composed: ReturnType<typeof application>,
+  release: () => void
+): DisposableTextProcessingApplication {
+  let released = false;
+  return Object.freeze({
+    ...composed,
+    dispose(): void {
+      if (released) return;
+      released = true;
+      release();
+    }
+  });
 }
 
 /**
@@ -327,5 +347,8 @@ export async function createExperimentalInferenceTextApplication(
     languages: capabilities.languages,
     profile: options.profile ?? 'cli'
   });
-  return application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion));
+  return disposable(
+    application(manifest, detector, hybridVerifier(detector, contextual.detectorBundleVersion)),
+    () => { contextual.close(); }
+  );
 }
