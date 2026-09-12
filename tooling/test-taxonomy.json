@@ -20,9 +20,10 @@
   "tests": {
     "apps/api/test/api.test.ts": ["unit", "contract", "integration", "security-privacy", "recovery"],
     "apps/api/test/api-abuse.test.ts": ["integration", "end-to-end", "security-privacy", "recovery"],
+    "apps/api/test/review-session.test.ts": ["integration", "end-to-end", "security-privacy", "recovery"],
     "apps/api/test/web-shell.test.ts": ["unit", "integration", "end-to-end", "security-privacy", "recovery"],
     "apps/api/test/startup-options.test.ts": ["unit", "security-privacy"],
-    "apps/web/test/application.test.tsx": ["unit", "integration", "accessibility", "localization"],
+    "apps/web/test/application.test.tsx": ["unit", "integration", "accessibility", "localization", "security-privacy", "recovery"],
     "apps/web/test/bootstrap.test.ts": ["unit", "integration", "security-privacy"],
     "apps/web/test/detected-text.test.ts": ["unit", "security-privacy", "localization"],
     "apps/web/test/review-progress.test.ts": ["unit", "accessibility"],

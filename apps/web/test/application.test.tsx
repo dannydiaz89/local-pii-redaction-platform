@@ -31,6 +31,22 @@ afterEach(() => {
   Reflect.deleteProperty(URL, 'revokeObjectURL');
 });
 
+/** Any inline event-handler attribute would mean document text reached the DOM as markup. */
+function eventHandlerAttributes(root: HTMLElement): readonly string[] {
+  return [...root.querySelectorAll('*')].flatMap((element) =>
+    [...element.attributes].map(({ name }) => name).filter((name) => name.startsWith('on')));
+}
+
+function hostileHrefs(root: HTMLElement): readonly string[] {
+  return [...root.querySelectorAll('a[href]')]
+    .map((element) => element.getAttribute('href') ?? '')
+    .filter((href) => !href.startsWith('#') && !href.startsWith('blob:'));
+}
+
+function injectionFlag(): unknown {
+  return (globalThis as unknown as Record<string, unknown>).localPiiInjected;
+}
+
 function readyClient(): CapabilityClient {
   return {
     load: () => Promise.resolve({
@@ -572,6 +588,212 @@ describe('web application foundation', () => {
       { name: 'synthetic.TXT', size: 10 },
       { supportedFiles: [{ extension: '.txt', maximumInputBytes: 10, supportsRedaction: true }] }
     )).toEqual({ kind: 'ready', byteLength: 10, extension: '.txt' });
+  });
+
+  it('refuses a detection page from a different job revision instead of showing a mixed view', async () => {
+    const user = userEvent.setup();
+    const base = readyJobClient();
+    const first = await base.scan(
+      new File(['synthetic'], 'synthetic.txt'),
+      (await base.loadPolicies(new AbortController().signal)).defaultPolicy,
+      () => undefined,
+      new AbortController().signal
+    );
+    const jobs: LocalJobClient = {
+      ...base,
+      scan: () => Promise.resolve({ ...first, detections: 2, byEntity: { EMAIL: 1, PHONE: 1 }, nextCursor: 1 }),
+      // The job advanced while the client was away: the next page is bound to a newer revision.
+      listDetections: (_jobId, cursor) => Promise.resolve({
+        ...first,
+        detections: 2,
+        byEntity: { EMAIL: 1, PHONE: 1 },
+        jobRevision: first.jobRevision + 1,
+        cursor,
+        nextCursor: null,
+        details: [{ id: secondDetectionId, entityType: 'PHONE', start: 50, end: 60, confidence: 0.96, sources: ['REGEX'] }]
+      })
+    };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
+    await screen.findByText('Showing 1–1 of 2');
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+
+    expect(await screen.findByText('The local preview scan could not be completed.')).toBeTruthy();
+    expect(screen.queryByText('Characters 51–60')).toBeNull();
+    expect(screen.queryByText('Characters 20–46')).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(container.querySelector('.preview-review')).toBeNull();
+  });
+
+  it('keeps a failed workflow deletion visible instead of reporting a clearance that did not happen', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:local-output') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const base = readyJobClient();
+    const redactionJobId = 'job_01J4M91NJK8WAPJ7J95K73CB2N';
+    const expire = vi.fn<LocalJobClient['expire']>((jobId) => jobId === redactionJobId
+      ? Promise.resolve()
+      : Promise.reject(new Error('LOCAL_SESSION_MISSING')));
+    const jobs: LocalJobClient = {
+      ...base,
+      redact: async (...parameters) => {
+        const summary = await base.redact(...parameters);
+        return { ...summary, job: { ...summary.job, id: redactionJobId } };
+      },
+      expire
+    };
+    const user = userEvent.setup();
+    render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(screen.getByLabelText('Document file'), new File(['synthetic'], 'synthetic.txt'));
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
+    await screen.findByText('1 potential item found.');
+    await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
+    await screen.findByRole('link', { name: 'Download verified redacted copy' });
+    await user.click(screen.getByRole('button', { name: 'Clear current workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Clear now' }));
+
+    expect(await screen.findByText(
+      'The workflow could not be fully cleared. It remains on this page so you can try again.'
+    )).toBeTruthy();
+    expect(expire.mock.calls.map(([jobId]) => jobId)).toEqual([redactionJobId, scanJobId]);
+    expect(screen.queryByText('The current workflow was cleared from this application session.')).toBeNull();
+    expect(screen.getByText('1 potential item found.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Clear current workflow' })).toBeTruthy();
+  });
+
+  it('renders hostile document markup as inert text in detected text and source context', async () => {
+    const user = userEvent.setup();
+    const canary = 'hostile-markup@example.test';
+    const markupPayload = '<img src=x onerror="globalThis.localPiiInjected=true">';
+    const breakoutPayload = '</code></pre><script>globalThis.localPiiInjected=true</script>';
+    const schemePayload = 'javascript:globalThis.localPiiInjected=true';
+    // The bounded context window keeps 80 code points before and 120 after the match.
+    const documentText =
+      `${markupPayload} contact: ${canary} ${breakoutPayload} ${schemePayload}`;
+    const start = Array.from(documentText.slice(0, documentText.indexOf(canary))).length;
+    const end = start + Array.from(canary).length;
+    const jobs: LocalJobClient = {
+      ...readyJobClient(),
+      scan: () => Promise.resolve({
+        outcome: 'SUCCEEDED', detections: 1, conflicts: 0, byEntity: { EMAIL: 1 },
+        jobId: scanJobId, jobRevision: 6, cursor: 0, nextCursor: null,
+        details: [{ id: firstDetectionId, entityType: 'EMAIL', start, end, confidence: 0.99, sources: ['REGEX'] }],
+        conflictDetails: [], conflictDetailsLimited: false,
+        job: {
+          id: scanJobId, operation: 'SCAN', state: 'SUCCEEDED', revision: 6,
+          policy: { id: 'development-labels', version: '0.1.0', digest: `sha256:${'a'.repeat(64)}` },
+          createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z'
+        },
+        events: [], review: emptyReview
+      })
+    };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(
+      screen.getByLabelText('Document file'),
+      new File([documentText], 'private-<svg onload=alert(1)>-record.txt', { type: 'text/plain' })
+    );
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
+    await screen.findByText('1 potential item found.');
+    expect(await screen.findByText(canary)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'View source context' }));
+    const sourceContext = await screen.findByRole('region', {
+      name: 'Highlighted detected text in its local source context'
+    });
+
+    expect(sourceContext.textContent).toContain(markupPayload);
+    expect(sourceContext.textContent).toContain(breakoutPayload);
+    expect(sourceContext.textContent).toContain(schemePayload);
+    expect(sourceContext.querySelector('mark')?.textContent).toBe(canary);
+    expect(container.innerHTML).toContain('&lt;img src=x');
+    expect(container.innerHTML).toContain('&lt;script&gt;');
+    for (const selector of ['script', 'img', 'svg', 'iframe', 'object', 'embed', 'style', 'link']) {
+      expect(container.querySelector(selector)).toBeNull();
+    }
+    expect(eventHandlerAttributes(container)).toEqual([]);
+    expect(hostileHrefs(container)).toEqual([]);
+    expect(injectionFlag()).toBeUndefined();
+    expect(document.title).toBe('Local PII');
+    expect(container.textContent).not.toContain('private-');
+    expect(container.textContent).not.toContain('<svg onload');
+  });
+
+  it('keeps hostile output markup inert in the verified preview and on the download link', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:local-hostile-output') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const user = userEvent.setup();
+    const outputMarkup =
+      '</pre><script>globalThis.localPiiInjected = true</script><a href="javascript:alert(1)">x</a>';
+    const base = readyJobClient();
+    const jobs: LocalJobClient = {
+      ...base,
+      redact: async (...parameters) => {
+        const summary = await base.redact(...parameters);
+        const bytes = new TextEncoder().encode(`Synthetic contact: [EMAIL_1]\n${outputMarkup}`);
+        return { ...summary, output: { ...summary.output, byteLength: bytes.byteLength, bytes } };
+      }
+    };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    await user.upload(
+      screen.getByLabelText('Document file'),
+      new File(['Synthetic contact: browser@example.test'], 'private-source.txt', { type: 'text/plain' })
+    );
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
+    await screen.findByText('1 potential item found.');
+    await user.click(screen.getByRole('button', { name: 'Redact and preview' }));
+
+    const previewRegion = await screen.findByRole('region', { name: 'Verified redacted output preview' });
+    expect(previewRegion.textContent).toContain(outputMarkup);
+    expect(previewRegion.querySelector('script')).toBeNull();
+    expect(previewRegion.querySelector('a')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.innerHTML).toContain('&lt;script&gt;');
+    expect(eventHandlerAttributes(container)).toEqual([]);
+    expect(hostileHrefs(container)).toEqual([]);
+    expect(injectionFlag()).toBeUndefined();
+    const download = screen.getByRole('link', { name: 'Download verified redacted copy' });
+    expect(download.getAttribute('href')).toBe('blob:local-hostile-output');
+    expect(download.getAttribute('download')).toBe('document.redacted.txt');
+  });
+
+  it('keeps hostile failure text, policy identifiers, and file names out of the review surface', async () => {
+    const user = userEvent.setup();
+    const canary = 'failure-detail@example.test';
+    const hostilePolicyId = '<script>alert(1)</script>';
+    const hostileFailure = `<b onmouseover=alert(1)>/private/tmp/${canary}</b>`;
+    const base = readyJobClient();
+    const jobs: LocalJobClient = {
+      ...base,
+      loadPolicies: async () => {
+        const catalog = await base.loadPolicies(new AbortController().signal);
+        const hostile = { ...catalog.defaultPolicy, id: hostilePolicyId };
+        return { defaultPolicy: hostile, policies: [hostile] };
+      },
+      scan: () => Promise.reject(new Error(hostileFailure))
+    };
+    const { container } = render(<WebApplication capabilityClient={readyClient()} jobClient={jobs} />);
+    await screen.findByText('Local engine is ready');
+    expect(screen.getByText('Configured policy')).toBeTruthy();
+    await user.upload(
+      screen.getByLabelText('Document file'),
+      new File(['synthetic'], `${canary}-notes.txt`, { type: 'text/plain' })
+    );
+    await user.click(screen.getByRole('button', { name: 'Scan document' }));
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('The local preview scan could not be completed.');
+    expect(container.textContent).not.toContain(canary);
+    expect(container.textContent).not.toContain('/private/tmp');
+    expect(container.textContent).not.toContain(hostilePolicyId);
+    expect(container.textContent).not.toContain('alert(1)');
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.querySelector('b')).toBeNull();
+    expect(eventHandlerAttributes(container)).toEqual([]);
+    expect(screen.queryByRole('heading', { level: 3, name: 'Detection details' })).toBeNull();
   });
 
   it('reports a missing launcher session without inventing a processing workflow', async () => {
