@@ -1,0 +1,5 @@
+Frozen synthetic widened lookalike negatives.
+The firmware release 10.2.14.3 supersedes 10.2.14.2 across every kiosk.
+Barcode 8812 4455 9087 3320 6641 labels the shelf and is not a payment card.
+Mail is collected @ noon; the distribution list is written as ops@ with no domain recorded.
+No claimant, employer, town, address, birth date, account, telephone, or network host appears in this notice.

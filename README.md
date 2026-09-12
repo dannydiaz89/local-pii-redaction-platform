@@ -307,10 +307,22 @@ guarantee that a document contains no sensitive data.
 - **Detection is rules-only by default**, covering email, general phone shapes, structurally valid
   US SSNs, Luhn-valid payment cards, IPv4/IPv6, and explicit API-key/token/password assignments. It
   finds no names or addresses without an experimental contextual engine, and no model is qualified.
-- **Contextual engines are unqualified.** On the 22-document synthetic harness `gemma3:4b` reaches
-  per-class F1 between 0.85 and 0.97; both evaluated models produce false positives, and a document
-  instructing the model to report only some entity types still suppresses the others. Treat any
-  document that may carry attacker-controlled text as outside this path's guarantees.
+- **Contextual engines are unqualified.** On the 30-document synthetic harness `gemma3:4b` reaches
+  per-class F1 between 0.63 and 0.97 and `phi4-mini:3.8b` between 0.68 and 0.87; both evaluated
+  models produce false positives, and a document instructing the model to report only some entity
+  types still suppresses the others. Treat any document that may carry attacker-controlled text as
+  outside this path's guarantees.
+- **The contextual set stays disjoint from the rules set, and a model cannot second-opinion a rules
+  finding.** Asked only for the six contextual types, `gemma3:4b` shoehorns rather than declines:
+  54 of 492 returned spans land exactly on a rules-covered value, an email becoming `PERSON` and a
+  payment card or SSN becoming `ACCOUNT_ID`. Letting it return the true labels was measured and not
+  shipped. It removed most of the shoehorning but cost recall on the types only a model can supply
+  (`ORGANIZATION` 0.92 to 0.79, `ADDRESS` 0.94 to 0.83), recovered only 54 of the 75 rules-covered
+  spans the rules recover exactly, and managed 0.25 recall on `SSN` in both models. It also made a
+  model label able to displace a deterministic one: span resolution ranks `EMAIL`, `SSN` and
+  `CREDIT_CARD` above every contextual type, so a wrong rules-covered label silently replaces a
+  checksum or regex finding with an uncalibrated 0.5 guess and raises no conflict, where a wrong
+  contextual label is harmlessly dropped.
 - **Verification is a deterministic residual rescan**, not a claim that every class of personal data
   was detected. The contextual rescan inherits the model's recall limits.
 - **Format coverage is uneven.** TXT/Markdown, JSON, and CSV support the full inspect/scan/redact/

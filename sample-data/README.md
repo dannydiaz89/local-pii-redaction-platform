@@ -11,7 +11,13 @@ contain real personal data, credentials, or private documents.
 - `contextual/` contains frozen development, evaluation, and challenge inputs for contextual-model
   evaluator development. Its manifest includes exact Unicode code-point spans for `PERSON`,
   `ADDRESS`, `LOCATION`, `ORGANIZATION`, `DATE_OF_BIRTH`, and `ACCOUNT_ID`, along with provenance,
-  seed, and content digests.
+  seed, and content digests. It also carries ground truth for the rules-covered `EMAIL`, `PHONE`,
+  `SSN`, `CREDIT_CARD`, and `IP_ADDRESS`, which no contextual detector declares: several documents
+  mix both families the way a real document does, so a contextual label returned over one of those
+  spans is counted as the false positive it is rather than being invisible. Expect those five rows
+  to score zero recall for any detector limited to the six contextual types. The widened negatives
+  carry shapes a regex has to reject — a dotted version string, a digit run too long to be a
+  payment card, an SSN-shaped placeholder, and an `@` with no domain.
 
 The contextual corpus is deliberately small and synthetic. It validates evaluator plumbing and
 supports candidate comparisons, but it is not statistically sufficient evidence for a model or

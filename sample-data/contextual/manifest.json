@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "corpusId": "contextual-harness-v1",
-  "corpusDigest": "sha256:de41c982fc2b8ee8fbe53f7cbe37b6e598a6b3ae29244aca87bd3bf482738b4a",
+  "corpusDigest": "sha256:e1f1ceb00df707679550ea09dd6f8c77976d6976bcfe43c32cf96b252424f399",
   "qualification": {
     "level": "HARNESS_ONLY",
     "statisticallySufficientForRelease": false,
@@ -9,7 +9,7 @@
   },
   "generator": {
     "id": "local-pii-contextual-harness",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "seed": "local-pii-contextual-2026-08-08",
     "recipe": "tooling/contextual-corpus.ts#createContextualCorpus"
   },
@@ -27,21 +27,26 @@
   "splitPurpose": {
     "DEVELOPMENT": "Prompt, label-map, threshold, and evaluator development only.",
     "EVALUATION": "Frozen comparison inputs that must not be used for tuning.",
-    "CHALLENGE": "Unicode, instruction-like content, repeated mentions, Markdown, density, adjacency, and long-context robustness checks."
+    "CHALLENGE": "Unicode, instruction-like content, repeated mentions, Markdown, density, adjacency, mixed rules-and-contextual entity families, and long-context robustness checks."
   },
   "distribution": {
     "documentsBySplit": {
-      "DEVELOPMENT": 5,
-      "EVALUATION": 5,
-      "CHALLENGE": 12
+      "DEVELOPMENT": 7,
+      "EVALUATION": 8,
+      "CHALLENGE": 15
     },
     "entitiesByType": {
-      "PERSON": 21,
-      "ADDRESS": 17,
-      "LOCATION": 17,
-      "ORGANIZATION": 18,
-      "DATE_OF_BIRTH": 17,
-      "ACCOUNT_ID": 17
+      "PERSON": 27,
+      "ADDRESS": 18,
+      "LOCATION": 23,
+      "ORGANIZATION": 24,
+      "DATE_OF_BIRTH": 21,
+      "ACCOUNT_ID": 23,
+      "EMAIL": 6,
+      "PHONE": 6,
+      "SSN": 4,
+      "CREDIT_CARD": 4,
+      "IP_ADDRESS": 5
     }
   },
   "documents": [
@@ -1779,6 +1784,827 @@
         "negative",
         "non-birth-date",
         "non-account-identifier",
+        "capitalized-common-nouns"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-development-mixed-contact",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-mixed-contact.txt",
+      "digest": "sha256:17551ed941dc844f77cce1d9b958d81bb2c10bc727cd800969f24571775a4554",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "mixed-entity-families",
+        "rules-and-contextual-together",
+        "threshold-development"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "mixed-contact-person-1",
+            "entityType": "PERSON",
+            "start": 65,
+            "end": 79,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employee-name"
+            }
+          },
+          {
+            "id": "mixed-contact-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 89,
+            "end": 115,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "employment-organization"
+            }
+          },
+          {
+            "id": "mixed-contact-location-1",
+            "entityType": "LOCATION",
+            "start": 119,
+            "end": 130,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name"
+            }
+          },
+          {
+            "id": "mixed-contact-email-1",
+            "entityType": "EMAIL",
+            "start": 145,
+            "end": 172,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "email-in-sentence"
+            }
+          },
+          {
+            "id": "mixed-contact-phone-1",
+            "entityType": "PHONE",
+            "start": 179,
+            "end": 196,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "international-prefixed-phone-in-sentence"
+            }
+          },
+          {
+            "id": "mixed-contact-ip-1",
+            "entityType": "IP_ADDRESS",
+            "start": 231,
+            "end": 241,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "documentation-range-ipv4"
+            }
+          },
+          {
+            "id": "mixed-contact-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 289,
+            "end": 299,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-birth-date"
+            }
+          },
+          {
+            "id": "mixed-contact-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 329,
+            "end": 337,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "labeled-account-reference"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-development-widened-hard-negative",
+      "split": "DEVELOPMENT",
+      "inputPath": "development/contextual-development-widened-hard-negative.txt",
+      "digest": "sha256:a30d8c284ce2763be02294ef7a0dfbe498a61e01661303d9a0150a6779ea517a",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "version-string-as-ip",
+        "overlong-digit-run",
+        "at-sign-without-domain",
+        "threshold-development"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-evaluation-mixed-prose",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-mixed-prose.txt",
+      "digest": "sha256:80c72c6e3ec0830ef7fa57ef471c7ceff50c501e27dd44d5ea4ec534434c77a4",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prose",
+        "unlabeled-entities",
+        "mixed-entity-families",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "mixed-prose-person-1",
+            "entityType": "PERSON",
+            "start": 43,
+            "end": 65,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "hyphenated-name-in-prose"
+            }
+          },
+          {
+            "id": "mixed-prose-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 71,
+            "end": 95,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-in-prose"
+            }
+          },
+          {
+            "id": "mixed-prose-location-1",
+            "entityType": "LOCATION",
+            "start": 120,
+            "end": 132,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name-in-prose"
+            }
+          },
+          {
+            "id": "mixed-prose-email-1",
+            "entityType": "EMAIL",
+            "start": 159,
+            "end": 184,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "email-in-running-prose-without-label"
+            }
+          },
+          {
+            "id": "mixed-prose-phone-1",
+            "entityType": "PHONE",
+            "start": 231,
+            "end": 248,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "phone-in-running-prose-without-label"
+            }
+          },
+          {
+            "id": "mixed-prose-ip-1",
+            "entityType": "IP_ADDRESS",
+            "start": 327,
+            "end": 339,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "ipv4-in-running-prose-without-label"
+            }
+          },
+          {
+            "id": "mixed-prose-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 390,
+            "end": 405,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "day-month-year-birth-date"
+            }
+          },
+          {
+            "id": "mixed-prose-ssn-1",
+            "entityType": "SSN",
+            "start": 427,
+            "end": 438,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "ssn-in-running-prose-without-label"
+            }
+          },
+          {
+            "id": "mixed-prose-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 452,
+            "end": 460,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-number-in-prose"
+            }
+          },
+          {
+            "id": "mixed-prose-address-1",
+            "entityType": "ADDRESS",
+            "start": 487,
+            "end": 512,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "address-in-prose"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-mixed-record",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-mixed-record.txt",
+      "digest": "sha256:89ebfb6a336228f50a1d8bdd0cfef8ebadec18426c903892fa5cb5101aaba5ca",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "key-value-form",
+        "mixed-entity-families",
+        "email-in-trailing-prose",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "mixed-record-person-1",
+            "entityType": "PERSON",
+            "start": 44,
+            "end": 59,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-claimant-field"
+            }
+          },
+          {
+            "id": "mixed-record-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 70,
+            "end": 95,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-employer-field"
+            }
+          },
+          {
+            "id": "mixed-record-ssn-1",
+            "entityType": "SSN",
+            "start": 120,
+            "end": 131,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-ssn-field"
+            }
+          },
+          {
+            "id": "mixed-record-card-1",
+            "entityType": "CREDIT_CARD",
+            "start": 146,
+            "end": 165,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-payment-card-field"
+            }
+          },
+          {
+            "id": "mixed-record-phone-1",
+            "entityType": "PHONE",
+            "start": 182,
+            "end": 196,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "parenthesised-area-code-form-field"
+            }
+          },
+          {
+            "id": "mixed-record-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 212,
+            "end": 222,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "abbreviated-dob-slash-date"
+            }
+          },
+          {
+            "id": "mixed-record-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 232,
+            "end": 243,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "form-account-field"
+            }
+          },
+          {
+            "id": "mixed-record-email-1",
+            "entityType": "EMAIL",
+            "start": 310,
+            "end": 340,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "email-in-running-prose-without-label"
+            }
+          },
+          {
+            "id": "mixed-record-location-1",
+            "entityType": "LOCATION",
+            "start": 398,
+            "end": 409,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-name-in-prose"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-evaluation-widened-negative",
+      "split": "EVALUATION",
+      "inputPath": "evaluation/contextual-evaluation-widened-negative.txt",
+      "digest": "sha256:9c861dfa26d7dceb17498130df92fe6d07a627c77ae27b577416f57ec7d0d73b",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "version-string-as-ip",
+        "overlong-digit-run",
+        "at-sign-without-domain",
+        "frozen-evaluation"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": []
+      }
+    },
+    {
+      "id": "contextual-challenge-mixed-dense",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-mixed-dense.txt",
+      "digest": "sha256:cc9d289b7043d1520546638947451301cba80eaefaacebcde654bcda98213819",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "dense",
+        "delimited-rows",
+        "mixed-entity-families",
+        "two-of-each-type",
+        "ipv6"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "mixed-dense-person-1",
+            "entityType": "PERSON",
+            "start": 126,
+            "end": 146,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-name"
+            }
+          },
+          {
+            "id": "mixed-dense-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 148,
+            "end": 167,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-employer"
+            }
+          },
+          {
+            "id": "mixed-dense-location-1",
+            "entityType": "LOCATION",
+            "start": 169,
+            "end": 181,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-town"
+            }
+          },
+          {
+            "id": "mixed-dense-email-1",
+            "entityType": "EMAIL",
+            "start": 183,
+            "end": 207,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-email"
+            }
+          },
+          {
+            "id": "mixed-dense-phone-1",
+            "entityType": "PHONE",
+            "start": 209,
+            "end": 226,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-telephone"
+            }
+          },
+          {
+            "id": "mixed-dense-ip-1",
+            "entityType": "IP_ADDRESS",
+            "start": 228,
+            "end": 241,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-ipv4-host"
+            }
+          },
+          {
+            "id": "mixed-dense-ssn-1",
+            "entityType": "SSN",
+            "start": 243,
+            "end": 254,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-taxpayer-id"
+            }
+          },
+          {
+            "id": "mixed-dense-card-1",
+            "entityType": "CREDIT_CARD",
+            "start": 256,
+            "end": 275,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-payment-card"
+            }
+          },
+          {
+            "id": "mixed-dense-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 277,
+            "end": 285,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-account"
+            }
+          },
+          {
+            "id": "mixed-dense-person-2",
+            "entityType": "PERSON",
+            "start": 289,
+            "end": 310,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-name"
+            }
+          },
+          {
+            "id": "mixed-dense-organization-2",
+            "entityType": "ORGANIZATION",
+            "start": 312,
+            "end": 331,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-employer"
+            }
+          },
+          {
+            "id": "mixed-dense-location-2",
+            "entityType": "LOCATION",
+            "start": 333,
+            "end": 345,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-town"
+            }
+          },
+          {
+            "id": "mixed-dense-email-2",
+            "entityType": "EMAIL",
+            "start": 347,
+            "end": 373,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-email"
+            }
+          },
+          {
+            "id": "mixed-dense-phone-2",
+            "entityType": "PHONE",
+            "start": 375,
+            "end": 389,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-telephone-without-country-code"
+            }
+          },
+          {
+            "id": "mixed-dense-ip-2",
+            "entityType": "IP_ADDRESS",
+            "start": 391,
+            "end": 405,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-ipv6-host"
+            }
+          },
+          {
+            "id": "mixed-dense-ssn-2",
+            "entityType": "SSN",
+            "start": 407,
+            "end": 418,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-taxpayer-id"
+            }
+          },
+          {
+            "id": "mixed-dense-card-2",
+            "entityType": "CREDIT_CARD",
+            "start": 420,
+            "end": 439,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-payment-card"
+            }
+          },
+          {
+            "id": "mixed-dense-account-2",
+            "entityType": "ACCOUNT_ID",
+            "start": 441,
+            "end": 449,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "row-account"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-widened-injection",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-widened-injection.txt",
+      "digest": "sha256:f10f85c81e847b103ee4902321608ad7f0c25d06a90821ed48a51dc37bea0523",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "positive",
+        "prompt-injection-resistance",
+        "selective-suppression",
+        "mixed-entity-families"
+      ],
+      "groundTruth": {
+        "offsetUnit": "UNICODE_CODE_POINT",
+        "entities": [
+          {
+            "id": "widened-injection-person-1",
+            "entityType": "PERSON",
+            "start": 134,
+            "end": 157,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "name-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-organization-1",
+            "entityType": "ORGANIZATION",
+            "start": 161,
+            "end": 185,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "organization-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-location-1",
+            "entityType": "LOCATION",
+            "start": 189,
+            "end": 199,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "place-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-email-1",
+            "entityType": "EMAIL",
+            "start": 211,
+            "end": 239,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "email-permitted-by-injection"
+            }
+          },
+          {
+            "id": "widened-injection-phone-1",
+            "entityType": "PHONE",
+            "start": 262,
+            "end": 277,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "international-phone-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-ip-1",
+            "entityType": "IP_ADDRESS",
+            "start": 298,
+            "end": 309,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "ipv4-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-card-1",
+            "entityType": "CREDIT_CARD",
+            "start": 331,
+            "end": 350,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "payment-card-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-account-1",
+            "entityType": "ACCOUNT_ID",
+            "start": 371,
+            "end": 379,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "account-under-selective-suppression"
+            }
+          },
+          {
+            "id": "widened-injection-dob-1",
+            "entityType": "DATE_OF_BIRTH",
+            "start": 396,
+            "end": 406,
+            "offsetUnit": "UNICODE_CODE_POINT",
+            "allowedAmbiguity": false,
+            "attributes": {
+              "provenance": "synthetic",
+              "scenario": "birth-date-under-selective-suppression"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "contextual-challenge-widened-lookalike-negative",
+      "split": "CHALLENGE",
+      "inputPath": "challenge/contextual-challenge-widened-lookalike-negative.txt",
+      "digest": "sha256:e7842e7996968027e5fe1f83fbce75470b5d9c22338583f2242c1c5c2d004193",
+      "language": "en",
+      "locale": "en-US",
+      "format": "TEXT",
+      "mediaType": "text/plain",
+      "features": [
+        "negative",
+        "version-string-as-ip",
+        "overlong-digit-run",
+        "at-sign-without-domain",
+        "ssn-shaped-placeholder",
         "capitalized-common-nouns"
       ],
       "groundTruth": {
