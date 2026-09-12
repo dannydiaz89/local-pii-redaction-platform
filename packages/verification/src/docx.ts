@@ -26,6 +26,14 @@ const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/u;
 const sourceSpanIdPattern = /^rsp_[a-f0-9]{32}$/u;
 const versionPattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
 const componentIdPattern = /^[a-z][a-z0-9-]{2,63}$/u;
+/**
+ * `w:delText` carries text the author deleted in Word and the package still
+ * retains, so the independent reconstruction has to treat it as paragraph text
+ * exactly as the adapter does. A deleted value the adapter extracts but this
+ * side never re-reads would let an artifact pass while the value it claims to
+ * have scanned was never verified.
+ */
+const textNodeElements = new Set(['w:t', 'w:delText']);
 const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const contentTypesNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const officeRelationshipPrefix = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
@@ -411,6 +419,7 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
     text: string;
     readonly paragraph?: number;
     segment?: number;
+    textElement?: string;
   }> = [];
   const elements: XmlElementRecord[] = [];
   const carriers: XmlCarrier[] = [];
@@ -468,7 +477,7 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
         const paragraph = paragraphFrame?.paragraph;
         const segment = paragraphFrame?.segment;
         carriers.push(Object.freeze({ id, value, part, kind: 'TEXT', element: name, elementOrdinal: frame.ordinal, ...(paragraph === undefined ? {} : { paragraph }), ...(segment === undefined ? {} : { segment }) }));
-        if (name === 'w:t' && paragraph !== undefined && segment !== undefined) {
+        if (textNodeElements.has(name) && paragraph !== undefined && segment !== undefined) {
           const key = `${part}\u0000${String(paragraph)}\u0000${String(segment)}`;
           const aggregate = paragraphValues.get(key) ?? { parts: [], carrierIds: [] };
           aggregate.parts.push(value);
@@ -494,6 +503,16 @@ function parseXml(part: string, bytes: Buffer): ParsedXmlPart {
       const paragraphFrame = [...stack].reverse().find((candidate) => candidate.name === 'w:p');
       paragraph = paragraphFrame?.paragraph;
       segment = paragraphFrame?.segment;
+      // Deleted text and shown text are separate readings of one paragraph, so
+      // a change of text element ends the segment the way a reference mark
+      // does, and the node that caused the change belongs to the new segment.
+      if (paragraphFrame !== undefined && textNodeElements.has(name)) {
+        if (paragraphFrame.textElement !== undefined && paragraphFrame.textElement !== name) {
+          paragraphFrame.segment = (paragraphFrame.segment ?? 1) + 1;
+        }
+        paragraphFrame.textElement = name;
+        segment = paragraphFrame.segment;
+      }
       if (
         paragraphFrame !== undefined
         && (
@@ -675,6 +694,12 @@ const structuralCarrierPairs = new Set([
   'w:footerReference|w:type', 'w:hyperlink|r:id', 'w:footnoteReference|w:id', 'w:endnoteReference|w:id',
   'w:footnote|w:id', 'w:footnote|w:type', 'w:endnote|w:id', 'w:endnote|w:type',
   'w:comment|w:id', 'w:commentRangeStart|w:id', 'w:commentRangeEnd|w:id', 'w:commentReference|w:id',
+  'w:delText|xml:space',
+  // A tracked revision contributes only its id as structure. The reviewer name
+  // and timestamp on w:ins, w:del, w:moveFrom and w:moveTo, and the range name
+  // on the move marks, are values and must reach the canonical text here too.
+  'w:ins|w:id', 'w:del|w:id', 'w:moveFrom|w:id', 'w:moveTo|w:id',
+  'w:moveFromRangeStart|w:id', 'w:moveFromRangeEnd|w:id', 'w:moveToRangeStart|w:id', 'w:moveToRangeEnd|w:id',
   // The comment companion parts are structural graphs keyed on paragraph and
   // durable ids. Only w16cex:dateUtc is a value, and it is deliberately absent
   // here so that it reaches the canonical text as a carrier.
@@ -767,7 +792,7 @@ function classifyCarriers(parsed: ParsedPackage): readonly ClassifiedCarrier[] {
         : carrier.part === 'docProps/core.xml' || carrier.part === 'docProps/app.xml'
           ? propertyTextElements.has(carrier.element)
           : false;
-      if (!retainedText || carrier.element === 'w:t') continue;
+      if (!retainedText || textNodeElements.has(carrier.element)) continue;
     }
     const location = Object.freeze({
       schemaVersion: '2.0.0' as const,
@@ -810,7 +835,7 @@ function classifySource(parsed: ParsedPackage): ClassifiedSource {
       hash.update(`S:${String(paragraph.paragraph)}:${String(paragraph.segment)}:`, 'utf8');
       for (const id of paragraph.carrierIds) {
         const node = parsed.carriers.find((carrier) => carrier.id === id);
-        if (node === undefined || node.element !== 'w:t') fail('CARRIER_CLASSIFICATION_MISMATCH');
+        if (node === undefined || !textNodeElements.has(node.element)) fail('CARRIER_CLASSIFICATION_MISMATCH');
         canonical.push(node.value);
         canonicalLength += unicodeCodePointLength(node.value);
         hash.update('N:', 'utf8').update(String(Buffer.byteLength(node.value, 'utf8')), 'utf8').update(':', 'utf8').update(node.value, 'utf8');

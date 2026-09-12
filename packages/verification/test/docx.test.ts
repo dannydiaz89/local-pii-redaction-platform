@@ -371,6 +371,35 @@ interface CommentCompanionValues {
   readonly personAuthor: string;
   readonly providerId: string;
   readonly userId: string;
+  /** Absent leaves the package free of tracked revisions entirely. */
+  readonly deletedValue?: string;
+  readonly deleteAuthor?: string;
+  readonly revisionAuthor?: string;
+  readonly moveName?: string;
+}
+
+const revisionDeleteDate = '2026-01-02T05:06:07Z';
+const revisionInsertDate = '2026-01-02T06:07:08Z';
+const revisionMoveDate = '2026-01-02T07:08:09Z';
+
+/**
+ * The same tracked-revision shape the adapter fixture builds, reconstructed
+ * here from the package bytes alone. `w:delText` holds text Word removed from
+ * view and still writes out, so a deleted value only the adapter can see has to
+ * fail a test rather than pass verification unread.
+ */
+function revisionParagraph(deletedValue: string, deleteAuthor: string, revisionAuthor: string, moveName: string): string {
+  return '<w:p w14:paraId="2B3C4D5E" w14:textId="6F7A8B9C" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">'
+    + `<w:pPr><w:rPr><w:ins w:id="16" w:author="Robin Author" w:date="${revisionInsertDate}"/></w:rPr></w:pPr>`
+    + '<w:r><w:t xml:space="preserve">holder </w:t></w:r>'
+    + `<w:del w:id="10" w:author="${deleteAuthor}" w:date="${revisionDeleteDate}"><w:r><w:delText xml:space="preserve">${deletedValue}</w:delText></w:r></w:del>`
+    + `<w:ins w:id="11" w:author="Robin Author" w:date="${revisionInsertDate}"><w:r><w:t>inserted-canary</w:t></w:r></w:ins>`
+    + `<w:moveFromRangeStart w:id="12" w:name="${moveName}" w:author="${revisionAuthor}" w:date="${revisionMoveDate}"/>`
+    + `<w:moveFrom w:id="13" w:author="${revisionAuthor}" w:date="${revisionMoveDate}"><w:r><w:delText>moved-from-canary</w:delText></w:r></w:moveFrom>`
+    + '<w:moveFromRangeEnd w:id="12"/>'
+    + `<w:moveToRangeStart w:id="14" w:name="${moveName}" w:author="${revisionAuthor}" w:date="${revisionMoveDate}"/>`
+    + `<w:moveTo w:id="15" w:author="${revisionAuthor}" w:date="${revisionMoveDate}"><w:r><w:t>moved-to-canary</w:t></w:r></w:moveTo>`
+    + '<w:moveToRangeEnd w:id="14"/></w:p>';
 }
 
 const wordAuthoredCompanionValues: CommentCompanionValues = {
@@ -391,6 +420,9 @@ function companionValues(overrides: Partial<CommentCompanionValues> = {}): Comme
 
 function commentCompanionPackage(values: CommentCompanionValues): Buffer {
   const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc, personAuthor, providerId, userId } = values;
+  const revisions = values.deletedValue === undefined
+    ? ''
+    : revisionParagraph(values.deletedValue, values.deleteAuthor ?? 'Dana Reviewer', values.revisionAuthor ?? 'Dana Reviewer', values.moveName ?? 'move-canary');
   const overrides = [
     `<Override PartName="/word/comments.xml" ContentType="${commentsContentType}"/>`,
     ...Object.entries(commentCompanionContentTypes).map(([part, type]) => `<Override PartName="/word/${part}.xml" ContentType="${type}"/>`)
@@ -421,7 +453,7 @@ function commentCompanionPackage(values: CommentCompanionValues): Buffer {
         + '<w:commentRangeEnd w:id="1"/><w:commentRangeEnd w:id="2"/>'
         + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>'
         + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="2"/></w:r></w:p>'
-        + '<w:sectPr w:rsidR="00AA00BB"/></w:body></w:document>'
+        + `${revisions}<w:sectPr w:rsidR="00AA00BB"/></w:body></w:document>`
     },
     {
       name: 'word/_rels/document.xml.rels',
@@ -467,17 +499,50 @@ function xmlValueLocation(part: string, element: string, elementOrdinal: number,
   return { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part, element, elementOrdinal, carrier: 'ATTRIBUTE', attribute };
 }
 
-function commentCompanionSource(values: CommentCompanionValues, omit: 'companion' | 'people' | 'none' = 'none'): {
+function commentCompanionSource(values: CommentCompanionValues, omit: 'companion' | 'people' | 'revision' | 'deleted-text' | 'none' = 'none'): {
   readonly text: string;
   readonly regions: readonly CanonicalRegion[];
   readonly offsetOf: (value: string) => number;
 } {
   const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc, personAuthor, providerId, userId } = values;
   const paragraphBoundary = '\n\u0000\n';
+  const revisionAuthor = values.revisionAuthor ?? 'Dana Reviewer';
+  const moveName = values.moveName ?? 'move-canary';
+  // Deleted text keeps its position in the paragraph but never shares a
+  // segment with the text a reader sees, so one revised paragraph reconstructs
+  // as five alternating segments rather than one run of concatenated tokens.
   const paragraphs = [
     { part: 'word/document.xml', paragraph: 1, value: 'body-canary' },
+    ...(values.deletedValue === undefined ? [] : [
+      { part: 'word/document.xml', paragraph: 2, value: 'holder ' },
+      // Omitting these two is the hole this surface exists to close: the
+      // package retains the deleted text either way, so a source map that
+      // leaves it out claims a scan that never read it.
+      ...(omit === 'deleted-text' ? [] : [{ part: 'word/document.xml', paragraph: 2, value: values.deletedValue }]),
+      { part: 'word/document.xml', paragraph: 2, value: 'inserted-canary' },
+      ...(omit === 'deleted-text' ? [] : [{ part: 'word/document.xml', paragraph: 2, value: 'moved-from-canary' }]),
+      { part: 'word/document.xml', paragraph: 2, value: 'moved-to-canary' }
+    ]),
     { part: 'word/comments.xml', paragraph: 1, value: commentValue },
     { part: 'word/comments.xml', paragraph: 2, value: 'reply-canary' }
+  ];
+  const revisionCarriers = values.deletedValue === undefined ? [] : [
+    { value: values.deleteAuthor ?? 'Dana Reviewer', location: xmlValueLocation('word/document.xml', 'w:del', 1, 'w:author') },
+    { value: revisionDeleteDate, location: xmlValueLocation('word/document.xml', 'w:del', 1, 'w:date') },
+    { value: 'Robin Author', location: xmlValueLocation('word/document.xml', 'w:ins', 1, 'w:author') },
+    { value: revisionInsertDate, location: xmlValueLocation('word/document.xml', 'w:ins', 1, 'w:date') },
+    { value: 'Robin Author', location: xmlValueLocation('word/document.xml', 'w:ins', 2, 'w:author') },
+    { value: revisionInsertDate, location: xmlValueLocation('word/document.xml', 'w:ins', 2, 'w:date') },
+    { value: revisionAuthor, location: xmlValueLocation('word/document.xml', 'w:moveFrom', 1, 'w:author') },
+    { value: revisionMoveDate, location: xmlValueLocation('word/document.xml', 'w:moveFrom', 1, 'w:date') },
+    { value: revisionAuthor, location: xmlValueLocation('word/document.xml', 'w:moveFromRangeStart', 1, 'w:author') },
+    { value: revisionMoveDate, location: xmlValueLocation('word/document.xml', 'w:moveFromRangeStart', 1, 'w:date') },
+    { value: moveName, location: xmlValueLocation('word/document.xml', 'w:moveFromRangeStart', 1, 'w:name') },
+    { value: revisionAuthor, location: xmlValueLocation('word/document.xml', 'w:moveTo', 1, 'w:author') },
+    { value: revisionMoveDate, location: xmlValueLocation('word/document.xml', 'w:moveTo', 1, 'w:date') },
+    { value: revisionAuthor, location: xmlValueLocation('word/document.xml', 'w:moveToRangeStart', 1, 'w:author') },
+    { value: revisionMoveDate, location: xmlValueLocation('word/document.xml', 'w:moveToRangeStart', 1, 'w:date') },
+    { value: moveName, location: xmlValueLocation('word/document.xml', 'w:moveToRangeStart', 1, 'w:name') }
   ];
   const carriers = [
     { value: author, location: xmlValueLocation('word/comments.xml', 'w:comment', 1, 'w:author') },
@@ -492,6 +557,7 @@ function commentCompanionSource(values: CommentCompanionValues, omit: 'companion
       { value: firstDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 1, 'w16cex:dateUtc') },
       { value: secondDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 2, 'w16cex:dateUtc') }
     ]),
+    ...(omit === 'revision' ? [] : revisionCarriers),
     { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 1, 'w:val') },
     { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 2, 'w:val') },
     // Every attribute `word/people.xml` carries is identity, so the independent
@@ -1151,6 +1217,79 @@ describe('independent DOCX verification foundation', () => {
     const values = companionValues({ commentValue: 'safe' });
     const input = commentCompanionPackage(values);
     const classified = commentCompanionSource(values, 'companion');
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
+    });
+  });
+
+  /**
+   * `packages/adapter-docx/test/adapter.test.ts` pins this digest for the same
+   * Word-authored package, now carrying a deletion, an insertion, a move and a
+   * paragraph-mark revision. The verifier recomputes it from the bytes, so a
+   * revision surface only the adapter enumerates fails loudly here.
+   */
+  it('agrees with the adapter on the tracked revision extraction revision', () => {
+    const classified = commentCompanionSource(companionValues({ deletedValue: 'deleted-canary bravo@example.test' }));
+
+    expect(extractionRevision(classified.text, classified.regions))
+      .toBe('sha256:32b6a23df910c0d2517b37213e55e21983f8a246ee36930e056efd4d1503c777');
+  });
+
+  it.each([
+    ['deleted text', { deletedValue: 'bravo@example.test' }],
+    ['a revision reviewer name', { deletedValue: 'safe-deletion', deleteAuthor: 'bravo@example.test' }],
+    // Word repeats the move range name on both the from and the to side, so
+    // both copies are classified and both are reported.
+    ['a move range name', { deletedValue: 'safe-deletion', moveName: 'bravo@example.test' }, 2]
+  ])('fails an unredacted entity planted in %s', (_name, overrides, count = 1) => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', personAuthor: 'safe-person', userId: 'safe-user', ...overrides });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [])))
+      .toMatchObject({ outcome: 'FAIL', findings: expect.arrayContaining([{ code: 'RESIDUAL_ENTITY', count, entityType: 'EMAIL' }]) as unknown[] });
+  });
+
+  it('refuses to reconcile a deleted-text canary the writer claimed to remove but retained', () => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', deletedValue: 'canary-6c1d' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [{
+      id: actionId, entityType: 'CUSTOM', start: classified.offsetOf('canary-6c1d'),
+      end: classified.offsetOf('canary-6c1d') + unicodeCodePointLength('canary-6c1d'), replacement: '[CUSTOM_1]'
+    }]))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'PLANNED_NATIVE_DELTA_MISMATCH', count: 1 }]
+    });
+  });
+
+  it('reconciles planned deltas across deleted text and revision reviewer identity', () => {
+    const values = companionValues({
+      commentValue: 'safe', author: 'safe-author', personAuthor: 'safe-person', userId: 'safe-user',
+      deletedValue: 'dana.reviewer@example.test', deleteAuthor: 'Ash Revisor'
+    });
+    const input = commentCompanionPackage(values);
+    const output = commentCompanionPackage({ ...values, deletedValue: '[EMAIL_1]', deleteAuthor: '[PERSON_1]' });
+    const classified = commentCompanionSource(values);
+    const span = (value: string, id: string, entityType: 'PERSON' | 'EMAIL', replacement: string) => ({
+      id, entityType, start: classified.offsetOf(value),
+      end: classified.offsetOf(value) + unicodeCodePointLength(value), replacement
+    });
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, output, classified.text, classified.regions, [
+      span('dana.reviewer@example.test', actionId, 'EMAIL', '[EMAIL_1]'),
+      span('Ash Revisor', 'act_00000000000000000000000002', 'PERSON', '[PERSON_1]')
+    ]))).toMatchObject({ outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [] });
+  });
+
+  it.each([
+    ['the deleted text segments', 'deleted-text' as const],
+    ['the revision reviewer carriers', 'revision' as const]
+  ])('refuses a source map that omits %s the package actually carries', (_name, omit) => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', deletedValue: 'canary-6c1d' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values, omit);
 
     expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
       outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
