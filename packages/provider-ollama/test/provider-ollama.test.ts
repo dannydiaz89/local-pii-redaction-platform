@@ -50,6 +50,10 @@ function safeCode(error: unknown): string | undefined {
   return error instanceof SafeError ? error.code : undefined;
 }
 
+function safeReason(error: unknown): unknown {
+  return error instanceof SafeError ? error.details?.reason : undefined;
+}
+
 describe('shared Ollama verbatim contract', () => {
   it('anchors all six development-positive entities to the committed manifest ground truth', async () => {
     const fixtureRoot = new URL('../../../sample-data/contextual/', import.meta.url);
@@ -379,6 +383,58 @@ describe('OllamaTextDetectionProvider', () => {
       expect(tagRequests).toBe(2);
     } finally {
       await server.close();
+    }
+  });
+
+  it('separates a runtime that is not reachable from a model that is not installed', async () => {
+    // A caller facing MODEL_UNAVAILABLE has two very different jobs to do: start the daemon, or
+    // pull the model. One code cannot tell them which, so the reason and the message must.
+    const rejecting = await localServer((request, response) => {
+      if (request.url === '/api/tags') {
+        response.statusCode = 500;
+        response.end('{}');
+        return;
+      }
+      response.end('{}');
+    });
+    const absent = await localServer((request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ models: [{ name: 'some-other-model:latest', digest }] }));
+    });
+    // A closed listener is the honest simulation of a daemon that was never started: the socket is
+    // refused rather than answered, which is the path a live `ollama serve` absence takes.
+    const stopped = await localServer(() => undefined);
+    const stoppedEndpoint = stopped.endpoint;
+    await stopped.close();
+
+    try {
+      const unreachable = await createOllamaTextDetectionProvider({ model, endpoint: stoppedEndpoint })
+        .prepare()
+        .catch((error: unknown) => error);
+      const notInstalled = await createOllamaTextDetectionProvider({ model, endpoint: absent.endpoint })
+        .prepare()
+        .catch((error: unknown) => error);
+      const refused = await createOllamaTextDetectionProvider({ model, endpoint: rejecting.endpoint })
+        .prepare()
+        .catch((error: unknown) => error);
+
+      expect([unreachable, notInstalled, refused].map(safeCode))
+        .toEqual(['MODEL_UNAVAILABLE', 'MODEL_UNAVAILABLE', 'MODEL_UNAVAILABLE']);
+      expect([unreachable, notInstalled, refused].map(safeReason))
+        .toEqual(['runtime_unreachable', 'model_not_installed', 'runtime_rejected']);
+      // The human line is the only thing a terminal user sees, so the three must not collapse there.
+      expect(new Set([unreachable, notInstalled, refused].map((error) => (error as SafeError).message)).size).toBe(3);
+      // Pulling a model is an operator action; telling a caller to retry the same request is false.
+      expect((notInstalled as SafeError).retryable).toBe(false);
+      expect((unreachable as SafeError).retryable).toBe(true);
+      // Nothing about the endpoint or the model tag may reach the message.
+      for (const error of [unreachable, notInstalled, refused]) {
+        expect((error as SafeError).message).not.toContain('127.0.0.1');
+        expect((error as SafeError).message).not.toContain(model);
+      }
+    } finally {
+      await rejecting.close();
+      await absent.close();
     }
   });
 

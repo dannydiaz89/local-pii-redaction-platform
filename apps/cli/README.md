@@ -18,7 +18,7 @@ experimental DOCX surface, and the explicit experimental contextual profiles.
 - Keeps Ollama opt-in, loopback-only, experimental, and bounded to TXT/Markdown for both scan and
   verified redaction. Ollama is a separate prerequisite: the daemon must already be running and the
   named model already installed, because the CLI starts neither and pulls nothing. Both failures
-  currently surface as the same `MODEL_UNAVAILABLE` code.
+  are `MODEL_UNAVAILABLE`, separated by message and by an allow-listed `details.reason`.
 - Recursively scans a deterministic, contained TXT/Markdown/JSON/CSV selection with bounded
   include/exclude globs, a deterministic non-backtracking matcher with an explicit work budget,
   conservative symlink rejection, a total byte/time budget, and an aggregate

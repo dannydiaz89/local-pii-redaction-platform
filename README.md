@@ -274,8 +274,10 @@ ollama pull phi4-mini:3.8b
 
 Any Ollama model may be named. `phi4-mini:3.8b` and `gemma3:4b` are the two the harness under
 `tooling/evaluate-ollama.ts` has been run against; neither is qualified. A model that is not
-installed is refused with `MODEL_UNAVAILABLE` rather than pulled — as is a daemon that is not
-running, which currently reports the same code.
+installed is refused rather than pulled, and the refusal says which of the two setup steps is
+missing: `The requested local model is not installed.` against `The local model runtime is not
+reachable.` Both carry the canonical `MODEL_UNAVAILABLE` code with a distinguishing
+`details.reason` in JSON output.
 
 ```sh
 # a locally installed Ollama model

@@ -257,12 +257,51 @@ function stableDetectionId(parts: readonly (string | number)[]): ReturnType<type
   return parseDetectionId(`${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`);
 }
 
+/**
+ * Why the local model could not be used. `MODEL_UNAVAILABLE` on its own cannot separate "Ollama is
+ * not running" from "that model is not installed", and those have opposite remedies: start the
+ * daemon, or pull the model. Widening the canonical code enum would be a contract break for every
+ * consumer, so the distinction rides in `details.reason`, which is already an allow-listed safe
+ * scalar, and in a distinct fixed message so the human line is actionable too.
+ */
+export type OllamaUnavailableReason =
+  | 'runtime_unreachable'
+  | 'runtime_rejected'
+  | 'runtime_response_too_large'
+  | 'model_not_installed'
+  | 'model_not_prepared'
+  | 'model_changed';
+
+/** Fixed messages; no endpoint, model name, or document value is ever interpolated into them. */
+const ollamaUnavailableMessages: Readonly<Record<OllamaUnavailableReason, string>> = {
+  runtime_unreachable: 'The local model runtime is not reachable.',
+  runtime_rejected: 'The local model runtime rejected the request.',
+  runtime_response_too_large: 'The local model runtime returned an oversized model listing.',
+  model_not_installed: 'The requested local model is not installed.',
+  model_not_prepared: 'The requested local model was not prepared before detection.',
+  model_changed: 'The requested local model changed during detection.'
+};
+
+/**
+ * An absent model and an unprepared provider are operator conditions: repeating the identical
+ * request cannot fix either, so claiming they are retryable would be a lie a caller might act on.
+ * Everything else here is a connection or daemon condition that a later attempt may well survive.
+ */
+const ollamaUnavailableRetryable: Readonly<Record<OllamaUnavailableReason, boolean>> = {
+  runtime_unreachable: true,
+  runtime_rejected: true,
+  runtime_response_too_large: true,
+  model_not_installed: false,
+  model_not_prepared: false,
+  model_changed: true
+};
+
 function safeError(
   code: 'INPUT_TOO_LARGE' | 'MODEL_UNAVAILABLE' | 'DETECTOR_TIMEOUT' | 'MODEL_OUTPUT_INVALID',
   message: string,
   retryable: boolean,
   options: ValidatedOptions,
-  details?: Readonly<Record<'deadlineExceeded', boolean>>
+  details?: Readonly<{ deadlineExceeded?: boolean; reason?: OllamaUnavailableReason }>
 ): SafeError {
   return new SafeError({
     code,
@@ -275,6 +314,16 @@ function safeError(
       ...details
     }
   });
+}
+
+function unavailable(reason: OllamaUnavailableReason, options: ValidatedOptions): SafeError {
+  return safeError(
+    'MODEL_UNAVAILABLE',
+    ollamaUnavailableMessages[reason],
+    ollamaUnavailableRetryable[reason],
+    options,
+    { reason }
+  );
 }
 
 function invalidOutput(options: ValidatedOptions): SafeError {
@@ -623,19 +672,21 @@ export class OllamaTextDetectionProvider implements TextDetectionPortShape {
         headers: { accept: 'application/json' },
         redirect: 'error'
       });
-      if (!response.ok) throw safeError('MODEL_UNAVAILABLE', 'The requested local model is unavailable.', true, options);
+      if (!response.ok) throw unavailable('runtime_rejected', options);
       const digest = installedModelDigest(
-        await readLimitedUtf8(response, options.maximumResponseBytes, () => safeError('MODEL_UNAVAILABLE', 'The requested local model is unavailable.', true, options)),
+        await readLimitedUtf8(response, options.maximumResponseBytes, () => unavailable('runtime_response_too_large', options)),
         options.model
       );
-      if (digest === undefined) throw safeError('MODEL_UNAVAILABLE', 'The requested local model is unavailable.', true, options);
+      // The daemon listed its models and ours was not among them. This is the one cause the caller
+      // can fix without touching the daemon, so it must not read the same as a connection failure.
+      if (digest === undefined) throw unavailable('model_not_installed', options);
       return digest;
     } catch (error: unknown) {
       if (error instanceof SafeError) throw error;
       if (abortState.deadlineExceeded || abortState.callerCancelled) {
         throw safeError('DETECTOR_TIMEOUT', abortState.deadlineExceeded ? 'Local model preparation timed out.' : 'Local model preparation was cancelled.', true, options, { deadlineExceeded: abortState.deadlineExceeded });
       }
-      throw safeError('MODEL_UNAVAILABLE', 'The requested local model is unavailable.', true, options);
+      throw unavailable('runtime_unreachable', options);
     } finally {
       clearTimeout(deadline);
       signal?.removeEventListener('abort', cancel);
@@ -657,7 +708,7 @@ export class OllamaTextDetectionProvider implements TextDetectionPortShape {
       throw safeError('DETECTOR_TIMEOUT', 'Local model detection was cancelled.', true, options, { deadlineExceeded: false });
     }
     const digest = this.#preparedDigest;
-    if (digest === undefined) throw safeError('MODEL_UNAVAILABLE', 'The requested local model is unavailable.', true, options);
+    if (digest === undefined) throw unavailable('model_not_prepared', options);
 
     const controller = new AbortController();
     const abortState = { deadlineExceeded: false, callerCancelled: false };
@@ -679,7 +730,7 @@ export class OllamaTextDetectionProvider implements TextDetectionPortShape {
         redirect: 'error',
         body: JSON.stringify(createOllamaExtractionChatRequest(options.model, text, options))
       });
-      if (!response.ok) throw safeError('MODEL_UNAVAILABLE', 'The local model is unavailable.', true, options);
+      if (!response.ok) throw unavailable('runtime_rejected', options);
       const envelope = parseOllamaChatEnvelope(
         await readLimitedUtf8(response, options.maximumResponseBytes, () => invalidOutput(options)),
         options.model
@@ -689,7 +740,7 @@ export class OllamaTextDetectionProvider implements TextDetectionPortShape {
       if (anchored.invalidResponse || anchored.invalidSpans > 0) throw invalidOutput(options);
       const currentDigest = await this.#loadInstalledDigest(signal);
       if (currentDigest !== digest) {
-        throw safeError('MODEL_UNAVAILABLE', 'The requested local model changed during detection.', true, options);
+        throw unavailable('model_changed', options);
       }
       return anchored.detections.map((span) => ({
         id: stableDetectionId([extractionRevision, ollamaLocalDetectorId, this.detectorBundleVersion, options.model, digest, span.entityType, span.start, span.end]),
@@ -704,7 +755,7 @@ export class OllamaTextDetectionProvider implements TextDetectionPortShape {
       if (abortState.deadlineExceeded || abortState.callerCancelled) {
         throw safeError('DETECTOR_TIMEOUT', abortState.deadlineExceeded ? 'Local model detection timed out.' : 'Local model detection was cancelled.', true, options, { deadlineExceeded: abortState.deadlineExceeded });
       }
-      throw safeError('MODEL_UNAVAILABLE', 'The local model is unavailable.', true, options);
+      throw unavailable('runtime_unreachable', options);
     } finally {
       clearTimeout(deadline);
       signal?.removeEventListener('abort', cancel);
