@@ -127,6 +127,9 @@ VERIFICATION_PROFILE_AVAILABLE: unavailable           # high-risk-v1 is delibera
 - Node.js 24 or newer
 - pnpm 10
 - Python 3.12 or newer
+- [Ollama](https://ollama.com/download) — required for the opt-in `--engine ollama` contextual
+  path, and only for that path. The rules-only default, the `--engine inference` path, and every
+  gate in `pnpm check` all run without it.
 
 ## Development
 
@@ -260,8 +263,22 @@ Detection is rules-only by default. Two opt-in engines add contextual detection,
 `--allow-experimental`, both bounded to TXT/Markdown, and both failing closed rather than silently
 falling back. Neither is qualified.
 
+The Ollama path needs a running daemon and an already-installed model; the application never
+starts the daemon and never pulls a model itself, because both are network operations and this
+repository does not make them on your behalf. Install [Ollama](https://ollama.com/download), then:
+
 ```sh
-# a locally installed Ollama model, which the application never pulls itself
+ollama serve            # unless it is already running as a service
+ollama pull phi4-mini:3.8b
+```
+
+Any Ollama model may be named. `phi4-mini:3.8b` and `gemma3:4b` are the two the harness under
+`tooling/evaluate-ollama.ts` has been run against; neither is qualified. A model that is not
+installed is refused with `MODEL_UNAVAILABLE` rather than pulled — as is a daemon that is not
+running, which currently reports the same code.
+
+```sh
+# a locally installed Ollama model
 pnpm --silent pii-redact scan ./sample-data/contextual/development/contextual-development-positive.txt \
   --engine ollama --model phi4-mini:3.8b --allow-experimental --json
 
