@@ -651,7 +651,7 @@ function parsePackage(bytes: Uint8Array): ParsedPackage {
 }
 
 const textPartPattern = /^word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml$/u;
-const classifiedAttributePartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|settings|numbering|styles|fontTable)\.xml|customXml\/(?:item1|itemProps1)\.xml|docProps\/(?:core|app)\.xml)$/u;
+const classifiedAttributePartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|settings|numbering|styles|fontTable)\.xml|customXml\/(?:item1|itemProps1)\.xml|docProps\/(?:core|app)\.xml)$/u;
 const propertyTextElements = new Set([
   'dc:creator', 'dc:description', 'dc:language', 'dc:subject', 'dc:title', 'dcterms:created', 'dcterms:modified',
   'cp:lastModifiedBy', 'cp:lastPrinted', 'cp:revision', 'Template', 'TotalTime', 'Pages', 'Words', 'Characters',
@@ -659,11 +659,28 @@ const propertyTextElements = new Set([
   'CharactersWithSpaces', 'SharedDoc', 'HyperlinksChanged', 'AppVersion', 'vt:lpstr', 'vt:i4'
 ]);
 
+/**
+ * `mc:Ignorable` lists namespace prefixes on every Word-authored part root, so
+ * it is structure rather than a value on both sides of this boundary.
+ */
+const ignorableRoots = [
+  'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:comments',
+  'w:settings', 'w:styles', 'w:numbering', 'w:fonts',
+  'w15:commentsEx', 'w16cid:commentsIds', 'w16cex:commentsExtensible'
+];
+
 const structuralCarrierPairs = new Set([
+  ...ignorableRoots.map((root) => `${root}|mc:Ignorable`),
   'w:t|xml:space', 'w:headerReference|r:id', 'w:headerReference|w:type', 'w:footerReference|r:id',
   'w:footerReference|w:type', 'w:hyperlink|r:id', 'w:footnoteReference|w:id', 'w:endnoteReference|w:id',
   'w:footnote|w:id', 'w:footnote|w:type', 'w:endnote|w:id', 'w:endnote|w:type',
   'w:comment|w:id', 'w:commentRangeStart|w:id', 'w:commentRangeEnd|w:id', 'w:commentReference|w:id',
+  // The comment companion parts are structural graphs keyed on paragraph and
+  // durable ids. Only w16cex:dateUtc is a value, and it is deliberately absent
+  // here so that it reaches the canonical text as a carrier.
+  'w15:commentEx|w15:paraId', 'w15:commentEx|w15:paraIdParent', 'w15:commentEx|w15:done',
+  'w16cid:commentId|w16cid:paraId', 'w16cid:commentId|w16cid:durableId',
+  'w16cex:commentExtensible|w16cex:durableId', 'w16cex:commentExtensible|w16cex:intelligentPlaceholder',
   'w:p|w14:paraId', 'w:p|w14:textId', 'w:p|w:rsidR', 'w:p|w:rsidRDefault', 'w:p|w:rsidP',
   'w:p|w:rsidRPr', 'w:r|w:rsidR', 'w:sectPr|w:rsidR', 'w:rsid|w:val', 'w:rsidRoot|w:val',
   'w:nsid|w:val', 'w:tmpl|w:val', 'w:num|w:numId', 'w:num|w16cid:durableId',
