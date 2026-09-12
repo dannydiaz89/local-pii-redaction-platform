@@ -31,6 +31,10 @@ authorize publication. It gates the qualified carrier surface first, reconciles 
 writer receipt, then runs the foundation and maps its findings into a canonical v2 attestation, where
 a tracked-revision delta becomes `HIDDEN_TEXT_PRESENT`, a surviving planned removal in `docProps` or
 the settings part becomes `METADATA_RESIDUAL`, and anything it cannot establish becomes INCOMPLETE.
+An INCOMPLETE names the check that could not decide: `NATIVE_SURFACE` when the profile declines to
+qualify the carrier a plan targets or the replacement it would write into a hyperlink target, and
+`STRUCTURE` when this verifier and the adapter read the same package differently, which is a
+disagreement about the package and says nothing about which carriers a plan touched.
 The foundation does not
 call or import the DOCX adapter and has no filesystem side effects, but it also does not yet reproduce
 the adapter's complete feature-grammar validation or malicious-input qualification. It does prove that

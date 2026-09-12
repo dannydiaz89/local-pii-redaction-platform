@@ -355,13 +355,29 @@ function residualsBlocked(correlationId: CorrelationId, findingCount: number): S
   });
 }
 
-function verificationIncomplete(correlationId: CorrelationId): SafeError {
+/**
+ * `reason` carries the attestation check that left the verifier undecided, lower-cased from the
+ * contract's own closed enumeration. It is the difference between an operator being told only
+ * that verification did not complete and being told which of a profile's checks could not
+ * decide — a native surface the profile declines to qualify reads differently from two
+ * implementations disagreeing about the structure of the same package. It is an enum name, never
+ * a value, a path or a parser message.
+ */
+function verificationIncomplete(correlationId: CorrelationId, reason?: string): SafeError {
   return new SafeError({
     code: 'VERIFICATION_INCOMPLETE',
     message: 'The required verification profile did not complete with a valid report.',
     retryable: false,
-    correlationId
+    correlationId,
+    ...(reason === undefined ? {} : { details: { reason } })
   });
+}
+
+const incompleteFindingCodes = new Set(['REOPEN_FAILED', 'OUTPUT_DIGEST_MISMATCH', 'VERIFIER_INCOMPLETE']);
+
+function undecidedCheck(report: TextVerificationAttestation): string | undefined {
+  const finding = report.findings.find(({ code }) => incompleteFindingCodes.has(code));
+  return finding === undefined ? undefined : finding.check.toLocaleLowerCase('en-US');
 }
 
 function redactionCountMismatch(correlationId: CorrelationId): SafeError {
@@ -504,11 +520,6 @@ function assertVerificationAttestation(
       && expectedChecks.length === report.checks.length
       && expectedChecks.every((check, index) => report.checks[index] === check)
       && Date.parse(report.completedAt) >= Date.parse(report.startedAt);
-    const incompleteFindingCodes = new Set([
-      'REOPEN_FAILED',
-      'OUTPUT_DIGEST_MISMATCH',
-      'VERIFIER_INCOMPLETE'
-    ]);
     const hasIncompleteFinding = report.findings.some(({ code }) => incompleteFindingCodes.has(code));
     const outcomeIsCoherent = report.outcome === 'PASS'
       ? report.findings.length === 0
@@ -533,7 +544,7 @@ function assertVerificationAttestation(
     throw redactionCountMismatch(correlationId);
   }
 
-  if (report.outcome === 'INCOMPLETE') throw verificationIncomplete(correlationId);
+  if (report.outcome === 'INCOMPLETE') throw verificationIncomplete(correlationId, undecidedCheck(report));
   if (report.outcome !== 'PASS') {
     throw residualsBlocked(correlationId, report.findings.length);
   }

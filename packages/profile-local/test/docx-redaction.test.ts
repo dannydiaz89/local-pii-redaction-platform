@@ -117,6 +117,19 @@ interface PackageValues {
   readonly documentRun?: string;
   /** The anchored paragraph id, which no plan ever targets, for unplanned-delta forgeries. */
   readonly paragraphId?: string;
+  /**
+   * An address carried twice over: once as visible header text and once as the target of a
+   * `mailto:` hyperlink in that header's relationship part. This is the shape a Word-authored
+   * document reaches for whenever a contact address is a clickable link, and it is the shape
+   * the rest of this fixture never had.
+   */
+  readonly linkedAddress?: string;
+  /** The relationship target, so a forging writer can keep the address the plan removed. */
+  readonly linkedTarget?: string;
+  /** The hyperlink relationship id, for forging a reference the part no longer resolves. */
+  readonly linkedRelationshipId?: string;
+  /** Adds `docProps/app.xml` with the heading-pair and title-part vectors Word writes. */
+  readonly extendedProperties?: true;
 }
 
 const plantedValues: PackageValues = {
@@ -140,8 +153,43 @@ const labels = {
   userId: '[EMAIL_7]'
 } as const;
 
+/**
+ * `docProps/app.xml` exactly as Word writes it for a document with headings: the heading-pair
+ * and title-part vectors, whose `baseType` names the vector's element type and whose `size` is
+ * its element count. Both are typed, both are validated against the vector's contents, and
+ * neither is extracted — so a verifier that reads either as a value disagrees with the adapter
+ * about the canonical text of every real document that has more than one heading.
+ */
+const extendedPropertiesPart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+  + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"'
+  + ' xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+  + '<Template>Normal.dotm</Template><Pages>1</Pages><Words>12</Words><Characters>70</Characters>'
+  + '<Application>Microsoft Office Word</Application><DocSecurity>0</DocSecurity><Lines>1</Lines>'
+  + '<Paragraphs>1</Paragraphs><ScaleCrop>false</ScaleCrop>'
+  + '<HeadingPairs><vt:vector size="2" baseType="variant">'
+  + '<vt:variant><vt:lpstr>Title</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant>'
+  + '</vt:vector></HeadingPairs>'
+  + '<TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr></vt:lpstr></vt:vector></TitlesOfParts>'
+  + '<Company></Company><LinksUpToDate>false</LinksUpToDate><CharactersWithSpaces>81</CharactersWithSpaces>'
+  + '<SharedDoc>false</SharedDoc><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0000</AppVersion>'
+  + '</Properties>';
+
 function wordPackage(overrides: Partial<PackageValues> = {}): readonly { readonly name: string; readonly contents: string }[] {
   const values = { ...plantedValues, ...overrides };
+  const linkId = values.linkedRelationshipId ?? 'rId1';
+  const headerLink = values.linkedAddress === undefined
+    ? ''
+    : `<w:p><w:hyperlink r:id="${linkId}"><w:r><w:t>Reach ${values.linkedAddress}</w:t></w:r></w:hyperlink></w:p>`;
+  const headerRelationships = values.linkedAddress === undefined ? [] : [{
+    name: 'word/_rels/header1.xml.rels',
+    contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}">`
+      + `<Relationship Id="${linkId}" Type="${officeRelationshipPrefix}hyperlink"`
+      + ` Target="${values.linkedTarget ?? `mailto:${values.linkedAddress}`}" TargetMode="External"/></Relationships>`
+  }];
+  const extendedParts = values.extendedProperties === undefined ? [] : [{
+    name: 'docProps/app.xml',
+    contents: extendedPropertiesPart
+  }];
   const documentRun = values.documentRun ?? `<w:r><w:t>${values.documentText}</w:t></w:r>`;
   const anchored = `<w:p w14:paraId="${values.paragraphId ?? '1A2B3C4D'}" w14:textId="5E6F7A8B" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">`
     + `<w:commentRangeStart w:id="1"/>${documentRun}<w:commentRangeEnd w:id="1"/>`
@@ -163,7 +211,10 @@ function wordPackage(overrides: Partial<PackageValues> = {}): readonly { readonl
     ['/word/commentsIds.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml'],
     ['/word/commentsExtensible.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml'],
     ['/word/people.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml'],
-    ['/docProps/core.xml', 'application/vnd.openxmlformats-package.core-properties+xml']
+    ['/docProps/core.xml', 'application/vnd.openxmlformats-package.core-properties+xml'],
+    ...(values.extendedProperties === undefined
+      ? []
+      : [['/docProps/app.xml', 'application/vnd.openxmlformats-officedocument.extended-properties+xml']])
   ].map(([part, type]) => `<Override PartName="${part ?? ''}" ContentType="${type ?? ''}"/>`).join('');
   const documentRelationships = [
     `<Relationship Id="rId2" Type="${officeRelationshipPrefix}comments" Target="comments.xml"/>`,
@@ -181,7 +232,7 @@ function wordPackage(overrides: Partial<PackageValues> = {}): readonly { readonl
     },
     {
       name: '_rels/.rels',
-      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>${values.extendedProperties === undefined ? '' : `<Relationship Id="rId10" Type="${officeRelationshipPrefix}extended-properties" Target="docProps/app.xml"/>`}</Relationships>`
     },
     {
       name: 'word/document.xml',
@@ -193,8 +244,12 @@ function wordPackage(overrides: Partial<PackageValues> = {}): readonly { readonl
     },
     {
       name: 'word/header1.xml',
-      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${markup} mc:Ignorable="w14"><w:p><w:r><w:t>${values.headerText}</w:t></w:r></w:p></w:hdr>`
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${markup}`
+        + (values.linkedAddress === undefined ? '' : ` xmlns:r="${officeRelationshipNamespace}"`)
+        + ` mc:Ignorable="w14"><w:p><w:r><w:t>${values.headerText}</w:t></w:r></w:p>${headerLink}</w:hdr>`
     },
+    ...headerRelationships,
+    ...extendedParts,
     {
       name: 'word/comments.xml',
       contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments ${markup} mc:Ignorable="w14">`
@@ -250,7 +305,11 @@ function digestOf(bytes: Uint8Array): Sha256Digest {
  */
 type OmitSpan = (value: string, location: CanonicalRegion['location']) => boolean;
 
-async function planFor(source: DocxArtifact, omit: OmitSpan = () => false): Promise<TypedLabelPlan> {
+async function planFor(
+  source: DocxArtifact,
+  omit: OmitSpan = () => false,
+  inputDigest: Sha256Digest = source.digest
+): Promise<TypedLabelPlan> {
   const scanned = await localDocxApplication.scan({
     session: { input: () => Promise.resolve(source) },
     requirement: docxCapabilityRequirement('SCAN')
@@ -264,7 +323,7 @@ async function planFor(source: DocxArtifact, omit: OmitSpan = () => false): Prom
       return !omit(source.text.slice(span.start, span.end), region.location);
     })
   }, {
-    inputDigest: source.digest,
+    inputDigest,
     capabilityDigest,
     detectorBundleVersion: scanned.detectorBundleVersion,
     policy: { id: policy.id, version: policy.version, digest: policy.digest, riskTier: policy.riskTier },
@@ -272,7 +331,19 @@ async function planFor(source: DocxArtifact, omit: OmitSpan = () => false): Prom
   });
 }
 
-function planBinding(plan: TypedLabelPlan) {
+type PlanAction = {
+  readonly id: string;
+  readonly sourceSpanId?: string;
+  readonly entityType: TypedLabelPlan['actions'][number]['entityType'];
+  readonly start: number;
+  readonly end: number;
+  readonly replacement: string;
+};
+
+function planBinding(plan: TypedLabelPlan, rewrite: (actions: readonly PlanAction[]) => readonly PlanAction[] = (actions) => actions) {
+  const actions = rewrite(plan.actions.map(({ id, sourceSpanId, entityType, start, end, replacement }) => ({
+    id, sourceSpanId, entityType, start, end, replacement
+  })));
   return {
     id: plan.id,
     digest: plan.digest,
@@ -281,10 +352,8 @@ function planBinding(plan: TypedLabelPlan) {
     capabilityDigest: plan.capabilityDigest,
     policy: plan.policy,
     writer: plan.writer,
-    expectedActionCount: plan.expectedActionCount,
-    actions: plan.actions.map(({ id, sourceSpanId, entityType, start, end, replacement }) => ({
-      id, sourceSpanId, entityType, start, end, replacement
-    }))
+    expectedActionCount: actions.length,
+    actions
   };
 }
 
@@ -305,6 +374,15 @@ function receiptFor(plan: TypedLabelPlan, stagedDigest: Sha256Digest, stagedByte
 
 interface AttestOptions {
   readonly outputBytes?: Buffer;
+  /** Overrides the canonical text the plan was compiled against, for classification forgeries. */
+  readonly sourceText?: string;
+  /** Overrides the plan's extraction revision, for reading-disagreement forgeries. */
+  readonly extractionRevision?: Sha256Digest;
+  /**
+   * Rewrites the plan's actions into a shape the compiler would never emit, so the profile's
+   * own qualification of a replacement can be exercised rather than the compiler's.
+   */
+  readonly planActions?: (actions: readonly PlanAction[]) => readonly PlanAction[];
   readonly reopenedText?: string;
   readonly appliedActionIds?: readonly string[];
   readonly omitBytes?: true;
@@ -329,7 +407,7 @@ async function attest(
   const digest = digestOf(outputBytes);
   return verifyBoundDocxRedaction({
     ...(options.omitBytes === true ? {} : { inputBytes, outputBytes }),
-    sourceText: source.text,
+    sourceText: options.sourceText ?? source.text,
     ...(options.omitRegions === true ? {} : { sourceRegions: source.regions }),
     reopenedText: reopened,
     input: { digest: source.digest, byteLength: source.byteLength },
@@ -340,7 +418,10 @@ async function attest(
       extractionRevision: reopenedArtifact.extractionRevision
     },
     capabilityDigest,
-    plan: planBinding(plan),
+    plan: {
+      ...planBinding(plan, options.planActions),
+      ...(options.extractionRevision === undefined ? {} : { extractionRevision: options.extractionRevision })
+    },
     policy: { id: policy.id, version: policy.version, digest: policy.digest, riskTier: policy.riskTier },
     writerReceipt: receiptFor(plan, digest, outputBytes.length, options.appliedActionIds),
     writer: docxWriterDescriptor,
@@ -721,5 +802,335 @@ describe('DOCX redaction under the docx-redact-v1 profile', () => {
     }, { correlationId: 'cor_docx_redaction_test' })).rejects.toMatchObject({ code: 'VERIFICATION_RESIDUAL' });
 
     expect(await readdir(root)).toEqual(['document.docx']);
+  });
+});
+
+/**
+ * The shape the fixture above never had and the first real Word document led with: a contact
+ * address rendered as a clickable link, so one value sits both in the visible text of a header
+ * and in the `Target` of that header's external hyperlink relationship. Redacting the text and
+ * leaving the target publishes the address; refusing the target outright refuses most real
+ * documents. This block pins what the profile qualifies instead.
+ */
+describe('an external hyperlink target in a header part', () => {
+  const linkedAddress = 'linked@example.test';
+
+  /** The labels the rules assign once the linked address adds two more EMAIL spans. */
+  const linkedLabels = {
+    documentText: 'Call [EMAIL_1] now',
+    deletedText: '[EMAIL_2]',
+    headerText: 'Prepared by [EMAIL_3]',
+    linkedText: '[EMAIL_4]',
+    commentText: 'ping [EMAIL_5]',
+    linkedTarget: '[EMAIL_6]',
+    creator: '[EMAIL_7]',
+    commentAuthor: '[EMAIL_8]',
+    userId: '[EMAIL_9]'
+  } as const;
+
+  /** The redacted package an honest writer produces, so a forgery can differ in one carrier. */
+  const redacted = {
+    documentText: linkedLabels.documentText,
+    deletedText: linkedLabels.deletedText,
+    headerText: linkedLabels.headerText,
+    commentText: linkedLabels.commentText,
+    commentAuthor: linkedLabels.commentAuthor,
+    userId: linkedLabels.userId,
+    creator: linkedLabels.creator,
+    linkedAddress: linkedLabels.linkedText
+  } as const;
+
+  function relationshipTarget(artifact: DocxArtifact): { readonly region: CanonicalRegion; readonly value: string } {
+    const region = artifact.regions.find(({ location }) => location.kind === 'DOCX_RELATIONSHIP');
+    if (region === undefined) throw new Error('The linked package must carry a hyperlink target region.');
+    return { region, value: artifact.text.slice(region.start, region.end) };
+  }
+
+  it('classifies the target of a header hyperlink, not only one in word/document.xml', async () => {
+    const { input } = await workspace({ linkedAddress });
+
+    const { region, value } = relationshipTarget(await readDocxArtifact(input));
+
+    expect(region.location).toMatchObject({
+      kind: 'DOCX_RELATIONSHIP', sourcePart: 'word/header1.xml', relationshipId: 'rId1', field: 'TARGET'
+    });
+    expect(value).toBe(`mailto:${linkedAddress}`);
+  });
+
+  it('publishes with the address gone from the visible text and from the target, which stays a mailto: URI', async () => {
+    const { input, output } = await workspace({ linkedAddress });
+    const source = await readDocxArtifact(input);
+
+    const result = await localDocxApplication.redact({
+      session: createLocalDocxArtifactSession(input, output),
+      requirement: docxCapabilityRequirement('REDACT'),
+      policy
+    }, { correlationId: 'cor_docx_redaction_test' });
+
+    expect(result.verification.outcome).toBe('PASS');
+    expect(result.verification.findings).toEqual([]);
+    // Both occurrences are planned: the header paragraph and the relationship target.
+    const kinds = result.plan.actions.map(({ start, end }) =>
+      source.regions.find((region) => start >= region.start && end <= region.end)?.location.kind);
+    expect(kinds.filter((kind) => kind === 'DOCX_RELATIONSHIP')).toHaveLength(1);
+
+    const published = await readFile(output);
+    expect(published.includes(Buffer.from(linkedAddress, 'utf8'))).toBe(false);
+    const reopened = await readDocxArtifact(output);
+    const { region, value } = relationshipTarget(reopened);
+    // The scheme survives, the address does not, and the relationship keeps the id the
+    // `w:hyperlink` in the header goes on referring to it by.
+    expect(value).toBe(`mailto:${linkedLabels.linkedTarget}`);
+    expect(new URL(value).protocol).toBe('mailto:');
+    expect(region.location).toMatchObject({ sourcePart: 'word/header1.xml', relationshipId: 'rId1' });
+    expect(reopened.text).toContain(`Reach ${linkedLabels.linkedText}`);
+  });
+
+  // Both halves of the shape, planted one at a time. Whichever carrier the plan misses, the
+  // value is still in the published package and the independent rescan has to be what finds it.
+  it.each([
+    ['the hyperlink target', 'DOCX_RELATIONSHIP'],
+    ['the visible header text', 'DOCX_PART']
+  ] as const)('fails with a residual entity when the plan covers every carrier except %s', async (_name, kind) => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction(
+      { linkedAddress },
+      (value, location) => value === linkedAddress && location.kind === kind
+    );
+    expect(plan.actions).toHaveLength(8);
+
+    const report = await attest(source, inputBytes, staged.path, plan);
+
+    expect(report.outcome).toBe('FAIL');
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'RESIDUAL_ENTITY', entityType: 'EMAIL', blocking: true
+    }));
+    expect(JSON.stringify(report)).not.toContain(linkedAddress);
+  });
+
+  it('refuses a writer that redacted the visible text and left the address in the target', async () => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ linkedAddress });
+    const forged = zip(wordPackage({ ...redacted, linkedTarget: `mailto:${linkedAddress}` }));
+
+    const report = await attest(source, inputBytes, staged.path, plan, { outputBytes: forged });
+
+    expect(report.outcome).toBe('FAIL');
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'ACTION_NOT_APPLIED' }));
+    expect(JSON.stringify(report)).not.toContain(linkedAddress);
+  });
+
+  it('refuses a writer that renumbered the relationship the header refers to', async () => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ linkedAddress });
+    // The target is redacted and the reference still resolves, but to a different id, so the
+    // carrier the plan was compiled against is not the carrier the output carries.
+    const forged = zip(wordPackage({
+      ...redacted,
+      linkedRelationshipId: 'rId4',
+      linkedTarget: `mailto:${linkedLabels.linkedTarget}`
+    }));
+
+    const report = await attest(source, inputBytes, staged.path, plan, { outputBytes: forged });
+
+    expect(report.outcome).not.toBe('PASS');
+    expect(report.findings).not.toEqual([]);
+  });
+
+  // The carrier class is qualified; a particular replacement still is not, unless what it leaves
+  // behind is a URI of the same scheme. A plan that swallows `mailto:` leaves a bare label,
+  // which is no URI at all, and the profile refuses it rather than letting it be written.
+  it('refuses a plan whose replacement would stop the target being a URI of its own scheme', async () => {
+    const { root, input } = await workspace({ linkedAddress });
+    const inputBytes = await readFile(input);
+    const source = await readDocxArtifact(input);
+    const { region } = relationshipTarget(source);
+    const plan = compileTypedLabelPlan({
+      extractionRevision: source.extractionRevision,
+      algorithmVersion: '0.3.0',
+      digest: parseSha256Digest(`sha256:${'1'.repeat(64)}`),
+      spans: [{
+        id: `rsp_${'0'.repeat(31)}1`,
+        entityType: 'EMAIL',
+        start: region.start,
+        end: region.end,
+        confidence: 1,
+        evidenceIds: ['00000000-0000-5000-8000-000000000001']
+      }],
+      conflicts: [],
+      suppressedEvidenceIds: []
+    }, {
+      inputDigest: source.digest,
+      capabilityDigest,
+      detectorBundleVersion: 'docx-redaction-test',
+      policy: { id: policy.id, version: policy.version, digest: policy.digest, riskTier: policy.riskTier },
+      writer: docxWriterDescriptor
+    });
+
+    // Refused on the plan, before any staged package is read, so the bytes here are irrelevant.
+    const report = await attest(source, inputBytes, join(root, 'unstaged'), plan, {
+      outputBytes: inputBytes,
+      reopenedText: source.text
+    });
+
+    expect(report.outcome).toBe('INCOMPLETE');
+    expect(report.findings).toEqual([expect.objectContaining({ code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' })]);
+  });
+});
+
+/**
+ * `docProps/app.xml` is the part the first real Word document actually tripped over. Its
+ * heading-pair and title-part vectors carry `baseType` and `size`, which the adapter validates
+ * and does not extract; the independent verifier read both as values, so its reconstruction of
+ * the canonical text disagreed with the adapter's before a single carrier could be reconciled,
+ * and the profile reported that disagreement against the same check as a refused carrier class.
+ */
+describe('extended document properties', () => {
+  it('publishes a verified redaction of a package carrying heading-pair and title-part vectors', async () => {
+    const { input, output } = await workspace({ extendedProperties: true });
+
+    const result = await localDocxApplication.redact({
+      session: createLocalDocxArtifactSession(input, output),
+      requirement: docxCapabilityRequirement('REDACT'),
+      policy
+    }, { correlationId: 'cor_docx_redaction_test' });
+
+    expect(result.verification.outcome).toBe('PASS');
+    expect(result.verification.findings).toEqual([]);
+  });
+
+  it('keeps the vector type and size out of the canonical text both implementations agree on', async () => {
+    const { input } = await workspace({ extendedProperties: true });
+
+    const source = await readDocxArtifact(input);
+
+    expect(source.regions.some(({ location }) =>
+      location.kind === 'DOCX_XML_VALUE' && location.element === 'vt:vector')).toBe(false);
+    expect(source.text).not.toContain('variant');
+  });
+
+  // The independent verifier decides for itself; a disagreement with the adapter over how a
+  // package reads is a structural finding, not a refusal to qualify the carriers a plan targets.
+  it('reports a classification disagreement against STRUCTURE rather than NATIVE_SURFACE', async () => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ extendedProperties: true });
+
+    const report = await attest(source, inputBytes, staged.path, plan, {
+      sourceText: `${source.text} `
+    });
+
+    expect(report.outcome).toBe('INCOMPLETE');
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' }));
+    expect(report.findings).not.toContainEqual(expect.objectContaining({ check: 'NATIVE_SURFACE' }));
+  });
+});
+
+/**
+ * The surface outside the qualified spans is proved byte-identical to the input, so what is
+ * left there is the input's own structure: revision-save identifiers, paragraph ids, font
+ * signatures, EMU extents. Sweeping those with an entity detector reports hundreds of machine
+ * identifiers as PHONE on any real Word document. Skipping them on the strength of their
+ * element and attribute alone would be trusting a name; the value has to be the token that type
+ * admits, or it is swept like anything else.
+ */
+describe('machine identifiers outside the qualified surface', () => {
+  it('does not report a structural paragraph identifier that happens to read as a phone number', async () => {
+    // `w14:paraId` is eight hexadecimal digits, and eight decimal digits are eight hexadecimal
+    // digits. No plan targets it, no reader sees it, and it is not a residual.
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ paragraphId: '55512340' });
+
+    const report = await attest(source, inputBytes, staged.path, plan);
+
+    expect(report.outcome).toBe('PASS');
+    expect(report.findings).toEqual([]);
+  });
+
+  it('sweeps a structural carrier that does not hold the token its type admits', async () => {
+    // A package the adapter would refuse, which is the point: the verifier decides for itself.
+    // The paragraph id carries an address, the address is in neither the plan nor the canonical
+    // text, and nothing but the sweep outside the qualified surface can find it.
+    const hidden = 'hidden@example.test';
+    const forgedInput = zip(wordPackage({ paragraphId: hidden }));
+    const forgedOutput = zip(wordPackage({
+      paragraphId: hidden,
+      documentText: labels.documentText,
+      deletedText: labels.deletedText,
+      headerText: labels.headerText,
+      commentText: labels.commentText,
+      commentAuthor: labels.commentAuthor,
+      userId: labels.userId,
+      creator: labels.creator
+    }));
+    // The paragraph id is structure on both sides of the boundary, so the canonical text and
+    // the source map of the readable package describe the forged one exactly.
+    const { source } = await stagedRedaction();
+    const plan = await planFor(source, () => false, digestOf(forgedInput));
+
+    const foundation = foundationFor(source, forgedInput, forgedOutput, plan);
+
+    expect(foundation.outcome).toBe('FAIL');
+    expect(foundation.findings).toContainEqual(
+      expect.objectContaining({ code: 'RESIDUAL_ENTITY', entityType: 'EMAIL' })
+    );
+    expect(JSON.stringify(foundation)).not.toContain(hidden);
+  });
+});
+
+/**
+ * A qualified carrier class does not qualify every replacement into it. These two plans are
+ * shapes the compiler never emits, assembled by hand so the profile's own reading of what a
+ * redacted hyperlink target must become is what decides them.
+ */
+describe('a replacement a hyperlink target cannot take', () => {
+  const linkedAddress = 'linked@example.test';
+
+  function targetRegion(source: DocxArtifact): CanonicalRegion {
+    const region = source.regions.find(({ location }) => location.kind === 'DOCX_RELATIONSHIP');
+    if (region === undefined) throw new Error('The linked package must carry a hyperlink target region.');
+    return region;
+  }
+
+  it('refuses a replacement that would leave the target under a different scheme', async () => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ linkedAddress });
+    const region = targetRegion(source);
+
+    const report = await attest(source, inputBytes, staged.path, plan, {
+      planActions: (actions) => actions.map((action) =>
+        action.start >= region.start && action.end <= region.end
+          ? { ...action, start: region.start, end: region.end, replacement: 'https://example.test/' }
+          : action)
+    });
+
+    expect(report.outcome).toBe('INCOMPLETE');
+    expect(report.findings).toEqual([expect.objectContaining({ code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' })]);
+  });
+
+  it('refuses a plan that leaves the address it removed elsewhere in the same target', async () => {
+    // A `mailto:` target may carry the address twice, once as the recipient and once in a
+    // header parameter. Covering one occurrence and publishing the other is the leak this
+    // carrier makes easy, so the profile checks what the whole target becomes, not the span.
+    const duplicated = 'dup@example.test';
+    const { source, plan, staged, inputBytes } = await stagedRedaction({
+      linkedAddress: duplicated,
+      linkedTarget: `mailto:${duplicated}?cc=${duplicated}`
+    });
+    const region = targetRegion(source);
+    const inTarget = plan.actions.filter(({ start, end }) => start >= region.start && end <= region.end);
+    expect(inTarget).toHaveLength(2);
+
+    const report = await attest(source, inputBytes, staged.path, plan, {
+      planActions: (actions) => actions.filter((action) => action.id !== inTarget[1]?.id)
+    });
+
+    expect(report.outcome).toBe('INCOMPLETE');
+    expect(report.findings).toEqual([expect.objectContaining({ code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' })]);
+    expect(JSON.stringify(report)).not.toContain(duplicated);
+  });
+
+  it('reports an extraction-revision disagreement against STRUCTURE rather than NATIVE_SURFACE', async () => {
+    const { source, plan, staged, inputBytes } = await stagedRedaction({ linkedAddress });
+
+    const report = await attest(source, inputBytes, staged.path, plan, {
+      extractionRevision: parseSha256Digest(`sha256:${'7'.repeat(64)}`)
+    });
+
+    expect(report.outcome).toBe('INCOMPLETE');
+    expect(report.findings).toEqual([expect.objectContaining({ code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' })]);
   });
 });

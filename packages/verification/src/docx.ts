@@ -738,8 +738,48 @@ const structuralCarrierPairs = new Set([
   'wp:extent|cx', 'wp:extent|cy', 'wp:effectExtent|l', 'wp:effectExtent|t', 'wp:effectExtent|r',
   'wp:effectExtent|b', 'wp:docPr|id', 'a:off|x', 'a:off|y', 'a:ext|cx', 'a:ext|cy',
   'a:ln|w', 'a:fillRef|idx', 'a:lnRef|idx', 'a:effectRef|idx', 'a:fontRef|idx',
-  'a:prstGeom|prst', 'a:srgbClr|val', 'v:line|wp14:anchorId'
+  'a:prstGeom|prst', 'a:srgbClr|val', 'v:line|wp14:anchorId',
+  // `docProps/app.xml` carries its heading-pair and title-part lists inside `vt:vector`,
+  // whose `baseType` is an enumerated type name and whose `size` is the element count of the
+  // vector it introduces. Neither is a value: the adapter validates both against the vector's
+  // contents and extracts neither, so a verifier that let them reach the canonical text would
+  // disagree with every Word-authored package carrying more than one heading level. They stay
+  // compared byte for byte by the generic carrier reconciliation instead.
+  'vt:vector|baseType', 'vt:vector|size'
 ]);
+
+/**
+ * Attribute pairs in the parts this profile does not classify as a value surface — the theme and
+ * the web settings Word writes beside every document — whose OOXML type is an angle, a
+ * percentage, a width or a PANOSE code. They are listed separately from the structural pairs
+ * above because those decide what reaches the canonical text, and widening that set would change
+ * the extraction this verifier has to agree with. These decide only what the residual sweep
+ * below treats as a machine identifier.
+ */
+const passiveTypedCarrierPairs = new Set([
+  'a:gs|pos', 'a:latin|panose', 'a:lin|ang', 'a:lin|scaled', 'a:lumMod|val',
+  'a:miter|lim', 'a:shade|val', 'a:tint|val'
+]);
+
+/**
+ * A decimal or hexadecimal token. It is the only shape this verifier accepts as evidence that a
+ * carrier it holds to be typed really does hold a machine identifier, so a pair on either list
+ * whose value is anything else — a name, a URI, prose — is swept like any other value.
+ */
+const machineIdentifierPattern = /^(?:[0-9]{1,40}|[0-9A-Fa-f]{2,40})$/u;
+
+/**
+ * Whether a carrier outside the qualified redaction surface is a machine identifier rather than
+ * a value. Both halves must hold: this verifier must already name the pair as typed, and the
+ * value must actually be the token that type admits. Anything else is swept, so an unknown
+ * carrier is rescanned rather than trusted.
+ */
+function isTypedIdentifierCarrier(carrier: XmlCarrier): boolean {
+  if (carrier.kind !== 'ATTRIBUTE') return false;
+  const pair = `${carrier.element}|${carrier.attribute ?? ''}`;
+  return (structuralCarrierPairs.has(pair) || passiveTypedCarrierPairs.has(pair))
+    && machineIdentifierPattern.test(carrier.value);
+}
 
 type ClassifiedCarrierLocation =
   | Extract<CanonicalRegion['location'], { readonly kind: 'DOCX_RELATIONSHIP' }>
@@ -1348,7 +1388,15 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
       byEntity.set(span.entityType, (byEntity.get(span.entityType) ?? 0) + 1);
     }
     const qualifiedCarrierIds = new Set(outputRegions.flatMap(({ carrierIds }) => carrierIds));
-    const extraValues = output.carriers.filter(({ id }) => !qualifiedCarrierIds.has(id)).map(({ value }) => value);
+    // Everything outside the qualified spans is already proved byte-identical to the input, so
+    // this sweep is looking for a value the declared surface failed to cover. A revision-save
+    // identifier, a paragraph id, a font signature, an EMU extent or a gradient angle is not a
+    // value: it is a machine identifier whose type this verifier names and whose token shape it
+    // checks, and reporting one of them as a residual entity — a real Word document carries
+    // hundreds — would be a finding this profile cannot support. Every other carrier is swept.
+    const extraValues = output.carriers
+      .filter((carrier) => !qualifiedCarrierIds.has(carrier.id) && !isTypedIdentifierCarrier(carrier))
+      .map(({ value }) => value);
     if (extraValues.length > 0) {
       const extraText = extraValues.join(boundary);
       const extraEvidence = detectDeterministic(extraText, outputClassified.extractionRevision);
@@ -1391,7 +1439,7 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
  */
 export const docxRedactionVerificationCapabilityDescriptor = {
   id: 'docx-redact-v1',
-  version: '0.1.0',
+  version: '0.2.0',
   formats: ['docx'],
   checks: ['STRUCTURE', 'NATIVE_SURFACE', 'DETERMINISTIC_RESCAN']
 } as const;
@@ -1449,8 +1497,11 @@ function isQualifiedRedactionCarrier(location: CanonicalRegion['location']): boo
   // Paragraph text is `w:t` and `w:delText`: both are element content with no lexical space to
   // violate, and both are reconstructed independently above.
   if (location.kind === 'DOCX_PART') return true;
-  // A hyperlink target is a URI, and a replacement that stops it being one is refused by this
-  // verifier's own relationship grammar when it reparses the output, not merely by the writer.
+  // A hyperlink target is a URI, in `word/document.xml` and in every header, footer, footnote
+  // and endnote part alike — the relationship carrier is classified from the relationship part
+  // of any text part, so the qualification cannot be narrower than the classification. What the
+  // carrier class alone does not settle is whether a particular replacement leaves the target a
+  // URI; `qualifiedRelationshipTargets` decides that per action.
   if (location.kind === 'DOCX_RELATIONSHIP') return (location as { readonly field?: unknown }).field === 'TARGET';
   if (location.kind !== 'DOCX_XML_VALUE') return false;
   if (location.carrier === 'ATTRIBUTE') {
@@ -1458,6 +1509,54 @@ function isQualifiedRedactionCarrier(location: CanonicalRegion['location']): boo
   }
   return (location.part === 'docProps/core.xml' || location.part === 'docProps/app.xml')
     && qualifiedPropertyElements.has(location.element);
+}
+
+/**
+ * What a redacted external hyperlink target becomes, and why. The typed label is spliced into
+ * the target in place, so `mailto:` plus an address becomes `mailto:` plus the label: the scheme
+ * survives, the address does not, and the relationship keeps the id the part refers to it by.
+ * Neutralising the relationship instead — deleting it, or emptying its target — would leave the
+ * `r:id` on `w:hyperlink` pointing at nothing, which is a second part to edit, a relationship
+ * graph neither this verifier nor the writer reconciles in that shape, and a package whose
+ * inventory no longer matches the input. Rewriting in place is the change this profile can
+ * actually prove, and this is where it proves it: for every relationship target the plan
+ * touches, the value the plan produces must still parse as a URI of exactly the scheme the
+ * source target carried, and must no longer contain the value the plan removed. A replacement
+ * that would leave a malformed URI, a different scheme, or a surviving address is refused here
+ * rather than written and explained afterwards.
+ */
+function qualifiedRelationshipTargets(
+  sourceText: string,
+  sourceRegions: readonly CanonicalRegion[],
+  plan: IndependentDocxPlanBinding
+): boolean {
+  for (const region of sourceRegions) {
+    if (region.location.kind !== 'DOCX_RELATIONSHIP') continue;
+    const actions = plan.actions
+      .filter(({ start, end }) => start >= region.start && end <= region.end)
+      .sort((left, right) => left.start - right.start || left.end - right.end);
+    if (actions.length === 0) continue;
+    const source = unicodeSlice(sourceText, region.start, region.end);
+    const redacted = expectedRegionValue(source, region, actions);
+    try {
+      const original = new URL(source);
+      const rewritten = new URL(redacted);
+      // No separate check that the scheme text survived byte for byte: a replacement that ate
+      // any part of it changes what `new URL` reports as the protocol, or stops the value
+      // parsing at all, so such a check would be a branch no plan could ever reach.
+      if (
+        rewritten.protocol !== original.protocol
+        || (original.protocol === 'https:' && rewritten.hostname.length === 0)
+      ) return false;
+    } catch {
+      return false;
+    }
+    for (const action of actions) {
+      const removed = unicodeSlice(source, action.start - region.start, action.end - region.start);
+      if (removed.length > 0 && removed !== action.replacement && redacted.includes(removed)) return false;
+    }
+  }
+  return true;
 }
 
 export interface BoundDocxVerificationRequest {
@@ -1578,8 +1677,13 @@ const foundationFindingMap: Readonly<Record<IndependentDocxFindingCode, {
   PACKAGE_INVENTORY_CHANGED: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
   CONTENT_TYPE_GRAPH_INVALID: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
   RELATIONSHIP_GRAPH_INVALID: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
-  CARRIER_CLASSIFICATION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
-  EXTRACTION_REVISION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
+  // A classification or extraction-revision disagreement is not a refusal to qualify the plan's
+  // target surface: it is this verifier and the adapter reading the same package differently,
+  // and it says nothing about which carriers the plan touched. Reporting it against
+  // NATIVE_SURFACE made it indistinguishable from the refusal below, which is exactly how a
+  // disagreement over two `docProps/app.xml` attributes came to look like a refused hyperlink.
+  CARRIER_CLASSIFICATION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' },
+  EXTRACTION_REVISION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' },
   SOURCE_MAP_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
   UNPLANNED_NATIVE_DELTA: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
   PLANNED_NATIVE_DELTA_MISMATCH: { code: 'ACTION_NOT_APPLIED', check: 'ACTION_RECONCILIATION' },
@@ -1671,7 +1775,7 @@ export function verifyBoundDocxRedaction(request: BoundDocxVerificationRequest):
     qualifiedSurface = request.plan.actions.every((action) => {
       const region = sourceRegions.find(({ start, end }) => action.start >= start && action.end <= end);
       return region !== undefined && isQualifiedRedactionCarrier(region.location);
-    });
+    }) && qualifiedRelationshipTargets(sourceText, sourceRegions, request.plan);
     reopenedMatchesPlan = request.reopenedText === plannedCanonicalText(sourceText, request.plan);
   } catch {
     return incomplete('VERIFIER_INCOMPLETE', 'NATIVE_SURFACE');

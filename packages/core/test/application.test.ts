@@ -804,6 +804,29 @@ describe('TextProcessingApplication', () => {
     expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
   });
 
+  // An undecided verification is not one fact. A profile that declines to qualify the native
+  // surface a plan targets and a profile that read the package differently from the writer are
+  // different situations with different answers, and the error says which one happened.
+  it.each([
+    ['a native surface it will not qualify', 'NATIVE_SURFACE', 'native_surface'],
+    ['a structure it read differently', 'STRUCTURE', 'structure']
+  ] as const)('names the check that left verification undecided: %s', async (_name, check, reason) => {
+    const session = new FakeSession('ephemeral');
+    const app = createTextProcessingApplication(dependencies({
+      verifier: verifierPort({
+        attest: (request) => Promise.resolve(attestationFor(request, {
+          outcome: 'INCOMPLETE',
+          findings: [{ code: 'VERIFIER_INCOMPLETE', severity: 'ERROR', blocking: true, check, count: 1 }]
+        }))
+      })
+    }));
+    await expect(app.redact({ session, requirement, policy }, context)).rejects.toMatchObject({
+      code: 'VERIFICATION_INCOMPLETE',
+      details: { reason }
+    });
+    expect(session.events.map((event) => event.split(':')[0])).toEqual(['input', 'stage', 'reopen', 'discard']);
+  });
+
   it('rejects a tampered verification report digest before publication', async () => {
     const session = new FakeSession('ephemeral');
     const app = createTextProcessingApplication(dependencies({

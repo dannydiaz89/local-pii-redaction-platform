@@ -19,7 +19,7 @@
   },
   "capabilityDigest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
   "writerReceiptDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-  "profile": { "id": "docx-redact-v1", "version": "0.1.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
+  "profile": { "id": "docx-redact-v1", "version": "0.2.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
   "verifier": { "id": "docx-verifier", "version": "0.1.0", "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414" },
   "detectorBundle": { "id": "deterministic-text", "version": "0.2.0", "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515" },
   "writer": { "id": "docx-adapter", "version": "0.10.0", "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616" },

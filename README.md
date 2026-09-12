@@ -399,6 +399,7 @@ surface, reconciles the plan against the writer receipt, drives the independent 
 reopened staged package, and maps what it finds into a canonical v2 attestation: a tracked-revision
 delta is reported as hidden text, a planned removal still present in `docProps` or the settings part
 is reported as a metadata residual, and anything it cannot establish is INCOMPLETE rather than PASS.
+A carrier the profile declines to qualify and a package the two implementations read differently are separate answers, reported against separate checks — `NATIVE_SURFACE` for the first and `STRUCTURE` for the second — and the error envelope carries the undecided check as its reason, so an operator is told which one happened. Outside the qualified spans the published package is proved byte-identical to the input, so the residual rescan there looks for values rather than for the structure it already reconciled: a carrier whose element and attribute this verifier holds to be a typed identifier, and whose value really is the decimal or hexadecimal token that type admits, is not swept, and anything else is.
 The `development-labels` policy names that profile for the `docx` format, so
 `pii-redact redact document.docx --output out.docx --policy development-labels` publishes only a
 package this verifier reopened and reconciled. Standalone DOCX verification, batch DOCX redaction,
