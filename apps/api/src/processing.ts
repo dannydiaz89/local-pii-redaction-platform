@@ -20,6 +20,7 @@ import type {
 } from '@local-pii/core';
 import {
   canTransition,
+  isTerminalState,
   parseArtifactId,
   parseSha256Digest,
   SafeError,
@@ -246,6 +247,21 @@ function sameSubmittedDecision(
     && existing.action === submitted.action
     && existing.reasonCode === submitted.reasonCode
     && (existing.action !== 'RETYPE' || (submitted.action === 'RETYPE' && existing.entityType === submitted.entityType));
+}
+
+/**
+ * A job's results become reachable only while it can still transition. Once it is terminal the
+ * state those results require is unreachable, so reporting the read as retryable would have a
+ * client that honours the flag poll a permanently failed read forever.
+ */
+function unavailable(state: Job['state'], subject: string, correlationId: string): never {
+  const permanent = isTerminalState(state);
+  fail(
+    'JOB_CONFLICT',
+    permanent ? `The ${subject} is unavailable.` : `The ${subject} is not available yet.`,
+    !permanent,
+    correlationId
+  );
 }
 
 function formatFor(mediaType: CreateArtifactRequest['mediaType']): ArtifactFormat {
@@ -873,7 +889,7 @@ export function createVolatileProcessingControl(
       const result = results.get(jobId);
       if (result === undefined
         || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW' && job.state !== 'VERIFIED')) {
-        fail('JOB_CONFLICT', 'The scan results are not available yet.', true, correlationId);
+        unavailable(job.state, 'scan results', correlationId);
       }
       const detections = result.detections.slice(cursor, cursor + limit);
       const following = cursor + detections.length;
@@ -899,7 +915,7 @@ export function createVolatileProcessingControl(
       const result = results.get(jobId);
       if (job.operation !== 'SCAN' || result === undefined
         || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW')) {
-        fail('JOB_CONFLICT', 'The scan review is not available yet.', true, correlationId);
+        unavailable(job.state, 'scan review', correlationId);
       }
       return createReviewSet(job, result, reviewHistories.get(jobId) ?? []);
     },
@@ -913,7 +929,7 @@ export function createVolatileProcessingControl(
         const result = results.get(jobId);
         if (job.operation !== 'SCAN' || result === undefined
           || (job.state !== 'SUCCEEDED' && job.state !== 'NEEDS_REVIEW')) {
-          fail('JOB_CONFLICT', 'The scan review is not available yet.', true, correlationId);
+          unavailable(job.state, 'scan review', correlationId);
         }
         const current = reviewHistories.get(jobId) ?? [];
         const existingByClientId = new Map(current.map((decision) => [decision.clientDecisionId, decision]));
@@ -969,7 +985,7 @@ export function createVolatileProcessingControl(
       const outputId = outputByJob.get(jobId);
       const output = outputId === undefined ? undefined : artifacts.get(outputId);
       if (job.operation !== 'REDACT' || job.state !== 'VERIFIED' || output === undefined) {
-        fail('JOB_CONFLICT', 'The verified output is not available yet.', true, correlationId);
+        unavailable(job.state, 'verified output', correlationId);
       }
       return cloneArtifact(output.metadata);
     },

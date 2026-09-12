@@ -350,7 +350,9 @@ describe('local browser review session adversarial evidence', () => {
     ]);
     for (const response of midJob) {
       expect(response.statusCode).toBe(409);
-      expect(response.json()).toMatchObject({ error: { code: 'JOB_CONFLICT' } });
+      // The job is still transitioning, so these reads genuinely can succeed later.
+      expect(response.json()).toMatchObject({ error: { code: 'JOB_CONFLICT', retryable: true } });
+      expect(response.json<{ readonly error: { readonly message: string } }>().error.message).toContain('not available yet');
       expectCanonicalError(response);
     }
     expectNoDocumentValues(...midJob.map(({ body }) => body), inFlight.body);
@@ -597,7 +599,10 @@ describe('local browser review session adversarial evidence', () => {
     ]);
     for (const response of afterScanDeletion) {
       expect(response.statusCode).toBe(409);
-      expect(response.json()).toMatchObject({ error: { code: 'JOB_CONFLICT' } });
+      // A deleted job is terminal, so the read can never succeed and must not invite a retry
+      // that would have a client honouring the flag poll forever.
+      expect(response.json()).toMatchObject({ error: { code: 'JOB_CONFLICT', retryable: false } });
+      expect(response.json<{ readonly error: { readonly message: string } }>().error.message).not.toContain('yet');
       expectCanonicalError(response);
     }
     const expiredJob = await instance.inject({
