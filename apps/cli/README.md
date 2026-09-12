@@ -1,12 +1,13 @@
 # `@local-pii/cli`
 
 Command-line interface for the local rules-only TXT/Markdown/JSON/CSV profile, the strict
-experimental DOCX inspect/scan surface, and the explicit experimental Ollama scan profile.
+experimental DOCX surface, and the explicit experimental contextual profiles.
 
 ## Responsibilities
 
-- Implements `inspect`, `scan`, bounded rules-only `batch scan` and `batch redact`, `redact`, `verify`, `capabilities`,
-  policy inspection, and bounded staged-artifact cleanup commands.
+- Implements `inspect`, `scan`, bounded `batch scan` and `batch redact`, `redact`, `verify`,
+  `capabilities`, policy inspection, and bounded staged-artifact cleanup commands. Batch accepts the
+  same engines as the single-file commands, over a text-only default selection.
 - Converts canonical application results and safe errors into stable human or JSON output and
   documented exit codes. Exit zero includes an explicitly accepted conflict-free partial batch;
   callers must still inspect its `PARTIAL` manifest.
@@ -14,7 +15,10 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
 - Loads an optional bounded, strict JSON `--policy-file` for scan/redact. Version 2 policies support
   exact JSON Pointer and CSV index/header classification; selectors and file paths are omitted from
   reports. There are no YAML, include, environment, executable, or network policy sources.
-- Keeps Ollama opt-in, loopback-only, experimental, and scan-only.
+- Keeps Ollama opt-in, loopback-only, experimental, and bounded to TXT/Markdown for both scan and
+  verified redaction. Ollama is a separate prerequisite: the daemon must already be running and the
+  named model already installed, because the CLI starts neither and pulls nothing. Both failures
+  currently surface as the same `MODEL_UNAVAILABLE` code.
 - Recursively scans a deterministic, contained TXT/Markdown/JSON/CSV selection with bounded
   include/exclude globs, a deterministic non-backtracking matcher with an explicit work budget,
   conservative symlink rejection, a total byte/time budget, and an aggregate
@@ -23,7 +27,7 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
   one file completed and no completed result needs review; an all-failed batch remains nonzero. The
   canonical report binds that choice as `completionPolicy`, including on complete and failed
   attempts. The deadline is cooperative; hard isolation of synchronous parsers remains future sandbox work.
-  `batch redact` adds strict rules-only verified publication to an explicit, separate, pre-existing
+  `batch redact` adds strict verified publication to an explicit, separate, pre-existing
   output root. It preflights every deterministic relative target before processing, never
   overwrites, rejects `--allow-partial`, and returns nonzero for partial publication while exposing
   only aggregate counts and safe error codes. Verified outputs published before a later safe
@@ -32,10 +36,13 @@ experimental DOCX inspect/scan surface, and the explicit experimental Ollama sca
   may be transformed.
 - Selects the native CSV adapter for `.csv`; an explicit v2 policy may select its delimiter and
   header behavior, while transformations remain inside their originating cells.
-- Selects the strict DOCX adapter for `.docx` inspection and rules-only scanning. DOCX redaction,
-  verification, and Ollama are rejected before staging or provider access.
+- Selects the strict DOCX adapter for `.docx` inspection, rules-only scanning, and rules-only
+  verified redaction attested by `docx-redact-v1`, which reopens the staged package with an
+  independent parser. Contextual engines are rejected for DOCX with `FORMAT_UNSUPPORTED` before
+  staging or provider access.
 - Selects the strict synthetic-only PDF adapter for `.pdf` inspection. PDF scanning, redaction,
-  verification, preview, OCR, and Ollama are rejected before processing or provider access.
+  verification, preview, OCR, and contextual engines are rejected before processing or provider
+  access.
 
 Reusable application composition lives in `@local-pii/profile-local`; this package is the terminal
 adapter and must not become a second copy of the core processing workflow.
