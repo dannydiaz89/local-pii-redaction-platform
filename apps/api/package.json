@@ -17,6 +17,6 @@
     "@local-pii/domain": "workspace:*",
     "@local-pii/job-store": "workspace:*",
     "@local-pii/profile-local": "workspace:*",
-    "fastify": "^5.11.3"
+    "fastify": "^5.12.1"
   }
 }
