@@ -183,6 +183,15 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   const previewController = useRef<AbortController | undefined>(undefined);
   const sourceContextController = useRef<AbortController | undefined>(undefined);
   const sourceContextRegion = useRef<HTMLDivElement | null>(null);
+  const detectionTableRegion = useRef<HTMLDivElement | null>(null);
+  const reviewSaveStatus = useRef<HTMLDivElement | null>(null);
+  const redactionDownload = useRef<HTMLAnchorElement | null>(null);
+  const workflowClearConfirmation = useRef<HTMLDivElement | null>(null);
+  const workflowClearAction = useRef<HTMLButtonElement | null>(null);
+  const workflowClearedStatus = useRef<HTMLDivElement | null>(null);
+  const previousReviewSaveState = useRef<ReviewSaveState>('idle');
+  const previousWorkflowClearState = useRef<WorkflowClearState>('idle');
+  const [detectionTableFocusRequest, setDetectionTableFocusRequest] = useState(0);
   const reviewControls = useRef(new Map<string, HTMLSelectElement>());
   const reviewNavigationAnchor = useRef<string | undefined>(undefined);
   const direction = localeDirection(locale);
@@ -248,6 +257,32 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
   useEffect(() => {
     if (sourceContext.kind === 'ready') sourceContextRegion.current?.focus();
   }, [sourceContext]);
+  // Controls that disappear or become disabled when their own action completes would otherwise
+  // drop keyboard focus onto the document body, stranding keyboard and screen-reader reviewers.
+  useEffect(() => {
+    if (detectionTableFocusRequest > 0) detectionTableRegion.current?.focus();
+  }, [detectionTableFocusRequest]);
+  useEffect(() => {
+    const previous = previousReviewSaveState.current;
+    previousReviewSaveState.current = reviewSaveState;
+    if (previous === reviewSaveState) return;
+    if (reviewSaveState === 'saved' || reviewSaveState === 'failed' || reviewSaveState === 'stale') {
+      reviewSaveStatus.current?.focus();
+    }
+  }, [reviewSaveState]);
+  useEffect(() => {
+    if (redaction.kind === 'complete') redactionDownload.current?.focus();
+  }, [redaction]);
+  useEffect(() => {
+    const previous = previousWorkflowClearState.current;
+    previousWorkflowClearState.current = workflowClearState;
+    if (previous === workflowClearState) return;
+    if (workflowClearState === 'confirming') workflowClearConfirmation.current?.focus();
+    else if (workflowClearState === 'cleared') workflowClearedStatus.current?.focus();
+    else if (workflowClearState === 'failed' || (workflowClearState === 'idle' && previous === 'confirming')) {
+      workflowClearAction.current?.focus();
+    }
+  }, [workflowClearState]);
 
   const status = preflight.kind === 'ready'
     ? t('preflight.ready')
@@ -485,20 +520,43 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
               >{scan.kind === 'scanning' ? t('preview.scanning') : t('preview.scan')}</Button>
             ) : null}
             {scan.kind !== 'idle' ? (
-              <div role={scan.kind === 'failed' ? 'alert' : 'status'} aria-live="polite">
+              <div>
                 {scan.kind === 'scanning' ? (
-                  <Callout>{message(locale, 'job.progress', { state: t(jobStateMessage(scan.progress)) })}</Callout>
+                  <div role="status" aria-live="polite">
+                    <Callout>{message(locale, 'job.progress', { state: t(jobStateMessage(scan.progress)) })}</Callout>
+                  </div>
                 ) : scan.kind === 'failed' ? (
-                  <Callout tone="critical">{t('preview.failed')}</Callout>
+                  <div role="alert" aria-live="polite">
+                    <Callout tone="critical">{t('preview.failed')}</Callout>
+                  </div>
                 ) : (
                   <Callout tone={scan.summary.conflicts === 0 ? 'positive' : 'critical'}>
-                    <div className="job-status-line">
-                      <StatusBadge tone={scan.summary.conflicts === 0 ? 'positive' : 'warning'}>
-                        {t(jobStateMessage(scan.summary.job.state))}
-                      </StatusBadge>
-                      <span>{message(locale, 'job.events', {
-                        count: formatInteger(locale, scan.summary.events.length)
-                      })}</span>
+                    {/*
+                      Only the short outcome is a live region. The detection review below carries
+                      detected document text, and announcing that subtree on every re-render would
+                      both flood a screen reader and read private values aloud unprompted.
+                    */}
+                    <div role="status" aria-live="polite">
+                      <div className="job-status-line">
+                        <StatusBadge tone={scan.summary.conflicts === 0 ? 'positive' : 'warning'}>
+                          {t(jobStateMessage(scan.summary.job.state))}
+                        </StatusBadge>
+                        <span>{message(locale, 'job.events', {
+                          count: formatInteger(locale, scan.summary.events.length)
+                        })}</span>
+                      </div>
+                      <p>{scan.summary.detections === 0
+                        ? t('preview.clean')
+                        : scan.summary.detections === 1
+                          ? t('preview.completeOne')
+                          : message(locale, 'preview.complete', {
+                            count: formatInteger(locale, scan.summary.detections)
+                          })}</p>
+                      {scan.summary.conflicts > 0 ? (
+                        <p>{message(locale, 'preview.conflicts', {
+                          count: formatInteger(locale, scan.summary.conflicts)
+                        })}</p>
+                      ) : null}
                     </div>
                     <details className="job-activity">
                       <summary>{t('job.activity')}</summary>
@@ -508,18 +566,6 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                         ))}
                       </ol>
                     </details>
-                    <p>{scan.summary.detections === 0
-                      ? t('preview.clean')
-                      : scan.summary.detections === 1
-                        ? t('preview.completeOne')
-                        : message(locale, 'preview.complete', {
-                          count: formatInteger(locale, scan.summary.detections)
-                        })}</p>
-                    {scan.summary.conflicts > 0 ? (
-                      <p>{message(locale, 'preview.conflicts', {
-                        count: formatInteger(locale, scan.summary.conflicts)
-                      })}</p>
-                    ) : null}
                     {Object.keys(scan.summary.byEntity).length > 0 ? (
                       <div>
                         <h3>{t('preview.categories')}</h3>
@@ -622,6 +668,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                           </section>
                         )}
                         <div
+                          ref={detectionTableRegion}
                           className="preview-table-scroll"
                           role="region"
                           tabIndex={0}
@@ -811,6 +858,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                               onClick={() => {
                                 setReviewDrafts({});
                                 setReviewSaveState('idle');
+                                setDetectionTableFocusRequest((request) => request + 1);
                               }}
                             >{t('review.discard')}</Button>
                           ) : null}
@@ -860,7 +908,12 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                               });
                             }}
                           >{reviewSaveState === 'saving' ? t('review.saving') : t('review.save')}</Button>
-                          <div role={reviewSaveState === 'failed' || reviewSaveState === 'stale' ? 'alert' : 'status'} aria-live="polite">
+                          <div
+                            ref={reviewSaveStatus}
+                            tabIndex={-1}
+                            role={reviewSaveState === 'failed' || reviewSaveState === 'stale' ? 'alert' : 'status'}
+                            aria-live="polite"
+                          >
                             {reviewSaveState === 'saved' ? t('review.saved')
                               : reviewSaveState === 'stale' ? t('review.stale')
                               : reviewSaveState === 'failed' ? t('review.failed')
@@ -890,6 +943,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                   pageHistory: scan.pageHistory.slice(0, -1),
                                   loadingPage: false
                                 });
+                                setDetectionTableFocusRequest((request) => request + 1);
                               }, () => { if (!controller.signal.aborted) setScan({ kind: 'failed' }); });
                             }}
                           >{t('job.previousPage')}</Button>
@@ -919,6 +973,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                                   pageHistory: [...scan.pageHistory, scan.summary.cursor],
                                   loadingPage: false
                                 });
+                                setDetectionTableFocusRequest((request) => request + 1);
                               }, () => { if (!controller.signal.aborted) setScan({ kind: 'failed' }); });
                             }}
                           >{t('job.nextPage')}</Button>
@@ -986,6 +1041,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                           <p>{t('redaction.ready')}</p>
                           {downloadUrl === undefined ? null : (
                             <a
+                              ref={redactionDownload}
                               className="download-link"
                               href={downloadUrl}
                               download={redaction.summary.output.displayName}
@@ -1025,7 +1081,13 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                 <h3 id="workflow-clear-title">{t('workflow.clearTitle')}</h3>
                 <p>{t('workflow.clearBody')}</p>
                 {workflowClearState === 'confirming' ? (
-                  <div className="workflow-clear-confirmation" role="group" aria-labelledby="workflow-clear-confirm-title">
+                  <div
+                    ref={workflowClearConfirmation}
+                    tabIndex={-1}
+                    className="workflow-clear-confirmation"
+                    role="group"
+                    aria-labelledby="workflow-clear-confirm-title"
+                  >
                     <h4 id="workflow-clear-confirm-title">{t('workflow.clearConfirmTitle')}</h4>
                     <p>{t('workflow.clearConfirmBody')}</p>
                     <div className="workflow-clear-actions">
@@ -1067,6 +1129,7 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   </div>
                 ) : (
                   <Button
+                    ref={workflowClearAction}
                     tone="critical"
                     disabled={redaction.kind === 'redacting' || reviewSaveState === 'saving'
                       || workflowClearState === 'clearing'}
@@ -1074,12 +1137,16 @@ export function WebApplication({ capabilityClient, jobClient, initialLocale = 'e
                   >{workflowClearState === 'clearing' ? t('workflow.clearing') : t('workflow.clearAction')}</Button>
                 )}
                 {workflowClearState === 'failed' ? (
-                  <Callout tone="critical">{t('workflow.clearFailed')}</Callout>
+                  <div role="alert" aria-live="assertive">
+                    <Callout tone="critical">{t('workflow.clearFailed')}</Callout>
+                  </div>
                 ) : null}
               </section>
             ) : null}
             {workflowClearState === 'cleared' ? (
-              <div role="status" aria-live="polite"><Callout tone="positive">{t('workflow.cleared')}</Callout></div>
+              <div ref={workflowClearedStatus} tabIndex={-1} role="status" aria-live="polite">
+                <Callout tone="positive">{t('workflow.cleared')}</Callout>
+              </div>
             ) : null}
             {preflight.kind === 'ready' ? (
               <details className="technical-details">
