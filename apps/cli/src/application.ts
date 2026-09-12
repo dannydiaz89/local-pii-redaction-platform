@@ -6,6 +6,7 @@ export {
   docxCapabilityRequirement,
   pdfCapabilityRequirement,
   jsonCapabilityRequirement,
+  localDocxApplication,
   localFileApplication,
   localTextApplication,
   textCapabilityRequirement,

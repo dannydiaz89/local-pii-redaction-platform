@@ -3983,7 +3983,7 @@ export const schemaCatalog = [
           },
           "part": {
             "type": "string",
-            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
           },
           "element": {
             "type": "string",
@@ -4020,7 +4020,7 @@ export const schemaCatalog = [
           },
           "part": {
             "type": "string",
-            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+            "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
           },
           "element": {
             "type": "string",
@@ -7518,6 +7518,24 @@ export const schemaCatalog = [
             "minLength": 1,
             "maxLength": 64
           },
+          "formatProfiles": {
+            "description": "Verification profiles this policy requires for named formats instead of the default profile. A container format whose output cannot be verified by rescanning canonical text alone names its own profile here rather than silently borrowing one that never reopens the package.",
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,31}$"
+            },
+            "patternProperties": {
+              "^[a-z][a-z0-9-]{1,31}$": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          },
           "blockOnWarnings": {
             "type": "boolean"
           }
@@ -7772,6 +7790,9 @@ export const schemaCatalog = [
         },
         "verification": {
           "profile": "text-rescan-v1",
+          "formatProfiles": {
+            "docx": "docx-redact-v1"
+          },
           "blockOnWarnings": true
         },
         "limits": {
@@ -7870,6 +7891,24 @@ export const schemaCatalog = [
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "formatProfiles": {
+            "description": "Verification profiles this policy requires for named formats instead of the default profile. A container format whose output cannot be verified by rescanning canonical text alone names its own profile here rather than silently borrowing one that never reopens the package.",
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,31}$"
+            },
+            "patternProperties": {
+              "^[a-z][a-z0-9-]{1,31}$": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
           },
           "blockOnWarnings": {
             "type": "boolean"
@@ -7985,6 +8024,9 @@ export const schemaCatalog = [
         },
         "verification": {
           "profile": "text-rescan-v1",
+          "formatProfiles": {
+            "docx": "docx-redact-v1"
+          },
           "blockOnWarnings": true
         },
         "limits": {

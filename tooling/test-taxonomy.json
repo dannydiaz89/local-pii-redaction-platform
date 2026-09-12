@@ -59,6 +59,7 @@
     "packages/ui/test/ui.test.tsx": ["unit", "accessibility"],
     "packages/verification/test/verification.test.ts": ["unit", "integration", "security-privacy"],
     "packages/verification/test/docx.test.ts": ["unit", "integration", "format-conformance", "security-privacy"],
+    "packages/profile-local/test/docx-redaction.test.ts": ["integration", "end-to-end", "format-conformance", "security-privacy"],
     "tooling/evaluate-ollama.test.ts": ["unit", "evaluation", "security-privacy"],
     "tooling/http-fastify-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],
     "tooling/http-hono-spike.test.ts": ["unit", "contract", "integration", "security-privacy"],

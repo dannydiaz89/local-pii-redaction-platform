@@ -30,7 +30,7 @@
         "kind": { "const": "DOCX_XML_VALUE" },
         "part": {
           "type": "string",
-          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
         },
         "element": { "type": "string", "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$" },
         "elementOrdinal": { "type": "integer", "minimum": 1, "maximum": 1000000 },
@@ -46,7 +46,7 @@
         "kind": { "const": "DOCX_XML_VALUE" },
         "part": {
           "type": "string",
-          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
+          "pattern": "^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\\.xml$"
         },
         "element": { "type": "string", "pattern": "^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$" },
         "elementOrdinal": { "type": "integer", "minimum": 1, "maximum": 1000000 },

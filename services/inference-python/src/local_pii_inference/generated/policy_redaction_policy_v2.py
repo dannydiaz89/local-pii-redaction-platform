@@ -31,6 +31,13 @@ class Verification(BaseModel):
         extra='forbid',
     )
     profile: constr(min_length=1, max_length=64, strict=True)
+    formatProfiles: (
+        dict[
+            constr(pattern=r'^[a-z][a-z0-9-]{1,31}$', strict=True),
+            constr(min_length=1, max_length=64, strict=True),
+        ]
+        | None
+    ) = Field(None, description='Verification profiles this policy requires for named formats instead of the default profile. A container format whose output cannot be verified by rescanning canonical text alone names its own profile here rather than silently borrowing one that never reopens the package.')
     blockOnWarnings: StrictBool
 
 

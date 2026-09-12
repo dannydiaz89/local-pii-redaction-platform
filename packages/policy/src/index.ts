@@ -63,6 +63,12 @@ export interface EffectivePolicyRequirements {
   readonly detectorKinds: readonly DetectorKind[];
   readonly transformationActions: readonly TransformationAction[];
   readonly verificationProfile: string;
+  /**
+   * Profiles this policy demands for named formats instead of `verificationProfile`. A
+   * container format is verified by reopening and reconciling the package, not by rescanning
+   * canonical text, so it must be able to name a profile the text profile cannot implement.
+   */
+  readonly formatVerificationProfiles: Readonly<Record<string, string>>;
   readonly maximumInputBytes: number;
 }
 
@@ -74,7 +80,11 @@ export interface EffectivePolicy {
   readonly riskTier: 'LOW' | 'MODERATE' | 'HIGH';
   readonly entities: readonly EffectiveEntityRule[];
   readonly requirements: EffectivePolicyRequirements;
-  readonly verification: Readonly<{ profile: string; blockOnWarnings: boolean }>;
+  readonly verification: Readonly<{
+    profile: string;
+    formatProfiles?: Readonly<Record<string, string>>;
+    blockOnWarnings: boolean;
+  }>;
   readonly limits: Readonly<{ maximumInputBytes: number }>;
   readonly structure: EffectiveStructurePolicy;
 }
@@ -106,8 +116,12 @@ export interface EffectiveStructurePolicy {
   }>;
 }
 
-/** Structurally compatible with the core capability requirement without importing core. */
-export interface CompiledCapabilityRequirement extends EffectivePolicyRequirements {
+/**
+ * Structurally compatible with the core capability requirement without importing core. The
+ * per-format profile table is deliberately absent: compilation has already resolved it against
+ * this requirement's format, so a consumer cannot pick a different profile than preflight did.
+ */
+export interface CompiledCapabilityRequirement extends Omit<EffectivePolicyRequirements, 'formatVerificationProfiles'> {
   readonly contractVersion: string;
   readonly engineModes: readonly EngineMode[];
   readonly formatId: string;
@@ -391,6 +405,9 @@ export function compilePolicy(value: unknown): EffectivePolicy {
     detectorKinds,
     transformationActions: requiredTransformations,
     verificationProfile: policy.verification.profile,
+    formatVerificationProfiles: Object.fromEntries(
+      Object.entries(policy.verification.formatProfiles ?? {}).sort(([left], [right]) => left.localeCompare(right))
+    ),
     maximumInputBytes: policy.limits.maximumInputBytes
   });
   const structure = deepFreeze({
@@ -444,7 +461,11 @@ export function compileCapabilityRequirement(
     detectorIds: Object.freeze([...policy.requirements.detectorIds]),
     detectorKinds: Object.freeze([...policy.requirements.detectorKinds]),
     transformationActions: Object.freeze([...policy.requirements.transformationActions]),
-    verificationProfile: policy.requirements.verificationProfile,
+    // A policy may demand a different verification profile for a named format. Resolving it
+    // here keeps the single place that compiles a policy into a capability requirement in
+    // charge of which profile the preflight and the attestation must both agree on.
+    verificationProfile: policy.requirements.formatVerificationProfiles[context.formatId]
+      ?? policy.requirements.verificationProfile,
     // A policy limit is a ceiling on what the policy permits, not a demand that every engine
     // accept inputs that large. The caller's context carries the bound its session actually
     // enforces, so the capability only has to satisfy the tighter of the two. A narrower engine
@@ -508,7 +529,9 @@ export function evaluateCapabilities(
       && qualified(transformation.qualification, minimumQualification)
     )
   );
-  const verifier = manifest.verificationProfiles.find(({ id }) => id === policy.requirements.verificationProfile);
+  const requiredProfile = policy.requirements.formatVerificationProfiles[context.formatId]
+    ?? policy.requirements.verificationProfile;
+  const verifier = manifest.verificationProfiles.find(({ id }) => id === requiredProfile);
   const verifierAvailable = verifier !== undefined
     && verifier.availability === 'AVAILABLE'
     && qualified(verifier.qualification, minimumQualification)
@@ -707,7 +730,10 @@ export const developmentLabelsPolicy = deepFreeze({
       requiredDetectors: ['email-pattern']
     }
   },
-  verification: { profile: 'text-rescan-v1', blockOnWarnings: true },
+  // A DOCX output is a package, not canonical text, so rescanning the reopened text would
+  // leave every part the canonical text does not carry unverified. The format therefore names
+  // the profile that reopens and reconciles the package itself.
+  verification: { profile: 'text-rescan-v1', formatProfiles: { docx: 'docx-redact-v1' }, blockOnWarnings: true },
   limits: { maximumInputBytes: 104_857_600 }
 } satisfies RedactionPolicy);
 

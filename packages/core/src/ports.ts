@@ -57,6 +57,13 @@ export interface TextArtifact {
   readonly hasUtf8Bom: boolean;
   /** Complete adapter-owned source regions for structured canonical text. */
   readonly regions?: readonly CanonicalRegion[];
+  /**
+   * Exact container bytes, for formats whose canonical text is an extraction rather than the
+   * artifact itself. A verification profile that has to reopen and reparse the container needs
+   * the bytes; one that verifies canonical text ignores this and adapters that have no
+   * container never set it.
+   */
+  readonly nativeBytes?: Uint8Array;
 }
 
 export interface StagedTextArtifact {
@@ -161,12 +168,20 @@ export interface TextVerificationPort {
 
 export interface BoundTextVerificationRequest {
   readonly reopenedText: string;
-  readonly input: { readonly digest: Sha256Digest; readonly byteLength: number };
+  /** The input's canonical text and source map, for profiles that reconcile against them. */
+  readonly sourceText?: string;
+  readonly sourceRegions?: readonly CanonicalRegion[];
+  readonly input: {
+    readonly digest: Sha256Digest;
+    readonly byteLength: number;
+    readonly nativeBytes?: Uint8Array;
+  };
   readonly output: {
     readonly digest: Sha256Digest;
     readonly byteLength: number;
     readonly mediaType: string;
     readonly extractionRevision: Sha256Digest;
+    readonly nativeBytes?: Uint8Array;
   };
   readonly capabilityDigest: Sha256Digest;
   readonly plan: TypedLabelPlan;

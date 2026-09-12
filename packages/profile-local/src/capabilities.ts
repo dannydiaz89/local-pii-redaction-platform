@@ -33,6 +33,7 @@ import {
 } from '@local-pii/provider-ollama';
 import { typedLabelTransformationCapabilityDescriptor } from '@local-pii/redaction';
 import {
+  docxRedactionVerificationCapabilityDescriptor,
   textHybridVerificationCapabilityDescriptor,
   textVerificationCapabilityDescriptor
 } from '@local-pii/verification';
@@ -120,6 +121,13 @@ export function createCurrentCapabilityManifest(): CapabilityManifest {
         ...docxExtractionVerificationCapabilityDescriptor,
         formats: [...docxExtractionVerificationCapabilityDescriptor.formats],
         checks: [...docxExtractionVerificationCapabilityDescriptor.checks],
+        availability: 'AVAILABLE',
+        qualification: 'EXPERIMENTAL'
+      } as unknown as CapabilityManifest['verificationProfiles'][number],
+      {
+        ...docxRedactionVerificationCapabilityDescriptor,
+        formats: [...docxRedactionVerificationCapabilityDescriptor.formats],
+        checks: [...docxRedactionVerificationCapabilityDescriptor.checks],
         availability: 'AVAILABLE',
         qualification: 'EXPERIMENTAL'
       } as unknown as CapabilityManifest['verificationProfiles'][number],

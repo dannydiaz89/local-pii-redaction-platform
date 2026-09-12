@@ -3,11 +3,7 @@
   "id": "development-labels",
   "version": "0.1.0",
   "riskTier": "LOW",
-  "defaults": {
-    "action": "TYPED_LABEL",
-    "minimumConfidence": 0.8,
-    "uncertainBehavior": "REQUIRE_REVIEW"
-  },
+  "defaults": { "action": "TYPED_LABEL", "minimumConfidence": 0.8, "uncertainBehavior": "REQUIRE_REVIEW" },
   "entities": {
     "EMAIL": {
       "action": "TYPED_LABEL",
@@ -16,6 +12,10 @@
       "requiredDetectors": ["email-pattern"]
     }
   },
-  "verification": { "profile": "text-rescan-v1", "formatProfiles": { "docx": "docx-redact-v1" }, "blockOnWarnings": true },
+  "verification": {
+    "profile": "text-rescan-v1",
+    "formatProfiles": { "docx": "docx-redact-v1" },
+    "blockOnWarnings": true
+  },
   "limits": { "maximumInputBytes": 104857600 }
 }

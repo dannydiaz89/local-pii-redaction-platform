@@ -734,15 +734,19 @@ export function createTextProcessingApplication(
           }
           const verificationRequest: BoundTextVerificationRequest = {
             reopenedText: reopened.text,
+            sourceText: scanned.artifact.text,
+            ...(scanned.artifact.regions === undefined ? {} : { sourceRegions: scanned.artifact.regions }),
             input: {
               digest: scanned.artifact.digest,
-              byteLength: scanned.artifact.byteLength
+              byteLength: scanned.artifact.byteLength,
+              ...(scanned.artifact.nativeBytes === undefined ? {} : { nativeBytes: scanned.artifact.nativeBytes })
             },
             output: {
               digest: reopened.digest,
               byteLength: reopened.byteLength,
               mediaType: reopened.mediaType,
-              extractionRevision: reopened.extractionRevision
+              extractionRevision: reopened.extractionRevision,
+              ...(reopened.nativeBytes === undefined ? {} : { nativeBytes: reopened.nativeBytes })
             },
             capabilityDigest,
             plan,
@@ -770,7 +774,10 @@ export function createTextProcessingApplication(
             verificationRequest,
             dependencies,
             manifest,
-            command.policy.verification.profile,
+            // The profile the policy demands for this format, already resolved by the same
+            // compilation that preflight admitted, so the attestation cannot be produced by a
+            // profile other than the one the capability check approved.
+            policyRequirement.verificationProfile,
             requestCorrelationId
           );
           const published = await command.session.publish(staged, command.signal);

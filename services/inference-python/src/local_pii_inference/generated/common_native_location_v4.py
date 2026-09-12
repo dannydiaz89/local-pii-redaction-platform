@@ -69,7 +69,7 @@ class NativeStructuredLocationV22(BaseModel):
     )
     schemaVersion: Literal['2.0.0']
     kind: Literal['DOCX_XML_VALUE']
-    part: constr(pattern=r'^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$', strict=True)
+    part: constr(pattern=r'^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$', strict=True)
     element: constr(pattern=r'^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$', strict=True)
     elementOrdinal: conint(ge=1, le=1000000, strict=True)
     carrier: Literal['TEXT']
@@ -81,7 +81,7 @@ class NativeStructuredLocationV23(BaseModel):
     )
     schemaVersion: Literal['2.0.0']
     kind: Literal['DOCX_XML_VALUE']
-    part: constr(pattern=r'^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$', strict=True)
+    part: constr(pattern=r'^(?:word/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme/theme[1-9][0-9]{0,5}|drawings/drawing[1-9][0-9]{0,5}|charts/chart[1-9][0-9]{0,5})|docProps/(?:core|app|custom)|customXml/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$', strict=True)
     element: constr(pattern=r'^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$', strict=True)
     elementOrdinal: conint(ge=1, le=1000000, strict=True)
     carrier: Literal['ATTRIBUTE']

@@ -31,11 +31,15 @@ import {
 } from '@local-pii/provider-ollama';
 import {
   createHybridTextVerificationDetectorBundle,
+  docxRedactionVerificationProfile,
+  docxVerificationDetectorBundle,
+  docxVerificationVerifier,
   textHybridVerificationProfile,
   textVerificationProfile,
   textVerificationDetectorBundle,
   textVerificationVerifier,
   verifyBoundCanonicalText,
+  verifyBoundDocxRedaction,
   verifyBoundHybridText,
   verifyCanonicalText
 } from '@local-pii/verification';
@@ -122,8 +126,11 @@ export function docxCapabilityRequirement(operation: CapabilityOperation): Capab
     operation,
     detectorIds: needsDetection ? [...detectorIds] : [],
     detectorKinds: needsDetection ? [...detectorKinds] : [],
-    transformationActions: [],
-    verificationProfile: 'docx-extract-v1',
+    transformationActions: operation === 'REDACT' ? ['TYPED_LABEL'] : [],
+    // Extraction assurance is not redaction assurance. A redaction is admitted only against the
+    // profile that reopens the staged package and reconciles it; `docx-extract-v1` attests that
+    // an input could be read and must never stand behind a published derived artifact.
+    verificationProfile: operation === 'REDACT' ? 'docx-redact-v1' : 'docx-extract-v1',
     maximumInputBytes: defaultMaximumDocxInputBytes,
     minimumQualification: 'EXPERIMENTAL'
   };
@@ -199,6 +206,69 @@ const verifier = {
   }
 };
 
+/**
+ * The DOCX redaction verification port. It is a separate port from the text one because it
+ * implements a separate profile: a DOCX output is a package whose canonical text is an
+ * extraction, so rescanning that text would leave every part the extraction does not carry
+ * unexamined. `verifyBoundDocxRedaction` reparses both packages instead, and a request that
+ * does not carry the exact bytes and source map it needs yields INCOMPLETE rather than a PASS.
+ */
+const docxVerifier: TextVerificationPort = {
+  attestation: {
+    profile: docxRedactionVerificationProfile,
+    verifier: docxVerificationVerifier,
+    detectorBundle: docxVerificationDetectorBundle,
+    application: verifier.attestation.application
+  },
+  verify: (text, extractionRevision, signal) => verifier.verify(text, extractionRevision, signal),
+  attest(request: BoundTextVerificationRequest, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const startedAt = new Date().toISOString();
+    const report = verifyBoundDocxRedaction({
+      ...(request.input.nativeBytes === undefined ? {} : { inputBytes: request.input.nativeBytes }),
+      ...(request.output.nativeBytes === undefined ? {} : { outputBytes: request.output.nativeBytes }),
+      ...(request.sourceText === undefined ? {} : { sourceText: request.sourceText }),
+      ...(request.sourceRegions === undefined ? {} : { sourceRegions: request.sourceRegions }),
+      reopenedText: request.reopenedText,
+      input: { digest: request.input.digest, byteLength: request.input.byteLength },
+      output: {
+        digest: request.output.digest,
+        byteLength: request.output.byteLength,
+        mediaType: request.output.mediaType,
+        extractionRevision: request.output.extractionRevision
+      },
+      capabilityDigest: request.capabilityDigest,
+      plan: {
+        id: request.plan.id,
+        digest: request.plan.digest,
+        inputDigest: request.plan.inputDigest,
+        extractionRevision: request.plan.extractionRevision,
+        capabilityDigest: request.plan.capabilityDigest,
+        policy: request.plan.policy,
+        writer: request.plan.writer,
+        expectedActionCount: request.plan.expectedActionCount,
+        actions: request.plan.actions.map((action) => ({
+          id: action.id,
+          sourceSpanId: action.sourceSpanId,
+          entityType: action.entityType,
+          start: action.start,
+          end: action.end,
+          replacement: action.replacement
+        })),
+        ...(request.plan.schemaVersion === '2.0.0' ? { review: request.plan.review } : {})
+      },
+      policy: request.policy,
+      writerReceipt: request.writerReceipt,
+      writer: request.writer,
+      application: verifier.attestation.application,
+      startedAt,
+      completedAt: new Date().toISOString()
+    });
+    signal?.throwIfAborted();
+    return Promise.resolve(report);
+  }
+};
+
 function application(
   manifest: ReturnType<typeof createCurrentCapabilityManifest>,
   detector: TextDetectionPort,
@@ -218,6 +288,13 @@ function application(
 
 export const localTextApplication = application(createTextOnlyCapabilityManifest(), rulesDetector);
 export const localFileApplication = application(createCurrentCapabilityManifest(), rulesDetector);
+/**
+ * The same capability snapshot and detectors as the file application, composed with the DOCX
+ * redaction verifier. One application can only carry one verification port, and the profile a
+ * policy names for DOCX is not the profile it names for text, so the composition root selects
+ * this one for a DOCX redaction and the text one for everything else.
+ */
+export const localDocxApplication = application(createCurrentCapabilityManifest(), rulesDetector, docxVerifier);
 export const localApiApplication = application(createProcessLocalApiCapabilityManifest(), rulesDetector);
 
 export interface ExperimentalOllamaApplicationOptions {

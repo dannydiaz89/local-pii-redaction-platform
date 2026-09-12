@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "2.0.0",
+  "input": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 4130 },
+  "output": {
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "byteLength": 4120,
+    "mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "extractionRevision": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "plan": {
+    "id": "plan_01J4M8Z7QK2C5B6TFXDA9R4M3V",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "policy": {
+    "id": "development-labels",
+    "version": "0.1.0",
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "riskTier": "LOW"
+  },
+  "capabilityDigest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "writerReceiptDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "profile": { "id": "docx-redact-v1", "version": "0.1.0", "digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313" },
+  "verifier": { "id": "docx-verifier", "version": "0.1.0", "digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414" },
+  "detectorBundle": { "id": "deterministic-text", "version": "0.2.0", "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515" },
+  "writer": { "id": "docx-adapter", "version": "0.10.0", "digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616" },
+  "application": { "id": "local-pii-cli", "version": "0.1.0", "digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717" },
+  "outcome": "PASS",
+  "checks": ["STRUCTURE", "NATIVE_SURFACE", "DETERMINISTIC_RESCAN", "ACTION_RECONCILIATION"],
+  "reconciliation": {
+    "expectedActionCount": 7,
+    "appliedActionCount": 7,
+    "missingActionCount": 0,
+    "unexpectedActionCount": 0,
+    "duplicateActionCount": 0
+  },
+  "findings": [],
+  "startedAt": "2026-08-08T18:00:30Z",
+  "completedAt": "2026-08-08T18:01:00Z",
+  "reportDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

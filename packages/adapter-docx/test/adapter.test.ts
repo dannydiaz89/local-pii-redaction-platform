@@ -12,6 +12,7 @@ import { assertTypedLabelPlanIntegrity, compileTypedLabelPlan, type TypedLabelPl
 import {
   createLocalDocxArtifactSession,
   docxAdapterCapabilityDescriptor,
+  docxExtractionVerificationCapabilityDescriptor,
   docxWriterDescriptor,
   readDocxArtifact,
   reconcileDocxStageFoundation,
@@ -472,10 +473,18 @@ function codePointOffsetOf(text: string, value: string): number {
 }
 
 describe('DOCX adapter', () => {
-  it('advertises extract-only scan scope with preflight assurance rather than a native redaction verifier', () => {
-    expect(docxAdapterCapabilityDescriptor.operations).toEqual(['PROBE', 'INSPECT', 'EXTRACT', 'SCAN']);
-    expect(docxAdapterCapabilityDescriptor.assurance).toBe('EXTRACT_ONLY');
-    expect(docxAdapterCapabilityDescriptor.verificationProfiles).toEqual(['docx-extract-v1']);
+  it('advertises structural replacement behind its own redaction profile rather than the extraction one', () => {
+    expect(docxAdapterCapabilityDescriptor.operations).toEqual(['PROBE', 'INSPECT', 'EXTRACT', 'SCAN', 'REDACT']);
+    expect(docxAdapterCapabilityDescriptor.assurance).toBe('STRUCTURAL_REPLACE');
+    expect(docxAdapterCapabilityDescriptor.operations).not.toContain('VERIFY');
+    expect(docxAdapterCapabilityDescriptor.verificationProfiles).toEqual(['docx-extract-v1', 'docx-redact-v1']);
+    expect(docxExtractionVerificationCapabilityDescriptor.checks).not.toContain('DETERMINISTIC_RESCAN');
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({
+      id: 'independent-office-renderer-fidelity', status: 'BLOCKED'
+    });
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({
+      id: 'redaction-of-typed-date-numeric-and-reference-carriers', status: 'BLOCKED'
+    });
   });
 
   it('extracts visible body and table text across fragmented runs without changing input bytes or metadata', async () => {
@@ -1191,8 +1200,9 @@ describe('DOCX adapter', () => {
       fidelityVerified: false
     });
     expect(evidence.checks).toContain('UNTOUCHED_PART_CONTENT_IDENTITY');
-    expect(docxAdapterCapabilityDescriptor.operations).not.toContain('REDACT');
-    expect(docxAdapterCapabilityDescriptor.operations).not.toContain('VERIFY');
+    // The foundation stays non-authorizing on its own: publication is gated by the independent
+    // `docx-redact-v1` attestation, never by this adapter-side reconciliation.
+    expect(evidence.independentlyVerified).toBe(false);
     await session.discard(staged);
   });
 

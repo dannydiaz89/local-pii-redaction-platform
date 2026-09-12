@@ -42,6 +42,7 @@ import {
   inferenceExperimentalDefaultLimits,
   pdfCapabilityRequirement,
   jsonCapabilityRequirement,
+  localDocxApplication,
   localFileApplication,
   textCapabilityRequirement,
   type LocalEngine
@@ -108,7 +109,7 @@ const usage = `Usage:
   pii-redact batch scan <directory> [--include <glob>] [--exclude <glob>] [--allow-partial] [--batch-timeout-ms <1000-300000>] [--engine rules|ollama|inference] [--json]
   pii-redact batch redact <directory> --output <directory> [--include <glob>] [--exclude <glob>] [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--batch-timeout-ms <1000-300000>] [--engine rules|ollama|inference] [--accept-model-evidence] [--json]
   pii-redact scan <file.txt|file.md|file.json|file.csv|file.docx> [--policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--json]
-  pii-redact redact <file.txt|file.md|file.json|file.csv> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--accept-model-evidence] [--json]
+  pii-redact redact <file.txt|file.md|file.json|file.csv|file.docx> --output <path> [--policy <development-labels|high-risk-disclosure> | --policy-file <policy.json>] [--engine rules|ollama|inference] [--model <local-model>] [--bundle <dir>] [--accept-model-evidence] [--json]
   pii-redact verify <file.txt|file.md|file.json|file.csv> [--json]
   pii-redact inspect <file.txt|file.md|file.json|file.csv|file.docx|file.pdf> [--json]
   pii-redact cleanup-stages --output <path> [--apply] [--json]
@@ -1029,7 +1030,11 @@ async function runRedact(
   // Resolve the capability requirement before contacting a provider so an unsupported
   // format or engine combination fails without any model request.
   const requirement = capabilityRequirement(input, 'REDACT', engine);
-  const selected = parsed === undefined ? localFileApplication : await selectedApplication(parsed, signal);
+  // A DOCX redaction is attested by the profile that reopens the package, which is a different
+  // verification port from the canonical-text one every other format uses.
+  const selected = localFormat(input) === 'docx'
+    ? localDocxApplication
+    : parsed === undefined ? localFileApplication : await selectedApplication(parsed, signal);
   if (engine !== 'rules') experimentalWarning(io);
   const maximumInputBytes = experimentalInputLimit(engine, policy.limits.maximumInputBytes);
   const review = parsed?.acceptModelEvidence === true

@@ -92,7 +92,8 @@ describe('policy validation and compilation', () => {
 
   it('retains the v1 digest while normalizing an absent structured policy to free text', () => {
     const effective = compilePolicy(developmentLabelsPolicy);
-    expect(effective.digest).toBe('sha256:83bc5a796eab8185caed15cc23e29ee5995a842292f2973a086ae73f2b893af8');
+    expect(effective.digest).toBe('sha256:6b09e94a809e0e90775a8d09f3ae94a2a196974683bf3cbcbaf5b25034c569bb');
+    expect(effective.requirements.formatVerificationProfiles).toEqual({ docx: 'docx-redact-v1' });
     expect(effective.structure).toEqual({
       json: { defaultMode: 'FREE_TEXT', rules: [] },
       csv: { delimiter: 'AUTO', header: 'NONE', defaultMode: 'FREE_TEXT', columns: [] }
@@ -206,6 +207,7 @@ describe('policy validation and compilation', () => {
       detectorKinds: ['MODEL'],
       transformationActions: ['REDACT', 'TYPED_LABEL'],
       verificationProfile: 'high-risk-v1',
+      formatVerificationProfiles: {},
       maximumInputBytes: 104_857_600
     });
     expect(first.entities.find(({ entityType }) => entityType === 'EMAIL')).toMatchObject({

@@ -98,6 +98,9 @@
     { "file": "invalid/verification-attestation-v2-missing-capability-digest.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
     { "file": "invalid/verification-attestation-v2-action-ids.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
     { "file": "invalid/verification-attestation-v2-finding-path.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false },
+    { "file": "valid/redaction-policy-docx-format-profile.json", "schemaId": "https://local-pii.dev/schemas/policy/redaction-policy/1.0.0", "valid": true },
+    { "file": "valid/verification-attestation-v2-docx-redact-pass.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": true },
+    { "file": "invalid/redaction-policy-format-profile-bad-format-key.json", "schemaId": "https://local-pii.dev/schemas/policy/redaction-policy/1.0.0", "valid": false },
     { "file": "invalid/verification-attestation-v2-nonblocking-residual.json", "schemaId": "https://local-pii.dev/schemas/verification/verification-report/2.0.0", "valid": false }
   ]
 }
