@@ -17,10 +17,11 @@ Reusable composition root for the platform's current local file-processing profi
 
 This package wires existing ports and adapters together. It contains no command parsing, HTTP
 handling, browser logic, or durable state. JSON and CSV are rules-only in the CLI and process-local API
-slice. DOCX is rules-only, CLI-only, experimental, and limited to inspect/scan. PDF is CLI-only,
+slice. DOCX is rules-only, CLI-only, and experimental; it now covers inspect, scan, and verified
+redaction attested by `docx-redact-v1`. PDF is CLI-only,
 experimental, extraction-only, and limited to probe/inspect even though its closed v5 profile maps
 the narrow accepted Info/XMP metadata values. Ollama remains
-experimental, loopback-only, text-only, and scan-only.
+experimental, loopback-only, and text-only, across scan and verified redaction.
 
 There is no package-local test directory yet; its compositions are exercised through CLI, API, core,
 and provider integration tests.
