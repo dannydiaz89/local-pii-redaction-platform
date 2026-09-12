@@ -25,7 +25,7 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.7.0';
+export const docxAdapterVersion = '0.8.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
@@ -45,6 +45,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
     { id: 'comment-text-anchors-and-annotation-identity', status: 'SUPPORTED' },
     { id: 'comment-threading-durable-id-and-date-companion-parts', status: 'SUPPORTED' },
+    { id: 'comment-author-identity-and-presence-part', status: 'SUPPORTED' },
     { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
     { id: 'strict-passive-word-support-parts', status: 'SUPPORTED' },
     { id: 'scanned-external-hyperlink-targets', status: 'SUPPORTED' },
@@ -60,6 +61,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'text-boxes-and-inline-alternate-text-flows', status: 'BLOCKED' },
     { id: 'images-drawings-and-embedded-objects', status: 'BLOCKED' },
     { id: 'revisions-fields-hidden-text-and-controls', status: 'BLOCKED' },
+    { id: 'revision-move-and-reaction-author-identity', status: 'BLOCKED' },
     { id: 'zip64-and-encrypted-entries', status: 'BLOCKED' },
     { id: 'symbolic-links', status: 'BLOCKED' },
     { id: 'sandboxed-worker-isolation', status: 'BLOCKED' }
@@ -1309,7 +1311,7 @@ const ignorablePrefixes = (value: string): boolean => {
 const ignorableRoots = Object.freeze([
   'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:comments',
   'w:settings', 'w:styles', 'w:numbering', 'w:fonts',
-  'w15:commentsEx', 'w16cid:commentsIds', 'w16cex:commentsExtensible'
+  'w15:commentsEx', 'w15:people', 'w16cid:commentsIds', 'w16cex:commentsExtensible'
 ]);
 
 const relationshipId = (value: string): boolean => /^rId[1-9][0-9]{0,5}$/u.test(value);
@@ -1620,6 +1622,16 @@ const fontTableElements = new Set([
 const commentsExtendedElements = new Set(['w15:commentsEx', 'w15:commentEx']);
 const commentsIdsElements = new Set(['w16cid:commentsIds', 'w16cid:commentId']);
 const commentsExtensibleElements = new Set(['w16cex:commentsExtensible', 'w16cex:commentExtensible']);
+/**
+ * `word/people.xml` is the opposite of the companion parts: it holds no
+ * references into the comment graph, and every attribute it carries is author
+ * identity. `w15:author` is a display name, `w15:userId` is routinely a mail
+ * address, a user principal name or a directory SID, and `w15:providerId` is
+ * declared as ST_String rather than an enumeration, so an on-premises provider
+ * id can name a tenant or directory. All three are therefore left off the
+ * structural table and reach the canonical text as scanned carriers.
+ */
+const peopleElements = new Set(['w15:people', 'w15:person', 'w15:presenceInfo']);
 
 function parents(entries: Readonly<Record<string, readonly string[]>>): ReadonlyMap<string, ReadonlySet<string | undefined>> {
   return new Map(Object.entries(entries).map(([parent, children]) => [parent, new Set(children.map((child) => child === '$root' ? undefined : child))]));
@@ -1688,16 +1700,19 @@ const fontTableOrder = Object.freeze({
 const commentsExtendedParents = parents({ 'w15:commentsEx': ['$root'], 'w15:commentEx': ['w15:commentsEx'] });
 const commentsIdsParents = parents({ 'w16cid:commentsIds': ['$root'], 'w16cid:commentId': ['w16cid:commentsIds'] });
 const commentsExtensibleParents = parents({ 'w16cex:commentsExtensible': ['$root'], 'w16cex:commentExtensible': ['w16cex:commentsExtensible'] });
+const peopleParents = parents({ 'w15:people': ['$root'], 'w15:person': ['w15:people'], 'w15:presenceInfo': ['w15:person'] });
 const commentsExtendedOrder = Object.freeze({ 'w15:commentsEx': ['w15:commentEx'] });
 const commentsIdsOrder = Object.freeze({ 'w16cid:commentsIds': ['w16cid:commentId'] });
 const commentsExtensibleOrder = Object.freeze({ 'w16cex:commentsExtensible': ['w16cex:commentExtensible'] });
+const peopleOrder = Object.freeze({ 'w15:people': ['w15:person'], 'w15:person': ['w15:presenceInfo'] });
 
 const requiredCarrierAttributes: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'w:compatSetting': ['w:name', 'w:uri', 'w:val'],
   'w:abstractNum': ['w:abstractNumId'], 'w:lvl': ['w:ilvl'], 'w:num': ['w:numId'],
   'w:lvlText': ['w:val'], 'w:style': ['w:type', 'w:styleId'], 'w:lsdException': ['w:name'], 'w:font': ['w:name'],
   'w15:commentEx': ['w15:paraId'], 'w16cid:commentId': ['w16cid:paraId', 'w16cid:durableId'],
-  'w16cex:commentExtensible': ['w16cex:durableId']
+  'w16cex:commentExtensible': ['w16cex:durableId'],
+  'w15:person': ['w15:author'], 'w15:presenceInfo': ['w15:providerId', 'w15:userId']
 });
 const carrierChildCardinality: Readonly<Record<string, Readonly<Record<string, readonly [number, number]>>>> = Object.freeze({
   'w:abstractNum': { 'w:nsid': [1, 1], 'w:multiLevelType': [1, 1], 'w:tmpl': [1, 1], 'w:lvl': [1, 9] },
@@ -1706,7 +1721,8 @@ const carrierChildCardinality: Readonly<Record<string, Readonly<Record<string, r
   'w:docDefaults': { 'w:rPrDefault': [1, 1], 'w:pPrDefault': [1, 1] },
   'w:rPrDefault': { 'w:rPr': [1, 1] }, 'w:pPrDefault': { 'w:pPr': [1, 1] },
   'w:style': { 'w:name': [1, 1], 'w:pPr': [0, 1], 'w:rPr': [0, 1], 'w:tblPr': [0, 1] },
-  'w:font': { 'w:altName': [0, 1], 'w:panose1': [1, 1], 'w:charset': [1, 1], 'w:family': [1, 1], 'w:notTrueType': [0, 1], 'w:pitch': [1, 1], 'w:sig': [0, 1] }
+  'w:font': { 'w:altName': [0, 1], 'w:panose1': [1, 1], 'w:charset': [1, 1], 'w:family': [1, 1], 'w:notTrueType': [0, 1], 'w:pitch': [1, 1], 'w:sig': [0, 1] },
+  'w15:person': { 'w15:presenceInfo': [0, 1] }
 });
 
 function validateWordCarrierPart(
@@ -1753,7 +1769,10 @@ function validateWordCarrierPart(
     }
     const identityAttribute = element.name === 'w:style' ? 'w:styleId'
       : element.name === 'w:abstractNum' ? 'w:abstractNumId'
-        : element.name === 'w:num' ? 'w:numId' : undefined;
+        : element.name === 'w:num' ? 'w:numId'
+          // A person list that names the same author twice is ambiguous about
+          // which presence identity belongs to that author.
+          : element.name === 'w15:person' ? 'w15:author' : undefined;
     if (identityAttribute !== undefined) {
       const ids = uniqueIds.get(element.name) ?? new Set<string>();
       const id = element.attributes[identityAttribute] ?? '';
@@ -1791,7 +1810,8 @@ const passiveRelationshipKinds: Readonly<Record<string, { readonly target: strin
   fontTable: { target: 'fontTable.xml', part: 'word/fontTable.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml' },
   commentsExtended: { target: 'commentsExtended.xml', part: 'word/commentsExtended.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml' },
   commentsIds: { target: 'commentsIds.xml', part: 'word/commentsIds.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml' },
-  commentsExtensible: { target: 'commentsExtensible.xml', part: 'word/commentsExtensible.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml' }
+  commentsExtensible: { target: 'commentsExtensible.xml', part: 'word/commentsExtensible.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml' },
+  people: { target: 'people.xml', part: 'word/people.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml' }
 });
 
 /**
@@ -1802,7 +1822,8 @@ const passiveRelationshipKinds: Readonly<Record<string, { readonly target: strin
 const microsoftRelationshipKinds: Readonly<Record<string, string>> = Object.freeze({
   'http://schemas.microsoft.com/office/2011/relationships/commentsExtended': 'commentsExtended',
   'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds': 'commentsIds',
-  'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible': 'commentsExtensible'
+  'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible': 'commentsExtensible',
+  'http://schemas.microsoft.com/office/2011/relationships/people': 'people'
 });
 
 const carrierPartValidators: Readonly<Record<string, { readonly root: string; readonly elements: ReadonlySet<string>; readonly parents: ReadonlyMap<string, ReadonlySet<string | undefined>>; readonly order: Readonly<Record<string, readonly string[]>>; readonly maximumElements: number }>> = Object.freeze({
@@ -1812,7 +1833,8 @@ const carrierPartValidators: Readonly<Record<string, { readonly root: string; re
   'word/fontTable.xml': { root: 'w:fonts', elements: fontTableElements, parents: fontTableParents, order: fontTableOrder, maximumElements: 2_000 },
   'word/commentsExtended.xml': { root: 'w15:commentsEx', elements: commentsExtendedElements, parents: commentsExtendedParents, order: commentsExtendedOrder, maximumElements: 10_000 },
   'word/commentsIds.xml': { root: 'w16cid:commentsIds', elements: commentsIdsElements, parents: commentsIdsParents, order: commentsIdsOrder, maximumElements: 10_000 },
-  'word/commentsExtensible.xml': { root: 'w16cex:commentsExtensible', elements: commentsExtensibleElements, parents: commentsExtensibleParents, order: commentsExtensibleOrder, maximumElements: 10_000 }
+  'word/commentsExtensible.xml': { root: 'w16cex:commentsExtensible', elements: commentsExtensibleElements, parents: commentsExtensibleParents, order: commentsExtensibleOrder, maximumElements: 10_000 },
+  'word/people.xml': { root: 'w15:people', elements: peopleElements, parents: peopleParents, order: peopleOrder, maximumElements: 10_000 }
 });
 
 function companionAttributeValues(elements: readonly XmlElement[] | undefined, element: string, attribute: string): readonly string[] {
@@ -1831,7 +1853,17 @@ function assertUniqueCompanionKeys(values: readonly string[]): void {
  * paragraph ids of comment bodies, and commentsExtensible keys on the durable
  * ids that only commentsIds declares. A dangling or duplicated reference means
  * the package describes comments this adapter cannot see, which must be refused
- * rather than partially extracted.
+ * rather than partially extracted. `word/people.xml` joins the same rule at the
+ * part level: an author list without a comment body describes reviewers of
+ * comments that are not in the package.
+ *
+ * It deliberately stops there. The author names in `word/people.xml` are not
+ * required to agree with the `w:author` values on `w:comment`, because both are
+ * scanned carriers: a drifting name is extracted and offered to the detectors
+ * either way, so refusing the package would withhold a scan from identity the
+ * tool can already see. Word itself drifts here, keeping person entries for
+ * authors whose comments were deleted and omitting authors that never had a
+ * presence provider, so a bijection would refuse ordinary reviewed documents.
  */
 function assertCommentCompanionGraph(
   elementsByPart: ReadonlyMap<string, readonly XmlElement[]>,
@@ -1840,7 +1872,8 @@ function assertCommentCompanionGraph(
   const extended = elementsByPart.get('word/commentsExtended.xml');
   const identifiers = elementsByPart.get('word/commentsIds.xml');
   const extensible = elementsByPart.get('word/commentsExtensible.xml');
-  if (extended === undefined && identifiers === undefined && extensible === undefined) return;
+  const people = elementsByPart.get('word/people.xml');
+  if (extended === undefined && identifiers === undefined && extensible === undefined && people === undefined) return;
   if (comments === undefined || (extensible !== undefined && identifiers === undefined)) formatCorrupt();
   const paragraphIds = comments.declaredCommentParagraphIds;
 
@@ -1868,10 +1901,9 @@ function assertCommentCompanionGraph(
 function unsupportedEntryReason(name: string): UnsupportedFeatureReason {
   if (/^(?:docProps|customXml)\//u.test(name) || /^word\/(?:styles|settings|theme|fontTable|numbering|webSettings)/u.test(name)) return 'metadata_part';
   if (/^(?:word\/media|word\/embeddings|word\/drawings)\//u.test(name)) return 'drawing_or_alternate_content';
-  // `word/comments.xml` and the three declared companion parts are handled
-  // above. Every other comment-shaped part stays refused, including
-  // `word/people.xml`, whose author names and presence identifiers are a text
-  // surface this adapter does not yet map; so do glossary and sub-documents.
+  // `word/comments.xml`, the three companion parts and `word/people.xml` are
+  // handled above. Every other part in those families stays refused, as do the
+  // glossary and sub-document flows.
   if (/^word\/(?:comments|people|glossary|subDoc)/u.test(name)) return 'additional_text_part';
   return 'unknown_feature';
 }
