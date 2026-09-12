@@ -134,7 +134,7 @@ describe('JSON adapter extraction', () => {
     const path = await jsonFile(raw);
     await expect(readJsonArtifact(path)).rejects.toMatchObject({
       code: 'FORMAT_CORRUPT',
-      message: 'The JSON input is malformed or exceeds the supported structural limits.'
+      message: 'The JSON input is malformed.'
     });
   });
 
@@ -158,9 +158,13 @@ describe('JSON adapter extraction', () => {
     expect(Object.keys(left)).not.toContain('rawText');
   });
 
-  it('rejects excessive nesting under a deterministic parser bound', async () => {
+  it('rejects excessive nesting as oversized rather than malformed', async () => {
+    // The document is valid JSON; only its depth exceeds the bound, so it is not corrupt.
     const nested = `${'['.repeat(130)}"safe"${']'.repeat(130)}`;
-    await expect(readJsonArtifact(await jsonFile(nested))).rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
+    await expect(readJsonArtifact(await jsonFile(nested))).rejects.toMatchObject({
+      code: 'INPUT_TOO_LARGE',
+      message: 'The JSON input exceeds a supported structural limit.'
+    });
   });
 
   it('maps multiple astral-aware actions into native values while preserving untouched token bytes', async () => {

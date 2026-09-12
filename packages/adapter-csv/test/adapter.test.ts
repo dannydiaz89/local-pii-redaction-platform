@@ -247,8 +247,29 @@ describe('CSV adapter', () => {
   ])('fails closed for %s with a value-free error', async (_name, raw) => {
     await expect(readCsvArtifact(await csvFile(raw))).rejects.toMatchObject({
       code: 'FORMAT_CORRUPT',
-      message: 'The CSV input is malformed, ambiguous, or exceeds the supported structural limits.'
+      message: 'The CSV input is malformed or ambiguous.'
     });
+  });
+
+  it('keeps sniffing other delimiters when one interpretation is oversized', async () => {
+    // Semicolon-delimited and wide enough to blow the cell ceiling if read as one column per
+    // line would be wrong; comma parsing must still be tried and must win on the evidence.
+    const raw = `a;b;c\n${'1;2;3\n'.repeat(10)}`;
+    const artifact = await readCsvArtifact(await csvFile(raw));
+    expect(artifact.byteLength).toBe(Buffer.byteLength(raw));
+  });
+
+  it.each([
+    ['too many columns', `${Array.from({ length: 1_001 }, (_, index) => `c${String(index)}`).join(',')}\n`],
+    ['too many cells', `a,b\n${'1,2\n'.repeat(50_001)}`]
+  ])('reports %s as oversized rather than corrupt', async (_name, raw) => {
+    // A well-formed CSV that merely exceeds a declared bound is not damaged, and the operator
+    // should not be told it is. Malformed inputs keep FORMAT_CORRUPT in the case above.
+    await expect(readCsvArtifact(await csvFile(raw), undefined, { delimiter: 'COMMA', header: 'NONE' }))
+      .rejects.toMatchObject({
+        code: 'INPUT_TOO_LARGE',
+        message: 'The CSV input exceeds a supported structural limit.'
+      });
   });
 
   it('rewrites only changed cells with Unicode-safe offsets and preserves untouched quoted tokens', async () => {

@@ -138,7 +138,21 @@ const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
 function formatCorrupt(): never {
   throw new SafeError({
     code: 'FORMAT_CORRUPT',
-    message: 'The CSV input is malformed, ambiguous, or exceeds the supported structural limits.',
+    message: 'The CSV input is malformed or ambiguous.',
+    retryable: false,
+    correlationId: 'cor_csv_adapter'
+  });
+}
+
+/**
+ * A well-formed CSV that is merely larger than a declared bound is not corrupt. Reporting it as
+ * such tells the operator their file is damaged when the adapter is refusing a valid file, and
+ * sends a 413 case through the 422 path at the HTTP boundary.
+ */
+function inputTooLarge(): never {
+  throw new SafeError({
+    code: 'INPUT_TOO_LARGE',
+    message: 'The CSV input exceeds a supported structural limit.',
     retryable: false,
     correlationId: 'cor_csv_adapter'
   });
@@ -154,16 +168,16 @@ function parseWithDelimiter(source: string, delimiter: CsvDelimiter, header: Csv
 
   const finishRow = (): void => {
     const width = column + 1;
-    if (width > maximumCsvColumns) formatCorrupt();
+    if (width > maximumCsvColumns) inputTooLarge();
     expectedColumns ??= width;
     if (expectedColumns !== width) formatCorrupt();
     row += 1;
-    if (row > maximumCsvRows) formatCorrupt();
+    if (row > maximumCsvRows) inputTooLarge();
     column = 0;
   };
 
   for (;;) {
-    if (preliminary.length >= maximumCsvCells) formatCorrupt();
+    if (preliminary.length >= maximumCsvCells) inputTooLarge();
     const rawStart = index;
     let value = '';
     let quoted = false;
@@ -250,7 +264,7 @@ function parseWithDelimiter(source: string, delimiter: CsvDelimiter, header: Csv
     }
     const canonicalStart = canonicalLength;
     canonicalLength += unicodeCodePointLength(cell.value);
-    if (canonicalLength > maximumCanonicalCodePoints) formatCorrupt();
+    if (canonicalLength > maximumCanonicalCodePoints) inputTooLarge();
     canonicalParts.push(cell.value);
     const region = { ...cell, canonicalStart, canonicalEnd: canonicalLength };
     regions.push(region);
@@ -277,6 +291,10 @@ function parseCsv(source: string, options: CsvExtractionOptions): ParsedCsv {
   let commaFallback: ParsedCsv | undefined;
   let evidenced: ParsedCsv | undefined;
   let ambiguous = false;
+  // Both rejection kinds mean only that this delimiter does not explain the file, so sniffing
+  // continues either way. The reason is carried so that a file no delimiter could read because
+  // every interpretation was oversized is not finally reported as malformed.
+  let oversized = false;
   for (const delimiter of supportedDelimiters) {
     try {
       const candidate = parseWithDelimiter(source, delimiter, options.header);
@@ -290,13 +308,15 @@ function parseCsv(source: string, options: CsvExtractionOptions): ParsedCsv {
         commaFallback = candidate;
       }
     } catch (error: unknown) {
-      if (!(error instanceof SafeError) || error.code !== 'FORMAT_CORRUPT') throw error;
+      if (!(error instanceof SafeError)) throw error;
+      if (error.code === 'INPUT_TOO_LARGE') oversized = true;
+      else if (error.code !== 'FORMAT_CORRUPT') throw error;
     }
   }
   if (ambiguous) return formatCorrupt();
   if (evidenced !== undefined) return evidenced;
   if (commaFallback !== undefined) return commaFallback;
-  return formatCorrupt();
+  return oversized ? inputTooLarge() : formatCorrupt();
 }
 
 export async function readCsvArtifact(

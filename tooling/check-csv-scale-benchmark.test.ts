@@ -82,7 +82,7 @@ describe('CSV scale corpus projection', () => {
   it('predicts the first ceiling each shape reaches', () => {
     expect(projectCsvScale(wide)).toEqual({ cells: 100_000, detections: 5_000, expectation: { kind: 'SUCCEEDED' } });
     expect(projectCsvScale(narrow)).toEqual({ cells: 100_000, detections: 6_250, expectation: { kind: 'SUCCEEDED' } });
-    expect(projectCsvScale({ ...wide, rows: 1_000_000 }).expectation).toEqual({ kind: 'REJECTED', code: 'FORMAT_CORRUPT' });
+    expect(projectCsvScale({ ...wide, rows: 1_000_000 }).expectation).toEqual({ kind: 'REJECTED', code: 'INPUT_TOO_LARGE' });
     expect(projectCsvScale({ ...wide, piiEveryRows: 1 }).expectation).toEqual({ kind: 'REJECTED', code: 'DETECTION_LIMIT_EXCEEDED' });
     expect(csvScaleCeilings.maximumCells).toBe(100_000);
     for (const invalid of [{ ...wide, rows: 0 }, { ...wide, piiEveryRows: 0 }, { ...wide, label: '' }]) {

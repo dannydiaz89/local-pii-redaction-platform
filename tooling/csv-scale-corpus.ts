@@ -116,7 +116,7 @@ export function projectCsvScale(spec: CsvScaleSpec): CsvScaleProjection {
   const detections = Math.ceil(spec.rows / spec.piiEveryRows);
   const expectation: CsvScaleExpectation =
     cells > csvScaleCeilings.maximumCells || spec.rows > csvScaleCeilings.maximumRows
-      ? { kind: 'REJECTED', code: 'FORMAT_CORRUPT' }
+      ? { kind: 'REJECTED', code: 'INPUT_TOO_LARGE' }
       : detections > csvScaleCeilings.maximumDetections
         ? { kind: 'REJECTED', code: 'DETECTION_LIMIT_EXCEEDED' }
         : { kind: 'SUCCEEDED' };

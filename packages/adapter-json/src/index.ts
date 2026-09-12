@@ -87,11 +87,24 @@ const actionIdPattern = /^act_[0-9A-HJKMNP-TV-Z]{26}$/u;
 function formatCorrupt(): never {
   throw new SafeError({
     code: 'FORMAT_CORRUPT',
-    message: 'The JSON input is malformed or exceeds the supported structural limits.',
+    message: 'The JSON input is malformed.',
     retryable: false,
     correlationId: 'cor_json_adapter'
   });
 }
+/**
+ * Valid JSON that merely exceeds a declared depth, node, value, or code-point bound is not
+ * malformed; see the matching note in the CSV adapter.
+ */
+function inputTooLarge(): never {
+  throw new SafeError({
+    code: 'INPUT_TOO_LARGE',
+    message: 'The JSON input exceeds a supported structural limit.',
+    retryable: false,
+    correlationId: 'cor_json_adapter'
+  });
+}
+
 
 function isWellFormedUnicode(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -143,7 +156,7 @@ class JsonScanner {
 
   private bumpNode(depth: number): void {
     this.nodes += 1;
-    if (depth > maximumJsonDepth || this.nodes > maximumJsonNodes) formatCorrupt();
+    if (depth > maximumJsonDepth || this.nodes > maximumJsonNodes) inputTooLarge();
   }
 
   private skipWhitespace(): void {
@@ -196,7 +209,7 @@ class JsonScanner {
   }
 
   private recordString(pointer: string, token: ReturnType<JsonScanner['parseString']>): void {
-    if (this.values.length >= maximumJsonStringValues) formatCorrupt();
+    if (this.values.length >= maximumJsonStringValues) inputTooLarge();
     if (this.values.length > 0) {
       this.canonicalParts.push(jsonBoundary);
       this.canonicalLength += unicodeCodePointLength(jsonBoundary);
@@ -204,7 +217,7 @@ class JsonScanner {
     const length = unicodeCodePointLength(token.value);
     const canonicalStart = this.canonicalLength;
     this.canonicalLength += length;
-    if (this.canonicalLength > maximumCanonicalCodePoints) formatCorrupt();
+    if (this.canonicalLength > maximumCanonicalCodePoints) inputTooLarge();
     this.canonicalParts.push(token.value);
     this.values.push({
       pointer,
