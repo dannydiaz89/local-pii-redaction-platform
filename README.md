@@ -3,7 +3,7 @@
 This repository contains a local-first PII redaction platform. It includes the contract foundation
 and development TXT/Markdown, JSON, and CSV CLI slices with deterministic scanning, typed-label
 replacement, native reopen/rescan verification, an experimental strict DOCX slice that now scans and
-redacts a narrow qualified carrier surface, and an explicitly experimental local Ollama scan path.
+redacts a narrow qualified carrier surface, and explicitly experimental local contextual engines.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
