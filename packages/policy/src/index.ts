@@ -765,6 +765,13 @@ export const highRiskDisclosurePolicy = deepFreeze({
       residualBehavior: 'BLOCK'
     }
   },
+  // `high-risk-v1` is named deliberately and is not built. This policy is the example of one the
+  // platform cannot satisfy, and it fails on four counts, not one: no format is QUALIFIED, no
+  // rules-only detector has the MODEL kind PERSON requires, the irreversible REDACT action SSN
+  // requires does not exist, and no capability declares this profile. Pointing it at
+  // `text-rescan-v1` would make it satisfiable by claiming a HIGH-risk disclosure is verified by
+  // the development-grade text profile, which is worse than an honest refusal. The
+  // policy-profile gate keeps the name from being mistaken for a typo.
   verification: { profile: 'high-risk-v1', blockOnWarnings: true },
   limits: { maximumInputBytes: 104_857_600 }
 } satisfies RedactionPolicy);

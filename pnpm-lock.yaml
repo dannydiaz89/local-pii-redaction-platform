@@ -19,6 +19,12 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.0
         version: 2.1.0(hono@4.13.7)
+      '@local-pii/policy':
+        specifier: workspace:*
+        version: link:packages/policy
+      '@local-pii/profile-local':
+        specifier: workspace:*
+        version: link:packages/profile-local
       '@local-pii/provider-ollama':
         specifier: workspace:*
         version: link:packages/provider-ollama
