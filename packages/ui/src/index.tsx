@@ -3,7 +3,8 @@ import type {
   HTMLAttributes,
   InputHTMLAttributes,
   PropsWithChildren,
-  ReactNode
+  ReactNode,
+  Ref
 } from 'react';
 
 export function Button({
@@ -11,7 +12,11 @@ export function Button({
   tone = 'default',
   type = 'button',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: 'default' | 'critical' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  readonly tone?: 'default' | 'critical';
+  /** Lets a caller move keyboard focus back to this control when the surrounding view changes. */
+  readonly ref?: Ref<HTMLButtonElement>;
+}) {
   return <button className={`ui-button ${className}`.trim()} data-tone={tone} type={type} {...props} />;
 }
 
