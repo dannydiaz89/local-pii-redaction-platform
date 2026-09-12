@@ -76,7 +76,26 @@ export interface OutputArtifactDownload {
   readonly bytes: Uint8Array;
 }
 
+/**
+ * Privacy-safe count of what the session currently holds: counts only, never identifiers,
+ * paths, media types, or anything document-derived, so it is safe to log and safe to return
+ * from a future operator route.
+ *
+ * It exists because deletion is otherwise unobservable. Every result read gates on job state
+ * before it consults the retained result, so a released result and a result still held behind
+ * that gate are indistinguishable from outside, and "deleted means erased" cannot be tested.
+ */
+export interface RetentionInventory {
+  readonly artifacts: number;
+  readonly retainedBytes: number;
+  readonly scanResults: number;
+  readonly reviewHistories: number;
+  readonly activeJobs: number;
+}
+
 export interface ProcessingControlPort extends JobControlPort {
+  /** Current retained-resource counts; see RetentionInventory. */
+  retention(): RetentionInventory;
   initiateArtifact(
     request: CreateArtifactRequest,
     correlationId: string,
@@ -686,6 +705,16 @@ export function createVolatileProcessingControl(
   };
 
   const control: ProcessingControlPort = {
+    retention() {
+      return Object.freeze({
+        artifacts: artifacts.size,
+        retainedBytes,
+        scanResults: results.size,
+        reviewHistories: reviewHistories.size,
+        activeJobs: controllers.size
+      });
+    },
+
     async initiateArtifact(request, correlationId, signal) {
       signal?.throwIfAborted();
       await Promise.resolve();

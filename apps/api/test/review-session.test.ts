@@ -507,6 +507,36 @@ describe('local browser review session adversarial evidence', () => {
     expectNoDocumentValues(exhausted.body, reclaimed.body);
   });
 
+  it('releases the retained scan result and review history on deletion, not only hides them', async () => {
+    // Every result read gates on job state before consulting the retained result, so fail-closed
+    // behaviour looks identical whether or not the result was actually released. The retention
+    // inventory is the only observable that tells the two apart.
+    const { instance, processing, policy } = server();
+    const scan = await completedScan(instance, policy);
+    await instance.inject({
+      method: 'POST', url: `/v1/jobs/${scan.jobId}/review-decisions`, headers: authorization(),
+      payload: {
+        schemaVersion: '1.0.0', expectedJobRevision: scan.job.revision,
+        expectedExtractionRevision: scan.review.extractionRevision, expectedReviewRevision: 0,
+        decisions: [decision(scan.detectionIds[0] ?? '', 'ACCEPT')]
+      }
+    });
+    expect(processing.retention()).toMatchObject({ scanResults: 1, reviewHistories: 1 });
+    expect(processing.retention().artifacts).toBeGreaterThan(0);
+
+    expect((await instance.inject({
+      method: 'DELETE', url: `/v1/jobs/${scan.jobId}`, headers: authorization()
+    })).statusCode).toBe(204);
+    expect(processing.retention()).toMatchObject({ scanResults: 0, reviewHistories: 0 });
+
+    // The inventory itself must stay privacy-safe: counts only, nothing document-derived.
+    expect(Object.values(processing.retention()).every((value) => typeof value === 'number')).toBe(true);
+    expectNoDocumentValues(JSON.stringify(processing.retention()));
+
+    await processing.close();
+    expect(processing.retention()).toMatchObject({ scanResults: 0, artifacts: 0, retainedBytes: 0, activeJobs: 0 });
+  });
+
   it('fails closed on every retrieval and write path after a deletion', async () => {
     const { instance, policy } = server();
     const scan = await completedScan(instance, policy);
