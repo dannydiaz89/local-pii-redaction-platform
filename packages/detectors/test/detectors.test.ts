@@ -89,7 +89,7 @@ describe('deterministic detectors', () => {
         { id: 'by-index', selector: { index: 2 }, mode: 'STRUCTURED', entityType: 'EMAIL' },
         { id: 'by-header', selector: { header: 'email' }, mode: 'STRUCTURED', entityType: 'EMAIL' }
       ] }
-    })).toThrowError('The structured policy selects one region more than once.');
+    })).toThrow('The structured policy selects one region more than once.');
   });
 
   it('enforces the combined detection bound while producing structured regions', () => {
@@ -120,7 +120,7 @@ describe('deterministic detectors', () => {
     expect(() => detectDeterministicWithStructure(text, revision, regions, structure, {
       ...defaultDetectorLimits,
       maximumDetections: 2
-    })).toThrowError('Detection count exceeds the configured safety limit.');
+    })).toThrow('Detection count exceeds the configured safety limit.');
   });
 
   it('finds the approved initial entity set with Unicode code-point offsets', () => {

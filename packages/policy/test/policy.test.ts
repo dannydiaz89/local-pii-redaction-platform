@@ -167,8 +167,8 @@ describe('policy validation and compilation', () => {
   it('rejects accessors, exotic objects, and invalid threshold ordering', () => {
     const accessor = { ...developmentLabelsPolicy } as Record<string, unknown>;
     Object.defineProperty(accessor, 'hidden', { enumerable: true, get: () => 'secret' });
-    expect(() => validatePolicy(accessor)).toThrowError(PolicyValidationError);
-    expect(() => validatePolicy(new Date(0))).toThrowError(PolicyValidationError);
+    expect(() => validatePolicy(accessor)).toThrow(PolicyValidationError);
+    expect(() => validatePolicy(new Date(0))).toThrow(PolicyValidationError);
     const reversed = {
       ...developmentLabelsPolicy,
       defaults: { ...developmentLabelsPolicy.defaults, minimumConfidence: 0.9, reviewBelow: 0.8 }
