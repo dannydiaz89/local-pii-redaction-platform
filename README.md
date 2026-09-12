@@ -8,6 +8,120 @@ redacts a narrow qualified carrier surface, and an explicitly experimental local
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
 
+## What it does
+
+Every block below is verbatim output from a real run against the synthetic corpus in
+`sample-data/`. Nothing is abridged except file paths.
+
+**Scan a file.** The report is deliberately value-free — counts and spans, never the matched text —
+and nothing is written to disk.
+
+```console
+$ pii-redact scan notes.txt
+Found 16 resolved detection(s) and 0 conflict(s).
+```
+
+**Redact to a separate file.** The input is never modified. The output is staged privately,
+reopened, rescanned, and only then published: publication is gated on verification rather than on
+the writer reporting success.
+
+```console
+$ pii-redact redact notes.txt --output notes.redacted.txt --policy development-labels
+Wrote attested output under development-labels 0.1.0 with 16 replacement(s).
+```
+
+```diff
+- Résumé owner 👩🏽‍💻: alpha@example.test.
+- Escalation (after hours): ops.team+night@example.invalid;
+- Primary phone: +1 (202) 555-0147.
+- International callback: +44 7700 900123;
+- Synthetic tax identifier: 123-45-6789.
+- Test payment card (spaced): 4242 4242 4242 4242.
++ Résumé owner 👩🏽‍💻: [EMAIL_1].
++ Escalation (after hours): [EMAIL_2];
++ Primary phone: [PHONE_1].
++ International callback: [PHONE_2];
++ Synthetic tax identifier: [SSN_1].
++ Test payment card (spaced): [CREDIT_CARD_1].
+```
+
+**Verify it independently.** A separate command re-reads the published file and rescans it from
+scratch, with no knowledge of the plan that produced it.
+
+```console
+$ pii-redact verify notes.redacted.txt
+Residual scan passed: no deterministic residuals were found in the supplied artifact.
+```
+
+### The same flow on a Word document
+
+DOCX is the hard case. Text is fragmented across runs, and a value can hide in a header, a comment,
+an author attribute, a hyperlink target, or text the author "deleted" with track changes on.
+Redaction is authorised only behind its own verification profile, which reopens the staged package
+with an independent parser.
+
+```console
+$ pii-redact scan onboarding-record.docx --json
+byEntity: { EMAIL: 1, PHONE: 2, IP_ADDRESS: 1 }
+
+$ pii-redact redact onboarding-record.docx --output onboarding-record.redacted.docx \
+    --policy development-labels --json
+outcome        VERIFIED
+verification   PASS     profile docx-redact-v1 0.2.0
+checks         STRUCTURE, NATIVE_SURFACE, DETERMINISTIC_RESCAN, ACTION_RECONCILIATION
+reconciliation expected 4 · applied 4 · missing 0 · unexpected 0 · duplicate 0
+
+$ pii-redact scan onboarding-record.redacted.docx --json
+byEntity: {}   detections: 0
+```
+
+The paragraph text before and after, read straight out of `word/document.xml`:
+
+```diff
+- Escalation contact: ops.team+night@example.invalid
+- Primary desk line: +1 (202) 555-0147
+- Secondary line: (415) 555-0136 and audit endpoint 192.0.2.10
++ Escalation contact: [EMAIL_1]
++ Primary desk line: [PHONE_1]
++ Secondary line: [PHONE_2] and audit endpoint [IP_ADDRESS_1]
+  Engagement window 2019-2023, ticket 1234567, ZIP 12345-6789 stay untouched.
+```
+
+That last line matters: a year range, a ticket number, and a ZIP+4 all look like telephone numbers
+to a rule that accepts any run of digits, and were once reported as such. They now survive, while a
+parenthesised area code is replaced including its opening bracket.
+
+### What refusal looks like
+
+A policy the current build cannot satisfy is refused before the file is read, and names every
+unmet requirement rather than quietly degrading.
+
+```console
+$ pii-redact redact notes.txt --output out.txt --policy high-risk-disclosure
+POLICY_UNSATISFIABLE: The selected policy cannot be satisfied by the available local capabilities.
+# no output file is created
+$ echo $?
+3
+
+$ pii-redact policies explain high-risk-disclosure
+Satisfiable: no
+FORMAT_QUALIFICATION_SUFFICIENT: unavailable          # no component is QUALIFIED
+ENTITY_DETECTOR_REQUIREMENTS_SATISFIED: unavailable   # PERSON needs a MODEL detector kind
+TRANSFORMATION_REQUIREMENTS_SATISFIED: unavailable    # SSN needs irreversible REDACT
+VERIFICATION_PROFILE_AVAILABLE: unavailable           # high-risk-v1 is deliberately unbuilt
+```
+
+### What these runs do not prove
+
+- The corpus is synthetic. The same flow run against a real Word résumé found six detections and
+  rescanned the published output clean, but that evidence is not reproducible from this repository.
+- DOCX assurance is declared `STRUCTURAL_REPLACE`, not `NATIVE_REDACTION`: no Office renderer has
+  confirmed the published package opens cleanly.
+- Rules-only detection finds no names or addresses. Contextual detection exists, is opt-in and
+  experimental, and no model is qualified.
+- A clean rescan proves the deterministic detectors find nothing on a second pass. It does not
+  prove the document is free of every kind of personal data.
+
 ## Prerequisites
 
 - Node.js 24 or newer
@@ -56,6 +170,9 @@ implementation, not streaming, controlled reference-hardware, swap, journal, sna
 cross-platform evidence.
 
 ## Try the CLI
+
+The commands below are a reference list rather than a tour; see [What it does](#what-it-does) for
+the same flow with its output.
 
 User-facing document processing runs through the local CLI and the development browser profile. The
 browser can execute bounded session-only rules scans and verified redaction downloads; the CLI
