@@ -2,8 +2,8 @@
 
 This repository contains a local-first PII redaction platform. It includes the contract foundation
 and development TXT/Markdown, JSON, and CSV CLI slices with deterministic scanning, typed-label
-replacement, native reopen/rescan verification, an experimental strict DOCX inspect/scan slice,
-and an explicitly experimental local Ollama scan path.
+replacement, native reopen/rescan verification, an experimental strict DOCX slice that now scans and
+redacts a narrow qualified carrier surface, and an explicitly experimental local Ollama scan path.
 
 Copyright (C) 2026 [dannydiaz89](https://github.com/dannydiaz89). The project is licensed under
 `AGPL-3.0-only`; see `LICENSE` and `ATTRIBUTION.md`.
@@ -391,11 +391,20 @@ binds the complete supplied plan/review semantics but does not independently rec
 plan identity, so the digest binds what was supplied without authenticating that it was the plan the
 application compiled. It is not the canonical verification attestation and cannot be consumed as one. It never
 imports the DOCX adapter, writes or publishes a file, and always reports fidelity and publication as
-unverified. DOCX redaction and standalone verification therefore remain unexposed: complete independent
-feature-grammar equivalence and malicious-input qualification, a core-bound verification attestation,
-canonical DOCX verification profile/report integration, broader feature coverage,
-sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus qualification remain
-Milestone 4 work.
+unverified.
+
+`docx-redact-v1` is the profile that does authorize publication, and it is deliberately separate from
+`docx-extract-v1`, which attests only that an input could be read. It gates the qualified carrier
+surface, reconciles the plan against the writer receipt, drives the independent foundation over the
+reopened staged package, and maps what it finds into a canonical v2 attestation: a tracked-revision
+delta is reported as hidden text, a planned removal still present in `docProps` or the settings part
+is reported as a metadata residual, and anything it cannot establish is INCOMPLETE rather than PASS.
+The `development-labels` policy names that profile for the `docx` format, so
+`pii-redact redact document.docx --output out.docx --policy development-labels` publishes only a
+package this verifier reopened and reconciled. Standalone DOCX verification, batch DOCX redaction,
+redaction of typed date, numeric and reference carriers, complete independent feature-grammar
+equivalence, sandboxed parsing, independent Office-renderer fidelity, and malicious-corpus
+qualification remain Milestone 4 work.
 
 The rules-only CLI also has an experimental, synthetic-only `.pdf` inspection foundation through
 [`@local-pii/adapter-pdf`](./packages/adapter-pdf). It accepts only an exact PDF 1.4 header or a PDF

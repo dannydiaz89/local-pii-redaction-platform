@@ -2,9 +2,16 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
-import { computeWriterReceiptDigest, isRfc3339DateTime, type RedactionWriterReceiptContract } from '@local-pii/contracts';
-import { detectDeterministic } from '@local-pii/detectors';
 import {
+  computeVerificationAttestationDigest,
+  computeWriterReceiptDigest,
+  isRfc3339DateTime,
+  type RedactionWriterReceiptContract,
+  type VerificationVerificationReportV2Contract
+} from '@local-pii/contracts';
+import { detectDeterministic, deterministicDetectorBundleVersion } from '@local-pii/detectors';
+import {
+  componentIdentityDigest,
   entityTypes,
   parseSha256Digest,
   unicodeCodePointLength,
@@ -115,6 +122,8 @@ export type IndependentDocxFindingCode =
   | 'PLANNED_NATIVE_DELTA_MISMATCH'
   | 'RESIDUAL_SOURCE_CANARY'
   | 'RESIDUAL_ENTITY'
+  | 'RESIDUAL_METADATA'
+  | 'TRACKED_REVISION_DELTA'
   | 'VERIFIER_INCOMPLETE';
 
 export interface IndependentDocxVerificationFoundation {
@@ -1153,6 +1162,42 @@ function expectedParagraphCarrierValues(
   return expected;
 }
 
+/**
+ * Codes that name a decided failure of the artifact rather than an inability to verify it. The
+ * rest leave the verifier unable to decide, and an undecided verifier must never report a
+ * failure it did not actually establish, so everything else is INCOMPLETE.
+ */
+const definiteFailureCodes = new Set<IndependentDocxFindingCode>([
+  'RESIDUAL_SOURCE_CANARY', 'RESIDUAL_ENTITY', 'RESIDUAL_METADATA', 'TRACKED_REVISION_DELTA'
+]);
+
+/**
+ * The elements Word writes when an edit is tracked. A writer that turns a replacement into a
+ * tracked revision leaves the original sitting in `w:delText` where no reader sees it and every
+ * byte of it survives, which is the worst outcome this verifier exists to prevent. Counting
+ * these per part before anything else means that failure is reported as what it is instead of
+ * as a generic structural delta.
+ */
+const trackedRevisionElements = new Set([
+  'w:ins', 'w:del', 'w:moveFrom', 'w:moveTo', 'w:delText',
+  'w:moveFromRangeStart', 'w:moveFromRangeEnd', 'w:moveToRangeStart', 'w:moveToRangeEnd'
+]);
+
+/** Parts whose content is document metadata rather than document body text. */
+const metadataParts = new Set(['docProps/core.xml', 'docProps/app.xml', 'word/settings.xml']);
+
+function trackedRevisionCensus(parsed: ParsedPackage): ReadonlyMap<string, number> {
+  const census = new Map<string, number>();
+  for (const [part, xml] of parsed.xml) {
+    for (const element of xml.elements) {
+      if (!trackedRevisionElements.has(element.name)) continue;
+      const key = `${part}\u0000${element.name}`;
+      census.set(key, (census.get(key) ?? 0) + 1);
+    }
+  }
+  return census;
+}
+
 function report(
   outcome: IndependentDocxVerificationFoundation['outcome'],
   findings: IndependentDocxVerificationFoundation['findings'],
@@ -1217,6 +1262,12 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
         return candidate === undefined || entry.name !== candidate.name || entry.method !== candidate.method;
       })
     ) fail('PACKAGE_INVENTORY_CHANGED');
+    const inputRevisions = trackedRevisionCensus(input);
+    const outputRevisions = trackedRevisionCensus(output);
+    if (
+      inputRevisions.size !== outputRevisions.size
+      || [...inputRevisions].some(([key, count]) => outputRevisions.get(key) !== count)
+    ) fail('TRACKED_REVISION_DELTA');
     for (const [part, inputXml] of input.xml) {
       if (output.xml.get(part)?.structureDigest !== inputXml.structureDigest) fail('UNPLANNED_NATIVE_DELTA');
     }
@@ -1306,6 +1357,17 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
       for (const span of extraResolution.spans) byEntity.set(span.entityType, (byEntity.get(span.entityType) ?? 0) + 1);
     }
     for (const [entityType, count] of byEntity) findings.push({ code: 'RESIDUAL_ENTITY', count, entityType });
+    // Metadata is reported separately from body text because a value the plan removed from the
+    // visible document while `docProps` or the settings part still names it is a different
+    // failure to explain than a value the writer simply failed to replace. Unplanned metadata
+    // identity is already covered by the residual scan above; this names the planned removals.
+    const removedValues = request.plan.actions
+      .map((action) => ({ value: unicodeSlice(request.sourceCanonicalText, action.start, action.end), replacement: action.replacement }))
+      .filter(({ value, replacement }) => value.length > 0 && value !== replacement)
+      .map(({ value }) => value);
+    const metadataResidualCount = output.carriers.filter(({ part, value }) =>
+      metadataParts.has(part) && removedValues.some((removed) => value.includes(removed))).length;
+    if (metadataResidualCount > 0) findings.push({ code: 'RESIDUAL_METADATA', count: metadataResidualCount });
     const bindingDigest = computeSuppliedApplicationBindingDigest(request, inputDigest, outputDigest, outputClassified.extractionRevision);
     return report(
       findings.length === 0 ? 'RECONCILED_SUPPLIED_REGIONS' : 'FAIL',
@@ -1315,6 +1377,354 @@ export function verifyIndependentDocxFoundation(request: IndependentDocxVerifica
     );
   } catch (error: unknown) {
     const code = error instanceof VerificationFailure ? error.code : 'VERIFIER_INCOMPLETE';
-    return report(code === 'RESIDUAL_SOURCE_CANARY' || code === 'RESIDUAL_ENTITY' ? 'FAIL' : 'INCOMPLETE', [{ code, count: 1 }], counts);
+    return report(definiteFailureCodes.has(code) ? 'FAIL' : 'INCOMPLETE', [{ code, count: 1 }], counts);
   }
+}
+
+/**
+ * The redaction-verification profile for DOCX. It is deliberately a different profile from
+ * `docx-extract-v1`: that one attests only that a package could be read inside the declared
+ * safe surface, which says nothing about a derived artifact and must never authorize
+ * publishing one. This profile reopens the staged package with the parser above, reconciles
+ * every carrier and part against the immutable plan, rescans the result, and only then
+ * reports PASS.
+ */
+export const docxRedactionVerificationCapabilityDescriptor = {
+  id: 'docx-redact-v1',
+  version: '0.1.0',
+  formats: ['docx'],
+  checks: ['STRUCTURE', 'NATIVE_SURFACE', 'DETERMINISTIC_RESCAN']
+} as const;
+
+export const docxRedactionVerificationProfile = Object.freeze({
+  id: 'docx-redact-v1',
+  version: docxRedactionVerificationCapabilityDescriptor.version,
+  digest: componentIdentityDigest('docx-redact-v1', docxRedactionVerificationCapabilityDescriptor.version)
+});
+
+/** The verifier implementation identity bound into every DOCX redaction attestation. */
+export const docxVerificationVerifier = Object.freeze({
+  id: 'docx-verifier',
+  version: '0.1.0',
+  digest: componentIdentityDigest('docx-verifier', '0.1.0')
+});
+
+export const docxVerificationDetectorBundle = Object.freeze({
+  id: 'deterministic-text',
+  version: deterministicDetectorBundleVersion,
+  digest: componentIdentityDigest('deterministic-text', deterministicDetectorBundleVersion)
+});
+
+type VerificationAttestation = VerificationVerificationReportV2Contract.VerificationAttestationV2;
+type AttestationFinding = VerificationAttestation['findings'][number];
+type AttestationCheck = VerificationAttestation['checks'][number];
+
+const docxAttestationChecks = [
+  ...docxRedactionVerificationCapabilityDescriptor.checks,
+  'ACTION_RECONCILIATION'
+] as unknown as VerificationAttestation['checks'];
+
+/**
+ * Attribute carriers a typed label may replace. Every one of them is a free-form string in the
+ * OOXML grammar, so substituting a label leaves a package both this verifier and the writer can
+ * still parse. A carrier whose value is a date, an identifier, a reference or a number is
+ * absent on purpose: neither implementation validates those lexical spaces, so a label written
+ * into one would produce a package that passes every check here and that Word may still refuse
+ * to open. Refusing is the only honest answer for a surface this profile cannot prove.
+ */
+const qualifiedAttributeCarriers = new Set([
+  'w:comment|w:author', 'w:comment|w:initials',
+  'w:ins|w:author', 'w:del|w:author', 'w:moveFrom|w:author', 'w:moveTo|w:author',
+  'w:moveFromRangeStart|w:author', 'w:moveToRangeStart|w:author',
+  'w:moveFromRangeStart|w:name', 'w:moveToRangeStart|w:name',
+  'w15:person|w15:author', 'w15:presenceInfo|w15:providerId', 'w15:presenceInfo|w15:userId'
+]);
+
+/** Document-property elements whose text is a free-form string rather than a typed value. */
+const qualifiedPropertyElements = new Set([
+  'dc:creator', 'dc:description', 'dc:subject', 'dc:title', 'cp:lastModifiedBy', 'Company', 'Template', 'vt:lpstr'
+]);
+
+function isQualifiedRedactionCarrier(location: CanonicalRegion['location']): boolean {
+  // Paragraph text is `w:t` and `w:delText`: both are element content with no lexical space to
+  // violate, and both are reconstructed independently above.
+  if (location.kind === 'DOCX_PART') return true;
+  // A hyperlink target is a URI, and a replacement that stops it being one is refused by this
+  // verifier's own relationship grammar when it reparses the output, not merely by the writer.
+  if (location.kind === 'DOCX_RELATIONSHIP') return (location as { readonly field?: unknown }).field === 'TARGET';
+  if (location.kind !== 'DOCX_XML_VALUE') return false;
+  if (location.carrier === 'ATTRIBUTE') {
+    return qualifiedAttributeCarriers.has(`${location.element}|${location.attribute ?? ''}`);
+  }
+  return (location.part === 'docProps/core.xml' || location.part === 'docProps/app.xml')
+    && qualifiedPropertyElements.has(location.element);
+}
+
+export interface BoundDocxVerificationRequest {
+  /** Exact input package bytes, reparsed here rather than trusted from the adapter. */
+  readonly inputBytes?: Uint8Array;
+  /** Exact staged package bytes, reparsed here rather than trusted from the adapter. */
+  readonly outputBytes?: Uint8Array;
+  /** Canonical text and source map the plan's offsets were compiled against. */
+  readonly sourceText?: string;
+  readonly sourceRegions?: readonly CanonicalRegion[];
+  /** Canonical text the adapter reopened from the staged package. */
+  readonly reopenedText: string;
+  readonly input: { readonly digest: Sha256Digest; readonly byteLength: number };
+  readonly output: {
+    readonly digest: Sha256Digest;
+    readonly byteLength: number;
+    readonly mediaType: string;
+    readonly extractionRevision: Sha256Digest;
+  };
+  readonly capabilityDigest: Sha256Digest;
+  readonly plan: IndependentDocxPlanBinding;
+  readonly policy: IndependentDocxPlanBinding['policy'];
+  readonly writerReceipt: WriterReceipt;
+  readonly writer: { readonly id: string; readonly version: string; readonly digest: Sha256Digest };
+  readonly application: { readonly id: string; readonly version: string; readonly digest: Sha256Digest };
+  readonly startedAt: string;
+  readonly completedAt: string;
+}
+
+const fallbackDigestValue = `sha256:${'0'.repeat(64)}`;
+const fallbackPlanId = 'plan_00000000000000000000000000';
+const fallbackTime = '1970-01-01T00:00:00Z';
+
+function safeDigest(value: unknown): Sha256Digest {
+  return validDigest(value) ? value : parseSha256Digest(fallbackDigestValue);
+}
+
+function safeByteLength(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_073_741_824 ? value : 0;
+}
+
+function safeActionCount(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximumActions ? value : 0;
+}
+
+function safeTime(value: unknown): string {
+  return typeof value === 'string' && isRfc3339DateTime(value) ? value : fallbackTime;
+}
+
+function safeComponent(value: {
+  readonly id: unknown; readonly version: unknown; readonly digest: unknown;
+}): { readonly id: string; readonly version: string; readonly digest: Sha256Digest } {
+  return validComponent(value)
+    ? { id: value.id as string, version: value.version as string, digest: value.digest as Sha256Digest }
+    : { id: 'invalid-binding', version: '0.0.0', digest: parseSha256Digest(fallbackDigestValue) };
+}
+
+function attestationFinding(
+  code: AttestationFinding['code'],
+  check: AttestationCheck,
+  count?: number,
+  entityType?: EntityType
+): AttestationFinding {
+  return {
+    code,
+    severity: 'ERROR',
+    blocking: true,
+    check,
+    ...(entityType === undefined ? {} : { entityType }),
+    ...(count === undefined ? {} : { count })
+  };
+}
+
+/**
+ * Deliberately not shared with the text profile's reconciliation. This module never imports the
+ * writer or the text verifier, so the only way its agreement with them can mean anything is for
+ * it to derive the same answer from the plan and the receipt on its own.
+ */
+function reconcileDocxActions(
+  plan: IndependentDocxPlanBinding,
+  receipt: WriterReceipt
+): VerificationAttestation['reconciliation'] {
+  const expected = plan.actions.map(({ id }) => id);
+  const applied = Array.isArray(receipt.appliedActionIds) ? receipt.appliedActionIds : [];
+  const expectedSet = new Set(expected);
+  const appliedSet = new Set(applied);
+  return {
+    expectedActionCount: safeActionCount(plan.expectedActionCount),
+    appliedActionCount: safeActionCount(receipt.appliedActionCount),
+    missingActionCount: Math.max(
+      expected.filter((id) => !appliedSet.has(id)).length,
+      Math.abs(safeActionCount(receipt.expectedActionCount) - safeActionCount(plan.expectedActionCount))
+    ),
+    unexpectedActionCount: applied.filter((id) => !expectedSet.has(id)).length,
+    duplicateActionCount: applied.length - appliedSet.size
+  };
+}
+
+/** The canonical text the plan says the reopened output must carry, spliced from the source. */
+function plannedCanonicalText(source: string, plan: IndependentDocxPlanBinding): string {
+  const output: string[] = [];
+  let cursor = 0;
+  for (const action of [...plan.actions].sort((left, right) => left.start - right.start || left.end - right.end)) {
+    if (action.start < cursor) fail('SOURCE_MAP_MISMATCH');
+    output.push(unicodeSlice(source, cursor, action.start), action.replacement);
+    cursor = action.end;
+  }
+  output.push(unicodeSlice(source, cursor, unicodeCodePointLength(source)));
+  return output.join('');
+}
+
+const foundationFindingMap: Readonly<Record<IndependentDocxFindingCode, {
+  readonly code: AttestationFinding['code'];
+  readonly check: AttestationCheck;
+}>> = Object.freeze({
+  BINDING_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' },
+  PACKAGE_INVALID: { code: 'REOPEN_FAILED', check: 'STRUCTURE' },
+  PACKAGE_INVENTORY_CHANGED: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
+  CONTENT_TYPE_GRAPH_INVALID: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
+  RELATIONSHIP_GRAPH_INVALID: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
+  CARRIER_CLASSIFICATION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
+  EXTRACTION_REVISION_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
+  SOURCE_MAP_MISMATCH: { code: 'VERIFIER_INCOMPLETE', check: 'NATIVE_SURFACE' },
+  UNPLANNED_NATIVE_DELTA: { code: 'STRUCTURE_INVALID', check: 'STRUCTURE' },
+  PLANNED_NATIVE_DELTA_MISMATCH: { code: 'ACTION_NOT_APPLIED', check: 'ACTION_RECONCILIATION' },
+  RESIDUAL_SOURCE_CANARY: { code: 'RESIDUAL_ENTITY', check: 'NATIVE_SURFACE' },
+  RESIDUAL_ENTITY: { code: 'RESIDUAL_ENTITY', check: 'DETERMINISTIC_RESCAN' },
+  RESIDUAL_METADATA: { code: 'METADATA_RESIDUAL', check: 'STRUCTURE' },
+  // A replacement rewritten as a tracked insertion leaves the original in `w:delText`, which is
+  // text no reader sees and every byte of which survives the redaction.
+  TRACKED_REVISION_DELTA: { code: 'HIDDEN_TEXT_PRESENT', check: 'STRUCTURE' },
+  VERIFIER_INCOMPLETE: { code: 'VERIFIER_INCOMPLETE', check: 'STRUCTURE' }
+});
+
+const incompleteAttestationCodes = new Set<AttestationFinding['code']>([
+  'REOPEN_FAILED', 'OUTPUT_DIGEST_MISMATCH', 'VERIFIER_INCOMPLETE'
+]);
+
+/**
+ * Independently verifies a staged DOCX redaction and emits the bound `docx-redact-v1`
+ * attestation that authorizes publication. Every input it trusts is a digest or a byte string:
+ * the packages are reparsed here, the plan's offsets are checked against this module's own
+ * reconstruction of the source, and anything this profile cannot establish yields INCOMPLETE
+ * rather than a PASS. It never returns clear values, paths, offsets, or action identifiers.
+ */
+export function verifyBoundDocxRedaction(request: BoundDocxVerificationRequest): VerificationAttestation {
+  const base = {
+    schemaVersion: '2.0.0' as const,
+    input: { digest: safeDigest(request.input.digest), byteLength: safeByteLength(request.input.byteLength) },
+    output: {
+      digest: safeDigest(request.output.digest),
+      byteLength: safeByteLength(request.output.byteLength),
+      mediaType: request.output.mediaType === docxMediaType ? docxMediaType : 'application/octet-stream',
+      extractionRevision: safeDigest(request.output.extractionRevision)
+    },
+    plan: {
+      id: typeof request.plan.id === 'string' && planIdPattern.test(request.plan.id) ? request.plan.id : fallbackPlanId,
+      digest: safeDigest(request.plan.digest)
+    },
+    policy: validComponent({ id: request.policy.id, version: request.policy.version, digest: request.policy.digest })
+      && ['LOW', 'MODERATE', 'HIGH'].includes(request.policy.riskTier)
+      ? {
+        id: request.policy.id,
+        version: request.policy.version,
+        digest: request.policy.digest,
+        riskTier: request.policy.riskTier
+      }
+      : { id: 'invalid-binding', version: '0.0.0', digest: parseSha256Digest(fallbackDigestValue), riskTier: 'LOW' as const },
+    capabilityDigest: safeDigest(request.capabilityDigest),
+    writerReceiptDigest: safeDigest(request.writerReceipt.receiptDigest),
+    profile: { ...docxRedactionVerificationProfile },
+    verifier: { ...docxVerificationVerifier },
+    detectorBundle: { ...docxVerificationDetectorBundle },
+    writer: safeComponent(request.writer),
+    application: safeComponent(request.application),
+    checks: docxAttestationChecks,
+    startedAt: safeTime(request.startedAt),
+    completedAt: safeTime(request.completedAt)
+  };
+  // Reconciliation is derived from the plan and the receipt alone, so it is computed before any
+  // refusal and reported on every outcome. An attestation that zeroed it on the way out would
+  // make an undecided verification look to the caller like a writer that applied nothing.
+  const reconciliation = reconcileDocxActions(request.plan, request.writerReceipt);
+  const sign = (unsigned: Omit<VerificationAttestation, 'reportDigest'>): VerificationAttestation =>
+    ({ ...unsigned, reportDigest: computeVerificationAttestationDigest(unsigned) });
+  const incomplete = (code: AttestationFinding['code'], check: AttestationCheck): VerificationAttestation => sign({
+    ...base,
+    outcome: 'INCOMPLETE',
+    reconciliation,
+    findings: [attestationFinding(code, check)]
+  });
+
+  const { inputBytes, outputBytes, sourceText } = request;
+  const sourceRegions: readonly CanonicalRegion[] = request.sourceRegions ?? [];
+  if (
+    !(inputBytes instanceof Uint8Array) || !(outputBytes instanceof Uint8Array)
+    || typeof sourceText !== 'string' || request.sourceRegions === undefined
+    || typeof request.reopenedText !== 'string'
+    || request.output.mediaType !== docxMediaType
+    || !isRfc3339DateTime(request.startedAt) || !isRfc3339DateTime(request.completedAt)
+    || Date.parse(request.completedAt) < Date.parse(request.startedAt)
+    || !validComponent(request.writer) || !validComponent(request.application)
+  ) return incomplete('VERIFIER_INCOMPLETE', 'STRUCTURE');
+
+  let qualifiedSurface: boolean;
+  let reopenedMatchesPlan: boolean;
+  try {
+    // Every action must land inside one supplied region whose carrier class this profile can
+    // prove safe to rewrite. An action outside that surface is refused rather than published,
+    // because a plan the verifier cannot qualify is a plan it has not verified.
+    qualifiedSurface = request.plan.actions.every((action) => {
+      const region = sourceRegions.find(({ start, end }) => action.start >= start && action.end <= end);
+      return region !== undefined && isQualifiedRedactionCarrier(region.location);
+    });
+    reopenedMatchesPlan = request.reopenedText === plannedCanonicalText(sourceText, request.plan);
+  } catch {
+    return incomplete('VERIFIER_INCOMPLETE', 'NATIVE_SURFACE');
+  }
+  if (!qualifiedSurface) return incomplete('VERIFIER_INCOMPLETE', 'NATIVE_SURFACE');
+
+  // A receipt that does not list exactly the planned actions is a decided failure of the writer
+  // rather than something the package can settle, so it is answered here as FAIL instead of
+  // letting the binding check downstream turn a known mismatch into an undecided INCOMPLETE.
+  const actionFindings: AttestationFinding[] = [];
+  if (reconciliation.missingActionCount > 0) {
+    actionFindings.push(attestationFinding('ACTION_NOT_APPLIED', 'ACTION_RECONCILIATION', reconciliation.missingActionCount));
+  }
+  if (reconciliation.unexpectedActionCount > 0) {
+    actionFindings.push(attestationFinding('UNEXPECTED_ACTION', 'ACTION_RECONCILIATION', reconciliation.unexpectedActionCount));
+  }
+  if (reconciliation.duplicateActionCount > 0) {
+    actionFindings.push(attestationFinding('DUPLICATE_ACTION', 'ACTION_RECONCILIATION', reconciliation.duplicateActionCount));
+  }
+  if (actionFindings.length > 0) return sign({ ...base, outcome: 'FAIL', reconciliation, findings: actionFindings });
+
+  const foundation = verifyIndependentDocxFoundation({
+    inputBytes,
+    outputBytes,
+    sourceCanonicalText: sourceText,
+    sourceRegions,
+    plan: request.plan,
+    writerReceipt: request.writerReceipt,
+    applicationBinding: {
+      capabilityDigest: request.capabilityDigest,
+      policy: request.policy,
+      writer: request.writer,
+      application: request.application,
+      outputMediaType: docxMediaType,
+      startedAt: request.startedAt,
+      completedAt: request.completedAt
+    }
+  });
+  const findings: AttestationFinding[] = [];
+  for (const item of foundation.findings) {
+    const mapped = foundationFindingMap[item.code];
+    findings.push(attestationFinding(mapped.code, mapped.check, item.count, item.entityType));
+  }
+  // The adapter's own reopen has to agree with the plan spliced onto the source text. A writer
+  // that produced bytes this module accepts but a canonical reading nobody else shares is not
+  // a redaction anyone can reason about.
+  if (!reopenedMatchesPlan) findings.push(attestationFinding('STRUCTURE_INVALID', 'STRUCTURE'));
+  // No separate guard on `foundation.outcome`: the mapping above is total over its finding
+  // codes and the foundation reports at least one finding whenever it did not reconcile, so an
+  // empty finding list here means it reconciled. A guard for the impossible case would be a
+  // branch no test could ever reach, which is worse than no branch at all.
+  const outcome = findings.length === 0
+    ? 'PASS'
+    : findings.some(({ code }) => incompleteAttestationCodes.has(code)) ? 'INCOMPLETE' : 'FAIL';
+  return sign({ ...base, outcome, reconciliation, findings });
 }

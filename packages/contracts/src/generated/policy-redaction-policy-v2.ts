@@ -43,6 +43,16 @@ export interface StructuredRedactionPolicy {
   };
   verification: {
     profile: string;
+    /**
+     * Verification profiles this policy requires for named formats instead of the default profile. A container format whose output cannot be verified by rescanning canonical text alone names its own profile here rather than silently borrowing one that never reopens the package.
+     */
+    formatProfiles?: {
+      /**
+       * This interface was referenced by `undefined`'s JSON-Schema definition
+       * via the `patternProperty` "^[a-z][a-z0-9-]{1,31}$".
+       */
+      [k: string]: string;
+    };
     blockOnWarnings: boolean;
   };
   limits: {

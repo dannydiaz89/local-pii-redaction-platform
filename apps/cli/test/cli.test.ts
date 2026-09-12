@@ -391,7 +391,8 @@ describe('CLI TXT vertical slice', () => {
     expect(manifest.formats).toContainEqual(expect.objectContaining({
       id: 'docx',
       mediaTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-      operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN'],
+      operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN', 'REDACT'],
+      assurance: 'STRUCTURAL_REPLACE',
       qualification: 'EXPERIMENTAL'
     }));
     expect(manifest.formats).toContainEqual(expect.objectContaining({
@@ -1347,7 +1348,7 @@ describe('CLI TXT vertical slice', () => {
     expect(await executeCli(['inspect', path, '--json'], inspect.io), inspect.stderr.join('')).toBe(0);
     expect(JSON.parse(inspect.stdout.join(''))).toMatchObject({
       artifact: { mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-      capability: { adapter: 'docx', operations: ['INSPECT', 'SCAN'] }
+      capability: { adapter: 'docx', operations: ['INSPECT', 'SCAN', 'REDACT'] }
     });
 
     const scan = capture();
@@ -1363,7 +1364,43 @@ describe('CLI TXT vertical slice', () => {
     }
   });
 
-  it('fails closed for DOCX redaction, verification, and experimental Ollama before publication or network access', async () => {
+  it('redacts a DOCX under the bundled policy and publishes only a verified package', async () => {
+    const canary = 'PLANTED-DOCX-CANARY@example.test';
+    const path = await docxFileForCli(
+      `<w:p><w:r><w:t>Contact ${canary}</w:t></w:r></w:p>`
+      + '<w:p><w:r><w:t>SSN 123-45-6789.</w:t></w:r></w:p>'
+    );
+    const output = `${path.slice(0, -'.docx'.length)}.redacted.docx`;
+    const stream = capture();
+
+    expect(await executeCli(
+      ['redact', path, '--output', output, '--policy', 'development-labels', '--json'],
+      stream.io
+    ), stream.stderr.join('')).toBe(0);
+
+    const report = JSON.parse(stream.stdout.join('')) as unknown;
+    expect(report).toMatchObject({
+      operation: 'REDACT',
+      outcome: 'VERIFIED',
+      verification: {
+        outcome: 'PASS',
+        profile: { id: 'docx-redact-v1' },
+        verifier: { id: 'docx-verifier' },
+        checks: ['STRUCTURE', 'NATIVE_SURFACE', 'DETERMINISTIC_RESCAN', 'ACTION_RECONCILIATION'],
+        findings: []
+      }
+    });
+    const published = await readFile(output);
+    expect(published.includes(Buffer.from(canary, 'utf8'))).toBe(false);
+    expect(published.includes(Buffer.from('123-45-6789', 'utf8'))).toBe(false);
+    for (const emitted of [stream.stdout.join(''), stream.stderr.join('')]) {
+      expect(emitted).not.toContain(canary);
+      expect(emitted).not.toContain('123-45-6789');
+      expect(emitted).not.toContain(path);
+    }
+  });
+
+  it('fails closed for DOCX verification and experimental Ollama before publication or network access', async () => {
     const path = await docxFileForCli('<w:p><w:r><w:t>alpha@example.test</w:t></w:r></w:p>');
     const output = join(path.slice(0, -'.docx'.length), '.redacted.docx');
     const fetchImplementation = vi.fn(() => {
@@ -1372,7 +1409,6 @@ describe('CLI TXT vertical slice', () => {
     vi.stubGlobal('fetch', fetchImplementation);
     try {
       for (const argv of [
-        ['redact', path, '--output', output, '--json'],
         ['verify', path, '--json'],
         ['scan', path, '--engine', 'ollama', '--model', 'phi4-mini', '--allow-experimental', '--json']
       ]) {

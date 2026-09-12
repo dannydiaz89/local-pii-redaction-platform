@@ -24,7 +24,14 @@ including canonical string-value text reopened from native JSON.
 Verification judges an already-produced candidate artifact. It does not publish files, repair output,
 or guarantee that every possible form of PII was detected.
 
-The independent DOCX function is deliberately not the public `docx-redact-v1` verifier. It does not
+`verifyIndependentDocxFoundation` is the reconciliation engine underneath the public `docx-redact-v1`
+verifier rather than the verifier itself: it returns evidence, never an attestation, and its result
+always carries `authorizesPublication: false`. `verifyBoundDocxRedaction` is the profile that does
+authorize publication. It gates the qualified carrier surface first, reconciles the plan against the
+writer receipt, then runs the foundation and maps its findings into a canonical v2 attestation, where
+a tracked-revision delta becomes `HIDDEN_TEXT_PRESENT`, a surviving planned removal in `docProps` or
+the settings part becomes `METADATA_RESIDUAL`, and anything it cannot establish becomes INCOMPLETE.
+The foundation does not
 call or import the DOCX adapter and has no filesystem side effects, but it also does not yet reproduce
 the adapter's complete feature-grammar validation or malicious-input qualification. It does prove that
 for an adapter-supplied accepted input, the caller declared every carrier in the frozen source-carrier

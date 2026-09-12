@@ -20,7 +20,16 @@
     },
     "verification": {
       "type": "object", "additionalProperties": false, "required": ["profile", "blockOnWarnings"],
-      "properties": { "profile": { "type": "string", "minLength": 1, "maxLength": 64 }, "blockOnWarnings": { "type": "boolean" } }
+      "properties": {
+        "profile": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "formatProfiles": {
+          "description": "Verification profiles this policy requires for named formats instead of the default profile. A container format whose output cannot be verified by rescanning canonical text alone names its own profile here rather than silently borrowing one that never reopens the package.",
+          "type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 32,
+          "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+          "patternProperties": { "^[a-z][a-z0-9-]{1,31}$": { "type": "string", "minLength": 1, "maxLength": 64 } }
+        },
+        "blockOnWarnings": { "type": "boolean" }
+      }
     },
     "limits": {
       "type": "object", "additionalProperties": false, "required": ["maximumInputBytes"],
@@ -45,6 +54,6 @@
     "schemaVersion": "1.0.0", "id": "development-labels", "version": "0.1.0", "riskTier": "LOW",
     "defaults": { "action": "TYPED_LABEL", "minimumConfidence": 0.8, "uncertainBehavior": "REQUIRE_REVIEW" },
     "entities": { "EMAIL": { "action": "TYPED_LABEL", "minimumConfidence": 0.95, "uncertainBehavior": "REQUIRE_REVIEW", "requiredDetectors": ["email-pattern"] } },
-    "verification": { "profile": "text-rescan-v1", "blockOnWarnings": true }, "limits": { "maximumInputBytes": 104857600 }
+    "verification": { "profile": "text-rescan-v1", "formatProfiles": { "docx": "docx-redact-v1" }, "blockOnWarnings": true }, "limits": { "maximumInputBytes": 104857600 }
   }]
 }

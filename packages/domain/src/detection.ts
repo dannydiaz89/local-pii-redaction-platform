@@ -190,7 +190,7 @@ export function isNativeLocationV1(value: unknown): value is NativeLocationV1 {
 }
 
 const docxContentPartPattern = /^word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml$/u;
-const docxXmlPartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|styles|numbering|settings|webSettings|fontTable|theme\/theme[1-9][0-9]{0,5}|drawings\/drawing[1-9][0-9]{0,5}|charts\/chart[1-9][0-9]{0,5})|docProps\/(?:core|app|custom)|customXml\/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$/u;
+const docxXmlPartPattern = /^(?:word\/(?:document|header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|styles|numbering|settings|webSettings|fontTable|theme\/theme[1-9][0-9]{0,5}|drawings\/drawing[1-9][0-9]{0,5}|charts\/chart[1-9][0-9]{0,5})|docProps\/(?:core|app|custom)|customXml\/(?:item|itemProps)[1-9][0-9]{0,5})\.xml$/u;
 const docxQNamePattern = /^(?:[A-Za-z_][A-Za-z0-9_.-]{0,63}:)?[A-Za-z_][A-Za-z0-9_.-]{0,63}$/u;
 
 export function isNativeLocationV2(value: unknown): value is NativeLocationV2 {

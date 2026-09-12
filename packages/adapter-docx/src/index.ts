@@ -25,7 +25,7 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.9.0';
+export const docxAdapterVersion = '0.10.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
@@ -38,8 +38,11 @@ export const docxAdapterCapabilityDescriptor = {
   version: docxAdapterVersion,
   mediaTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   extensions: ['.docx'],
-  operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN'],
-  assurance: 'EXTRACT_ONLY',
+  operations: ['PROBE', 'INSPECT', 'EXTRACT', 'SCAN', 'REDACT'],
+  // The writer substitutes values inside the native XML and changes nothing else in the
+  // package, which is a structural replacement rather than a re-rendered document: no
+  // independent Office renderer has confirmed what a reader finally sees.
+  assurance: 'STRUCTURAL_REPLACE',
   features: [
     { id: 'visible-document-paragraphs-and-tables', status: 'SUPPORTED' },
     { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
@@ -54,6 +57,9 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'fragmented-run-source-map', status: 'SUPPORTED' },
     { id: 'unicode-code-point-offsets', status: 'SUPPORTED' },
     { id: 'native-reopen', status: 'SUPPORTED' },
+    { id: 'typed-label-replacement-in-qualified-text-and-string-carriers', status: 'SUPPORTED' },
+    { id: 'redaction-of-typed-date-numeric-and-reference-carriers', status: 'BLOCKED' },
+    { id: 'independent-office-renderer-fidelity', status: 'BLOCKED' },
     { id: 'deflate-compression-option-flags', status: 'SUPPORTED' },
     { id: 'opc-growth-hint-extra-field', status: 'SUPPORTED' },
     { id: 'macros-and-active-content', status: 'BLOCKED' },
@@ -68,7 +74,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'symbolic-links', status: 'BLOCKED' },
     { id: 'sandboxed-worker-isolation', status: 'BLOCKED' }
   ],
-  verificationProfiles: ['docx-extract-v1'],
+  verificationProfiles: ['docx-extract-v1', 'docx-redact-v1'],
   limits: { maximumInputBytes: defaultMaximumDocxInputBytes }
 } as const;
 
@@ -2474,6 +2480,12 @@ export interface DocxArtifact {
   readonly text: string;
   readonly hasUtf8Bom: false;
   readonly regions: readonly CanonicalRegion[];
+  /**
+   * The exact package bytes this artifact was read from. A DOCX verification profile has to
+   * reopen and reparse the container with its own parser, so it needs the bytes rather than
+   * the canonical text the adapter extracted from them.
+   */
+  readonly nativeBytes: Uint8Array;
 }
 
 interface DocxArtifactState {
@@ -2544,7 +2556,8 @@ export async function readDocxArtifact(
     canonicalText: parsedPackage.canonicalText,
     text: parsedPackage.canonicalText,
     hasUtf8Bom: false,
-    regions: parsedPackage.canonicalRegions
+    regions: parsedPackage.canonicalRegions,
+    nativeBytes: bytes
   });
   docxArtifactStates.set(artifact, { entries, package: parsedPackage });
   return artifact;
