@@ -24,12 +24,12 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.6.0';
+export const docxAdapterVersion = '0.7.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:9d71c9e944aa9bdeea8abbf3651f395b20dd653aa88831cbf1de307b14ec2644')
+  digest: parseSha256Digest('sha256:7ebffde610b9b892bb80104b5ce918ab342c0e3908cfae27b177ae05242b111b')
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',
@@ -43,6 +43,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'visible-document-paragraphs-and-tables', status: 'SUPPORTED' },
     { id: 'visible-header-footer-footnote-and-endnote-text', status: 'SUPPORTED' },
     { id: 'comment-text-anchors-and-annotation-identity', status: 'SUPPORTED' },
+    { id: 'comment-threading-durable-id-and-date-companion-parts', status: 'SUPPORTED' },
     { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
     { id: 'strict-passive-word-support-parts', status: 'SUPPORTED' },
     { id: 'scanned-external-hyperlink-targets', status: 'SUPPORTED' },
@@ -54,7 +55,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'opc-growth-hint-extra-field', status: 'SUPPORTED' },
     { id: 'macros-and-active-content', status: 'BLOCKED' },
     { id: 'non-hyperlink-external-relationships', status: 'BLOCKED' },
-    { id: 'glossary-subdocument-and-comment-companion-parts', status: 'BLOCKED' },
+    { id: 'glossary-and-subdocument-parts', status: 'BLOCKED' },
     { id: 'text-boxes-and-inline-alternate-text-flows', status: 'BLOCKED' },
     { id: 'images-drawings-and-embedded-objects', status: 'BLOCKED' },
     { id: 'revisions-fields-hidden-text-and-controls', status: 'BLOCKED' },
@@ -696,6 +697,7 @@ interface ParsedTextPartRaw {
   readonly referencedEndnoteIds: ReadonlySet<number>;
   readonly declaredNoteIds: ReadonlySet<number>;
   readonly declaredCommentIds: ReadonlySet<number>;
+  readonly declaredCommentParagraphIds: ReadonlySet<string>;
   readonly referencedCommentIds: ReadonlySet<number>;
   readonly referencedHyperlinkIds: ReadonlySet<string>;
   readonly carriers: readonly XmlCarrierValue[];
@@ -770,6 +772,7 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
   const referencedEndnoteIds = new Set<number>();
   const declaredNoteIds = new Set<number>();
   const declaredCommentIds = new Set<number>();
+  const declaredCommentParagraphIds = new Set<string>();
   const referencedCommentIds = new Set<number>();
   const openCommentRanges = new Set<number>();
   const closedCommentRanges = new Set<number>();
@@ -803,6 +806,15 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
     } else if (element.name === 'w:p') {
       const allowed = new Set(['w14:paraId', 'w14:textId', 'w:rsidR', 'w:rsidRDefault', 'w:rsidP', 'w:rsidRPr']);
       if (attributeEntries.some(([name]) => !allowed.has(name))) featureUnsupported('unknown_feature');
+      // The comment companion parts address comment bodies by the paragraph id
+      // carried here, so an ambiguous id would make their references
+      // unresolvable rather than merely redundant. Word writes these ids as
+      // upper-case hex; folding case keeps both sides of the join comparable.
+      const paragraphId = element.attributes['w14:paraId']?.toUpperCase();
+      if (paragraphId !== undefined && descriptor.root === 'w:comments') {
+        if (declaredCommentParagraphIds.has(paragraphId)) formatCorrupt();
+        declaredCommentParagraphIds.add(paragraphId);
+      }
     } else if (element.name === 'w:t') {
       if (activeSpecialNote !== undefined) featureUnsupported('unknown_feature');
       if (attributeEntries.length > 1 || (attributeEntries.length === 1 && (firstAttribute?.[0] !== 'xml:space' || firstAttribute[1] !== 'preserve'))) featureUnsupported('unknown_feature');
@@ -945,6 +957,7 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
     referencedEndnoteIds,
     declaredNoteIds,
     declaredCommentIds,
+    declaredCommentParagraphIds,
     referencedCommentIds,
     referencedHyperlinkIds,
     carriers: Object.freeze([
@@ -1280,8 +1293,36 @@ const exactHex = (length: number): StructuralAttributeValidator => {
   return (value) => pattern.test(value);
 };
 
+/**
+ * `mc:Ignorable` names namespace prefixes, never document content, and every
+ * Word-authored part root carries one. Restricting it to prefixes this adapter
+ * already knows keeps it out of the canonical text without letting an unknown
+ * extension ride along inside a structural value.
+ */
+const ignorablePrefixes = (value: string): boolean => {
+  const tokens = value.split(' ');
+  return tokens.length > 0 && new Set(tokens).size === tokens.length
+    && tokens.every((token) => Object.hasOwn(wordPassiveNamespaces, token));
+};
+
+const ignorableRoots = Object.freeze([
+  'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:comments',
+  'w:settings', 'w:styles', 'w:numbering', 'w:fonts',
+  'w15:commentsEx', 'w16cid:commentsIds', 'w16cex:commentsExtensible'
+]);
+
 const relationshipId = (value: string): boolean => /^rId[1-9][0-9]{0,5}$/u.test(value);
 const hex8 = exactHex(8);
+/**
+ * ST_LongHexNumber restricted the way the comment identifier schemas require:
+ * eight hex digits naming a value strictly between zero and 0x7FFFFFFF, so a
+ * reserved or overflowing durable id cannot key a comment.
+ */
+const durableHexId = (value: string): boolean => {
+  if (!hex8(value)) return false;
+  const parsed = Number.parseInt(value, 16);
+  return parsed > 0 && parsed < 0x7fffffff;
+};
 const unsignedInt32 = boundedUnsignedDecimal(4_294_967_295);
 const positiveInt32 = boundedUnsignedDecimal(2_147_483_647, 1);
 const unsignedInt31 = boundedUnsignedDecimal(2_147_483_647);
@@ -1294,6 +1335,7 @@ const tabAlignment = exactStructuralValues('bar', 'center', 'clear', 'decimal', 
 const color = (value: string): boolean => value === 'auto' || exactHex(6)(value);
 
 const closedStructuralAttributeValidators: Readonly<Record<string, StructuralAttributeValidator>> = Object.freeze({
+  ...Object.fromEntries(ignorableRoots.map((root) => [structuralPair(root, 'mc:Ignorable'), ignorablePrefixes])),
   [structuralPair('w:t', 'xml:space')]: exactStructuralValues('preserve'),
   [structuralPair('w:headerReference', 'r:id')]: relationshipId,
   [structuralPair('w:headerReference', 'w:type')]: headerFooterType,
@@ -1307,6 +1349,13 @@ const closedStructuralAttributeValidators: Readonly<Record<string, StructuralAtt
   [structuralPair('w:endnote', 'w:id')]: boundedSignedDecimal(999_999_999),
   [structuralPair('w:endnote', 'w:type')]: noteType,
   [structuralPair('w:comment', 'w:id')]: unsignedInt31,
+  [structuralPair('w15:commentEx', 'w15:paraId')]: hex8,
+  [structuralPair('w15:commentEx', 'w15:paraIdParent')]: hex8,
+  [structuralPair('w15:commentEx', 'w15:done')]: onOff,
+  [structuralPair('w16cid:commentId', 'w16cid:paraId')]: hex8,
+  [structuralPair('w16cid:commentId', 'w16cid:durableId')]: durableHexId,
+  [structuralPair('w16cex:commentExtensible', 'w16cex:durableId')]: durableHexId,
+  [structuralPair('w16cex:commentExtensible', 'w16cex:intelligentPlaceholder')]: onOff,
   [structuralPair('w:commentRangeStart', 'w:id')]: unsignedInt31,
   [structuralPair('w:commentRangeEnd', 'w:id')]: unsignedInt31,
   [structuralPair('w:commentReference', 'w:id')]: unsignedInt31,
@@ -1559,6 +1608,17 @@ const stylesElements = new Set([
 const fontTableElements = new Set([
   'w:fonts', 'w:font', 'w:altName', 'w:charset', 'w:family', 'w:notTrueType', 'w:panose1', 'w:pitch', 'w:sig'
 ]);
+/**
+ * The comment companion parts are closed structural graphs, not text parts:
+ * they carry paragraph ids, durable ids, threading pointers and resolution
+ * flags that address comment bodies declared in `word/comments.xml`. Only
+ * `w16cex:dateUtc` is a value on the same footing as the `w:date` already
+ * mapped on `w:comment`, so it is left off the structural table and reaches the
+ * canonical text as an ordinary carrier.
+ */
+const commentsExtendedElements = new Set(['w15:commentsEx', 'w15:commentEx']);
+const commentsIdsElements = new Set(['w16cid:commentsIds', 'w16cid:commentId']);
+const commentsExtensibleElements = new Set(['w16cex:commentsExtensible', 'w16cex:commentExtensible']);
 
 function parents(entries: Readonly<Record<string, readonly string[]>>): ReadonlyMap<string, ReadonlySet<string | undefined>> {
   return new Map(Object.entries(entries).map(([parent, children]) => [parent, new Set(children.map((child) => child === '$root' ? undefined : child))]));
@@ -1624,11 +1684,19 @@ const stylesOrder = Object.freeze({
 const fontTableOrder = Object.freeze({
   'w:fonts': ['w:font'], 'w:font': ['w:altName', 'w:panose1', 'w:charset', 'w:family', 'w:notTrueType', 'w:pitch', 'w:sig']
 });
+const commentsExtendedParents = parents({ 'w15:commentsEx': ['$root'], 'w15:commentEx': ['w15:commentsEx'] });
+const commentsIdsParents = parents({ 'w16cid:commentsIds': ['$root'], 'w16cid:commentId': ['w16cid:commentsIds'] });
+const commentsExtensibleParents = parents({ 'w16cex:commentsExtensible': ['$root'], 'w16cex:commentExtensible': ['w16cex:commentsExtensible'] });
+const commentsExtendedOrder = Object.freeze({ 'w15:commentsEx': ['w15:commentEx'] });
+const commentsIdsOrder = Object.freeze({ 'w16cid:commentsIds': ['w16cid:commentId'] });
+const commentsExtensibleOrder = Object.freeze({ 'w16cex:commentsExtensible': ['w16cex:commentExtensible'] });
 
 const requiredCarrierAttributes: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'w:compatSetting': ['w:name', 'w:uri', 'w:val'],
   'w:abstractNum': ['w:abstractNumId'], 'w:lvl': ['w:ilvl'], 'w:num': ['w:numId'],
-  'w:lvlText': ['w:val'], 'w:style': ['w:type', 'w:styleId'], 'w:lsdException': ['w:name'], 'w:font': ['w:name']
+  'w:lvlText': ['w:val'], 'w:style': ['w:type', 'w:styleId'], 'w:lsdException': ['w:name'], 'w:font': ['w:name'],
+  'w15:commentEx': ['w15:paraId'], 'w16cid:commentId': ['w16cid:paraId', 'w16cid:durableId'],
+  'w16cex:commentExtensible': ['w16cex:durableId']
 });
 const carrierChildCardinality: Readonly<Record<string, Readonly<Record<string, readonly [number, number]>>>> = Object.freeze({
   'w:abstractNum': { 'w:nsid': [1, 1], 'w:multiLevelType': [1, 1], 'w:tmpl': [1, 1], 'w:lvl': [1, 9] },
@@ -1647,7 +1715,7 @@ function validateWordCarrierPart(
   allowedParents: ReadonlyMap<string, ReadonlySet<string | undefined>>,
   childOrder: Readonly<Record<string, readonly string[]>>,
   maximumElements: number
-): readonly XmlCarrierValue[] {
+): { readonly carriers: readonly XmlCarrierValue[]; readonly elements: readonly XmlElement[] } {
   const elements = scanXml(decodeUtf8Xml(entry.contents));
   const root = elements.find((element) => !element.closing);
   if (root?.name !== rootName) formatCorrupt();
@@ -1698,7 +1766,7 @@ function validateWordCarrierPart(
     if (!element.selfClosing) frames.push({ name: element.name, lastRank: -1, childCounts: new Map() });
   }
   if (frames.length !== 0) formatCorrupt();
-  return collectXmlAttributeCarriers(entry.name, elements, declared);
+  return { carriers: collectXmlAttributeCarriers(entry.name, elements, declared), elements };
 }
 
 const supportedPartPattern = /^word\/(?:header[1-9][0-9]{0,5}|footer[1-9][0-9]{0,5}|footnotes|endnotes|comments)\.xml$/u;
@@ -1720,22 +1788,90 @@ const passiveRelationshipKinds: Readonly<Record<string, { readonly target: strin
   styles: { target: 'styles.xml', part: 'word/styles.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml' },
   customXml: { target: '../customXml/item1.xml', part: 'customXml/item1.xml', contentType: 'application/xml' },
   fontTable: { target: 'fontTable.xml', part: 'word/fontTable.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml' },
+  commentsExtended: { target: 'commentsExtended.xml', part: 'word/commentsExtended.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml' },
+  commentsIds: { target: 'commentsIds.xml', part: 'word/commentsIds.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml' },
+  commentsExtensible: { target: 'commentsExtensible.xml', part: 'word/commentsExtensible.xml', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml' }
+});
+
+/**
+ * Word publishes the comment companion parts under its own relationship
+ * namespaces rather than the 2006 office relationship namespace, so the kind
+ * cannot be derived by stripping a prefix.
+ */
+const microsoftRelationshipKinds: Readonly<Record<string, string>> = Object.freeze({
+  'http://schemas.microsoft.com/office/2011/relationships/commentsExtended': 'commentsExtended',
+  'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds': 'commentsIds',
+  'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible': 'commentsExtensible'
 });
 
 const carrierPartValidators: Readonly<Record<string, { readonly root: string; readonly elements: ReadonlySet<string>; readonly parents: ReadonlyMap<string, ReadonlySet<string | undefined>>; readonly order: Readonly<Record<string, readonly string[]>>; readonly maximumElements: number }>> = Object.freeze({
   'word/settings.xml': { root: 'w:settings', elements: settingsElements, parents: settingsParents, order: settingsOrder, maximumElements: 512 },
   'word/numbering.xml': { root: 'w:numbering', elements: numberingElements, parents: numberingParents, order: numberingOrder, maximumElements: 10_000 },
   'word/styles.xml': { root: 'w:styles', elements: stylesElements, parents: stylesParents, order: stylesOrder, maximumElements: 10_000 },
-  'word/fontTable.xml': { root: 'w:fonts', elements: fontTableElements, parents: fontTableParents, order: fontTableOrder, maximumElements: 2_000 }
+  'word/fontTable.xml': { root: 'w:fonts', elements: fontTableElements, parents: fontTableParents, order: fontTableOrder, maximumElements: 2_000 },
+  'word/commentsExtended.xml': { root: 'w15:commentsEx', elements: commentsExtendedElements, parents: commentsExtendedParents, order: commentsExtendedOrder, maximumElements: 10_000 },
+  'word/commentsIds.xml': { root: 'w16cid:commentsIds', elements: commentsIdsElements, parents: commentsIdsParents, order: commentsIdsOrder, maximumElements: 10_000 },
+  'word/commentsExtensible.xml': { root: 'w16cex:commentsExtensible', elements: commentsExtensibleElements, parents: commentsExtensibleParents, order: commentsExtensibleOrder, maximumElements: 10_000 }
 });
+
+function companionAttributeValues(elements: readonly XmlElement[] | undefined, element: string, attribute: string): readonly string[] {
+  return (elements ?? [])
+    .filter((candidate) => !candidate.closing && candidate.name === element)
+    .map((candidate) => (candidate.attributes[attribute] ?? '').toUpperCase());
+}
+
+function assertUniqueCompanionKeys(values: readonly string[]): void {
+  if (new Set(values).size !== values.length) formatCorrupt();
+}
+
+/**
+ * The companion parts are only meaningful as references into the comment graph
+ * the package already declares: commentsExtended and commentsIds key on the
+ * paragraph ids of comment bodies, and commentsExtensible keys on the durable
+ * ids that only commentsIds declares. A dangling or duplicated reference means
+ * the package describes comments this adapter cannot see, which must be refused
+ * rather than partially extracted.
+ */
+function assertCommentCompanionGraph(
+  elementsByPart: ReadonlyMap<string, readonly XmlElement[]>,
+  comments: ParsedTextPartRaw | undefined
+): void {
+  const extended = elementsByPart.get('word/commentsExtended.xml');
+  const identifiers = elementsByPart.get('word/commentsIds.xml');
+  const extensible = elementsByPart.get('word/commentsExtensible.xml');
+  if (extended === undefined && identifiers === undefined && extensible === undefined) return;
+  if (comments === undefined || (extensible !== undefined && identifiers === undefined)) formatCorrupt();
+  const paragraphIds = comments.declaredCommentParagraphIds;
+
+  const threadIds = companionAttributeValues(extended, 'w15:commentEx', 'w15:paraId');
+  assertUniqueCompanionKeys(threadIds);
+  for (const id of threadIds) if (!paragraphIds.has(id)) formatCorrupt();
+  for (const [index, parent] of companionAttributeValues(extended, 'w15:commentEx', 'w15:paraIdParent').entries()) {
+    // An absent parent is a thread root; a parent that resolves to the replying
+    // comment itself is a cycle rather than a reply.
+    if (parent.length > 0 && (!paragraphIds.has(parent) || parent === threadIds[index])) formatCorrupt();
+  }
+
+  const durableParagraphIds = companionAttributeValues(identifiers, 'w16cid:commentId', 'w16cid:paraId');
+  const durableIds = companionAttributeValues(identifiers, 'w16cid:commentId', 'w16cid:durableId');
+  assertUniqueCompanionKeys(durableParagraphIds);
+  assertUniqueCompanionKeys(durableIds);
+  for (const id of durableParagraphIds) if (!paragraphIds.has(id)) formatCorrupt();
+
+  const extensibleIds = companionAttributeValues(extensible, 'w16cex:commentExtensible', 'w16cex:durableId');
+  assertUniqueCompanionKeys(extensibleIds);
+  const declared = new Set(durableIds);
+  for (const id of extensibleIds) if (!declared.has(id)) formatCorrupt();
+}
 
 function unsupportedEntryReason(name: string): UnsupportedFeatureReason {
   if (/^(?:docProps|customXml)\//u.test(name) || /^word\/(?:styles|settings|theme|fontTable|numbering|webSettings)/u.test(name)) return 'metadata_part';
   if (/^(?:word\/media|word\/embeddings|word\/drawings)\//u.test(name)) return 'drawing_or_alternate_content';
-  // `word/comments.xml` is now an extracted text part; the companion comment
-  // parts (commentsExtended, commentsIds, commentsExtensible) and the glossary
-  // and sub-document flows stay refused.
-  if (/^word\/(?:comments|glossary|subDoc)/u.test(name)) return 'additional_text_part';
+  // `word/comments.xml` and the three declared companion parts are handled
+  // above. Every other comment-shaped part stays refused, including
+  // `word/people.xml`, whose author names and presence identifiers are a text
+  // surface this adapter does not yet map; so do glossary and sub-documents.
+  if (/^word\/(?:comments|people|glossary|subDoc)/u.test(name)) return 'additional_text_part';
   return 'unknown_feature';
 }
 
@@ -2051,7 +2187,9 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
       ) featureUnsupported('unknown_feature');
       const type = element.attributes.Type;
       const target = element.attributes.Target;
-      const kind = type?.startsWith(officeRelationshipPrefix) === true ? type.slice(officeRelationshipPrefix.length) : undefined;
+      const kind = type === undefined
+        ? undefined
+        : type.startsWith(officeRelationshipPrefix) ? type.slice(officeRelationshipPrefix.length) : microsoftRelationshipKinds[type];
       if (kind === undefined || target === undefined) featureUnsupported('unknown_feature');
       const textRelationship = relationshipKinds[kind];
       const passiveRelationship = passiveRelationshipKinds[kind];
@@ -2115,11 +2253,14 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
     if (entry !== undefined) validatePassivePart(entry, profile);
   }
   for (const part of Object.keys(passivePartProfiles)) if (byName.has(part) !== relatedPassiveParts.has(part)) formatCorrupt();
+  const carrierPartElements = new Map<string, readonly XmlElement[]>();
   for (const [part, profile] of Object.entries(carrierPartValidators)) {
     const entry = byName.get(part);
-    if (entry !== undefined) carriers.push(...validateWordCarrierPart(
-      entry, profile.root, profile.elements, profile.parents, profile.order, profile.maximumElements
-    ));
+    if (entry !== undefined) {
+      const validated = validateWordCarrierPart(entry, profile.root, profile.elements, profile.parents, profile.order, profile.maximumElements);
+      carriers.push(...validated.carriers);
+      carrierPartElements.set(part, validated.elements);
+    }
     if (byName.has(part) !== relatedPassiveParts.has(part)) formatCorrupt();
   }
   carriers.push(...validateCustomXmlParts(byName, declaredTypes));
@@ -2174,6 +2315,7 @@ function validatePackage(entries: readonly ZipEntry[]): ParsedDocxPackage {
     for (const id of document.referencedCommentIds) if (!comments.declaredCommentIds.has(id)) formatCorrupt();
     for (const id of comments.declaredCommentIds) if (!document.referencedCommentIds.has(id)) formatCorrupt();
   }
+  assertCommentCompanionGraph(carrierPartElements, comments);
   carriers.sort((left, right) => {
     const leftIdentity = carrierIdentity(left);
     const rightIdentity = carrierIdentity(right);

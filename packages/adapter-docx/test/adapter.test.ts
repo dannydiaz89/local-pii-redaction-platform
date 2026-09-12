@@ -203,6 +203,103 @@ const compatibilityNamespaces = {
   w16du: 'http://schemas.microsoft.com/office/word/2023/wordml/word16du'
 } as const;
 
+const commentCompanionContentTypes = {
+  commentsExtended: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml',
+  commentsIds: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml',
+  commentsExtensible: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml'
+} as const;
+const commentCompanionRelationshipTypes = {
+  commentsExtended: 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended',
+  commentsIds: 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds',
+  commentsExtensible: 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible'
+} as const;
+const markupNamespaces = `xmlns:mc="${markupCompatibilityNamespace}" xmlns:w="${wordNamespace}" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"`;
+const threadParagraphId = '7E5CADBD';
+const replyParagraphId = '7D0E2935';
+
+interface CommentCompanionBodies {
+  readonly extended?: string;
+  readonly ids?: string;
+  readonly extensible?: string;
+  readonly commentParagraphIds?: readonly [string, string];
+  readonly omitComments?: true;
+}
+
+/**
+ * A package shaped the way Word actually writes a reviewed document: two
+ * threaded comments with source-mapped paragraph ids, and the three companion
+ * parts that carry the threading, durable identity and comment dates, each with
+ * its own content-type override and Microsoft-namespaced relationship.
+ */
+function wordAuthoredCommentParts(bodies: CommentCompanionBodies = {}): SyntheticZipEntry[] {
+  const [firstParagraphId, secondParagraphId] = bodies.commentParagraphIds ?? [threadParagraphId, replyParagraphId];
+  const overrides = [
+    ...(bodies.omitComments === true ? [] : [`<Override PartName="/word/comments.xml" ContentType="${supportedPartContentTypes.comments}"/>`]),
+    ...Object.entries(commentCompanionContentTypes).map(([part, type]) => `<Override PartName="/word/${part}.xml" ContentType="${type}"/>`)
+  ].join('');
+  const relationships = [
+    ...(bodies.omitComments === true ? [] : [`<Relationship Id="rId2" Type="${officeRelationshipPrefix}comments" Target="comments.xml"/>`]),
+    ...Object.entries(commentCompanionRelationshipTypes).map(([part, type], index) => `<Relationship Id="rId${String(index + 3)}" Type="${type}" Target="${part}.xml"/>`)
+  ].join('');
+  const anchoredParagraph = '<w:p w14:paraId="1A2B3C4D" w14:textId="5E6F7A8B" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">'
+    + (bodies.omitComments === true ? '<w:r><w:t>body-canary</w:t></w:r></w:p>'
+      : '<w:commentRangeStart w:id="1"/><w:commentRangeStart w:id="2"/><w:r><w:t>body-canary</w:t></w:r>'
+        + '<w:commentRangeEnd w:id="1"/><w:commentRangeEnd w:id="2"/>'
+        + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>'
+        + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="2"/></w:r></w:p>');
+  const sectionProperties = '<w:sectPr w:rsidR="00AA00BB"><w:pgSz w:w="12240" w:h="15840"/>'
+    + '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
+    + '<w:cols w:space="720"/><w:docGrid w:linePitch="360"/></w:sectPr>';
+  const comment = (id: string, paragraphId: string, author: string, initials: string, date: string, text: string): string =>
+    `<w:comment w:id="${id}" w:author="${author}" w:date="${date}" w:initials="${initials}">`
+    + `<w:p w14:paraId="${paragraphId}" w14:textId="9C0D1E2F" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">`
+    + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:annotationRef/></w:r>'
+    + `<w:r><w:t>${text}</w:t></w:r></w:p></w:comment>`;
+  return [
+    {
+      name: '[Content_Types].xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/>${overrides}</Types>`
+    },
+    {
+      name: '_rels/.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>`
+    },
+    {
+      name: 'word/document.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${markupNamespaces} xmlns:r="${officeRelationshipNamespace}" xmlns:w15="${compatibilityNamespaces.w15}" mc:Ignorable="w14 w15"><w:body>${anchoredParagraph}${sectionProperties}</w:body></w:document>`
+    },
+    {
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}">${relationships}</Relationships>`
+    },
+    ...(bodies.omitComments === true ? [] : [{
+      name: 'word/comments.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments ${markupNamespaces} mc:Ignorable="w14">`
+        + comment('1', firstParagraphId, 'Dana Reviewer', 'DR', '2026-01-02T03:04:05Z', 'comment-canary alpha@example.test')
+        + comment('2', secondParagraphId, 'Robin Author', 'RA', '2026-01-02T04:05:06Z', 'reply-canary')
+        + '</w:comments>'
+    }]),
+    {
+      name: 'word/commentsExtended.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w15:commentsEx xmlns:mc="${markupCompatibilityNamespace}" xmlns:w15="${compatibilityNamespaces.w15}" mc:Ignorable="w15">`
+        + (bodies.extended ?? `<w15:commentEx w15:paraId="${threadParagraphId}" w15:done="0"/><w15:commentEx w15:paraId="${replyParagraphId}" w15:paraIdParent="${threadParagraphId}" w15:done="0"/>`)
+        + '</w15:commentsEx>'
+    },
+    {
+      name: 'word/commentsIds.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w16cid:commentsIds xmlns:mc="${markupCompatibilityNamespace}" xmlns:w16cid="${compatibilityNamespaces.w16cid}" mc:Ignorable="w16cid">`
+        + (bodies.ids ?? `<w16cid:commentId w16cid:paraId="${threadParagraphId}" w16cid:durableId="552C72BB"/><w16cid:commentId w16cid:paraId="${replyParagraphId}" w16cid:durableId="22DFF939"/>`)
+        + '</w16cid:commentsIds>'
+    },
+    {
+      name: 'word/commentsExtensible.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w16cex:commentsExtensible xmlns:mc="${markupCompatibilityNamespace}" xmlns:w16="${compatibilityNamespaces.w16}" xmlns:w16cex="${compatibilityNamespaces.w16cex}" mc:Ignorable="w16 w16cex">`
+        + (bodies.extensible ?? '<w16cex:commentExtensible w16cex:durableId="552C72BB" w16cex:dateUtc="2026-01-02T03:04:05.74Z"/><w16cex:commentExtensible w16cex:durableId="22DFF939" w16cex:dateUtc="2026-01-02T04:05:06.161Z"/>')
+        + '</w16cex:commentsExtensible>'
+    }
+  ];
+}
+
 function passivePackageParts(document: string, theme: string, webSettings: string): SyntheticZipEntry[] {
   const namespaceAttributes = Object.entries(compatibilityNamespaces).map(([prefix, uri]) => `xmlns:${prefix}="${uri}"`).join(' ');
   if (!webSettings.includes(namespaceAttributes)) throw new Error('Synthetic web settings namespace inventory is incomplete.');
@@ -406,6 +503,83 @@ describe('DOCX adapter', () => {
 
     expect(artifact.text).toBe('safe\n\u0000\nalpha@example.test\n\u0000DOCX-CARRIER\u0000\nDana Reviewer');
     expect(artifact.extractionRevision).toBe('sha256:eeb13e3492ebd10a9d17d22393227dac1011804d7ac4d3417303fdb93ccbbc71');
+  });
+
+  /**
+   * The decisive case for this surface: a package shaped the way Word writes a
+   * reviewed document, with all three companion parts present. Everything the
+   * companion parts carry is either a structural identifier that stays out of
+   * the canonical text or, for the comment dates, a scanned carrier.
+   */
+  it('scans a Word-authored package carrying all three comment companion parts', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts());
+
+    const artifact = await readDocxArtifact(path);
+
+    const paragraphBoundary = '\n\u0000\n';
+    const carrierBoundary = '\n\u0000DOCX-CARRIER\u0000\n';
+    expect(artifact.text).toBe([
+      ['body-canary', 'comment-canary alpha@example.test', 'reply-canary'].join(paragraphBoundary),
+      'Dana Reviewer', '2026-01-02T03:04:05Z', 'DR', 'Robin Author', '2026-01-02T04:05:06Z', 'RA',
+      'CommentReference', 'CommentReference',
+      '2026-01-02T03:04:05.74Z', '2026-01-02T04:05:06.161Z',
+      'CommentReference', 'CommentReference'
+    ].join(carrierBoundary));
+    expect(artifact.regions.filter(({ location }) => location.kind === 'DOCX_XML_VALUE' && location.part.startsWith('word/commentsExt')).map(({ location }) => location)).toEqual([
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/commentsExtensible.xml', element: 'w16cex:commentExtensible', elementOrdinal: 1, carrier: 'ATTRIBUTE', attribute: 'w16cex:dateUtc' },
+      { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/commentsExtensible.xml', element: 'w16cex:commentExtensible', elementOrdinal: 2, carrier: 'ATTRIBUTE', attribute: 'w16cex:dateUtc' }
+    ]);
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'comment-threading-durable-id-and-date-companion-parts', status: 'SUPPORTED' });
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'glossary-and-subdocument-parts', status: 'BLOCKED' });
+  });
+
+  /**
+   * The independent verifier reconstructs the same canonical sequence from the
+   * same package shape in `packages/verification/test/docx.test.ts`. Pinning the
+   * digest on both sides makes a companion surface only one implementation can
+   * see fail a test rather than pass silently.
+   */
+  it('pins the companion-part extraction revision shared with the independent verifier', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts());
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.extractionRevision).toBe('sha256:fde8b4a4cd12294d0409ddc61e630793b6c5afeeae02ad1d6b7c6b869536369f');
+  });
+
+  it.each([
+    ['a threading reference to an undeclared comment paragraph', { extended: '<w15:commentEx w15:paraId="0BADF00D" w15:done="0"/>' }],
+    ['a threading parent that resolves to no comment paragraph', { extended: `<w15:commentEx w15:paraId="${threadParagraphId}" w15:paraIdParent="0BADF00D" w15:done="0"/>` }],
+    ['a threading parent that points at its own comment', { extended: `<w15:commentEx w15:paraId="${threadParagraphId}" w15:paraIdParent="${threadParagraphId}" w15:done="0"/>` }],
+    ['a duplicated threading key', { extended: `<w15:commentEx w15:paraId="${threadParagraphId}" w15:done="0"/><w15:commentEx w15:paraId="${threadParagraphId}" w15:done="1"/>` }],
+    ['a durable identifier for an undeclared comment paragraph', { ids: '<w16cid:commentId w16cid:paraId="0BADF00D" w16cid:durableId="552C72BB"/>' }],
+    ['a durable identifier reused across comments', { ids: `<w16cid:commentId w16cid:paraId="${threadParagraphId}" w16cid:durableId="552C72BB"/><w16cid:commentId w16cid:paraId="${replyParagraphId}" w16cid:durableId="552C72BB"/>` }],
+    ['a reserved durable identifier', { ids: `<w16cid:commentId w16cid:paraId="${threadParagraphId}" w16cid:durableId="00000000"/>` }],
+    ['an extensible entry keyed on an undeclared durable identifier', { extensible: '<w16cex:commentExtensible w16cex:durableId="0BADF00D" w16cex:dateUtc="2026-01-02T03:04:05Z"/>' }],
+    ['a comment reaction extension list this adapter cannot map', { extensible: `<w16cex:commentExtensible w16cex:durableId="552C72BB" w16cex:dateUtc="2026-01-02T03:04:05Z"><w16:extLst/></w16cex:commentExtensible>` }],
+    ['comment paragraphs sharing one paragraph identifier', { commentParagraphIds: [threadParagraphId, threadParagraphId] as const }]
+  ])('refuses %s without exposing planted comment content', async (_name, bodies) => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts(bodies));
+
+    try {
+      await readDocxArtifact(path);
+      throw new Error('Expected the synthetic companion graph to be rejected.');
+    } catch (error: unknown) {
+      const code = (error as { code?: unknown }).code;
+      expect(['FORMAT_CORRUPT', 'FORMAT_UNSUPPORTED']).toContain(code);
+      const envelope = JSON.stringify({ code, message: (error as Error).message, details: (error as { details?: unknown }).details });
+      expect(envelope).not.toContain('comment-canary');
+      expect(envelope).not.toContain('Dana Reviewer');
+      expect(envelope).not.toContain('552C72BB');
+    }
+  });
+
+  // Companion parts without any comment body are references to comments that do
+  // not exist, which is a different failure from an anchor with no body.
+  it('refuses companion parts in a package that declares no comment body at all', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts({ omitComments: true }));
+
+    await expect(readDocxArtifact(path)).rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
   });
 
   it('orders comment paragraphs after every other declared text part', async () => {
@@ -1085,7 +1259,7 @@ describe('DOCX adapter', () => {
     ['character data outside w:t', '<w:p>private-canary<w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['XML comment', '<!-- private-canary --><w:p><w:r><w:t>safe</w:t></w:r></w:p>', [], 'unknown_feature'],
     ['styles part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/styles.xml', contents: '<w:styles xmlns:w="urn:test"><w:style><w:name w:val="private-canary"/></w:style></w:styles>' }], 'metadata_part'],
-    ['comment companion part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/commentsExtended.xml', contents: 'private-canary' }], 'additional_text_part'],
+    ['comment author identity part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/people.xml', contents: 'private-canary' }], 'additional_text_part'],
     ['glossary part', '<w:p><w:r><w:t>safe</w:t></w:r></w:p>', [{ name: 'word/glossary/document.xml', contents: 'private-canary' }], 'additional_text_part'],
     ['bare text box', '<w:p><w:r><w:txbxContent><w:p><w:r><w:t>private-canary</w:t></w:r></w:p></w:txbxContent></w:r></w:p>', [], 'unknown_feature'],
     ['shape-hosted text box', '<w:p><w:r><w:pict><w:txbxContent><w:p><w:r><w:t>private-canary</w:t></w:r></w:p></w:txbxContent></w:pict></w:r></w:p>', [], 'drawing_or_alternate_content'],

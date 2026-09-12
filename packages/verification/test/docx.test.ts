@@ -335,6 +335,188 @@ function commentedSource(bodyValue: string, commentValue: string, author: string
   };
 }
 
+const commentCompanionContentTypes = {
+  commentsExtended: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml',
+  commentsIds: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml',
+  commentsExtensible: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml'
+} as const;
+const commentCompanionRelationshipTypes = {
+  commentsExtended: 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended',
+  commentsIds: 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds',
+  commentsExtensible: 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible'
+} as const;
+const markupCompatibilityNamespace = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+const w14Namespace = 'http://schemas.microsoft.com/office/word/2010/wordml';
+const w15Namespace = 'http://schemas.microsoft.com/office/word/2012/wordml';
+const w16Namespace = 'http://schemas.microsoft.com/office/word/2018/wordml';
+const w16cexNamespace = 'http://schemas.microsoft.com/office/word/2018/wordml/cex';
+const w16cidNamespace = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
+const markupNamespaces = `xmlns:mc="${markupCompatibilityNamespace}" xmlns:w="${wordNamespace}" xmlns:w14="${w14Namespace}"`;
+
+/**
+ * The same Word-authored shape the adapter fixture builds: two threaded
+ * comments plus the three companion parts. It is reconstructed here from the
+ * package bytes alone, so a companion surface only the adapter can see fails a
+ * test instead of passing silently.
+ */
+interface CommentCompanionValues {
+  readonly commentValue: string;
+  readonly author: string;
+  readonly firstDate: string;
+  readonly secondDate: string;
+  readonly firstDateUtc: string;
+  readonly secondDateUtc: string;
+}
+
+const wordAuthoredCompanionValues: CommentCompanionValues = {
+  commentValue: 'comment-canary alpha@example.test',
+  author: 'Dana Reviewer',
+  firstDate: '2026-01-02T03:04:05Z',
+  secondDate: '2026-01-02T04:05:06Z',
+  firstDateUtc: '2026-01-02T03:04:05.74Z',
+  secondDateUtc: '2026-01-02T04:05:06.161Z'
+};
+
+function companionValues(overrides: Partial<CommentCompanionValues> = {}): CommentCompanionValues {
+  return { ...wordAuthoredCompanionValues, ...overrides };
+}
+
+function commentCompanionPackage(values: CommentCompanionValues): Buffer {
+  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc } = values;
+  const overrides = [
+    `<Override PartName="/word/comments.xml" ContentType="${commentsContentType}"/>`,
+    ...Object.entries(commentCompanionContentTypes).map(([part, type]) => `<Override PartName="/word/${part}.xml" ContentType="${type}"/>`)
+  ].join('');
+  const relationships = [
+    `<Relationship Id="rId2" Type="${officeRelationshipPrefix}comments" Target="comments.xml"/>`,
+    ...Object.entries(commentCompanionRelationshipTypes).map(([part, type], index) => `<Relationship Id="rId${String(index + 3)}" Type="${type}" Target="${part}.xml"/>`)
+  ].join('');
+  const comment = (id: string, paragraphId: string, commentAuthor: string, initials: string, date: string, text: string): string =>
+    `<w:comment w:id="${id}" w:author="${commentAuthor}" w:date="${date}" w:initials="${initials}">`
+    + `<w:p w14:paraId="${paragraphId}" w14:textId="9C0D1E2F" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">`
+    + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:annotationRef/></w:r>'
+    + `<w:r><w:t>${text}</w:t></w:r></w:p></w:comment>`;
+  return zip([
+    {
+      name: '[Content_Types].xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${contentTypesNamespace}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${mediaType}"/>${overrides}</Types>`
+    },
+    {
+      name: '_rels/.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipPrefix}officeDocument" Target="word/document.xml"/></Relationships>`
+    },
+    {
+      name: 'word/document.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${markupNamespaces} xmlns:w15="${w15Namespace}" mc:Ignorable="w14 w15"><w:body>`
+        + '<w:p w14:paraId="1A2B3C4D" w14:textId="5E6F7A8B" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">'
+        + '<w:commentRangeStart w:id="1"/><w:commentRangeStart w:id="2"/><w:r><w:t>body-canary</w:t></w:r>'
+        + '<w:commentRangeEnd w:id="1"/><w:commentRangeEnd w:id="2"/>'
+        + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>'
+        + '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="2"/></w:r></w:p>'
+        + '<w:sectPr w:rsidR="00AA00BB"/></w:body></w:document>'
+    },
+    {
+      name: 'word/_rels/document.xml.rels',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${packageRelationshipNamespace}">${relationships}</Relationships>`
+    },
+    {
+      name: 'word/comments.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments ${markupNamespaces} mc:Ignorable="w14">`
+        + comment('1', '7E5CADBD', author, 'DR', firstDate, commentValue)
+        + comment('2', '7D0E2935', 'Robin Author', 'RA', secondDate, 'reply-canary')
+        + '</w:comments>'
+    },
+    {
+      name: 'word/commentsExtended.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w15:commentsEx xmlns:mc="${markupCompatibilityNamespace}" xmlns:w15="${w15Namespace}" mc:Ignorable="w15">`
+        + '<w15:commentEx w15:paraId="7E5CADBD" w15:done="0"/><w15:commentEx w15:paraId="7D0E2935" w15:paraIdParent="7E5CADBD" w15:done="0"/>'
+        + '</w15:commentsEx>'
+    },
+    {
+      name: 'word/commentsIds.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w16cid:commentsIds xmlns:mc="${markupCompatibilityNamespace}" xmlns:w16cid="${w16cidNamespace}" mc:Ignorable="w16cid">`
+        + '<w16cid:commentId w16cid:paraId="7E5CADBD" w16cid:durableId="552C72BB"/><w16cid:commentId w16cid:paraId="7D0E2935" w16cid:durableId="22DFF939"/>'
+        + '</w16cid:commentsIds>'
+    },
+    {
+      name: 'word/commentsExtensible.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w16cex:commentsExtensible xmlns:mc="${markupCompatibilityNamespace}" xmlns:w16="${w16Namespace}" xmlns:w16cex="${w16cexNamespace}" mc:Ignorable="w16 w16cex">`
+        + `<w16cex:commentExtensible w16cex:durableId="552C72BB" w16cex:dateUtc="${firstDateUtc}"/>`
+        + `<w16cex:commentExtensible w16cex:durableId="22DFF939" w16cex:dateUtc="${secondDateUtc}"/>`
+        + '</w16cex:commentsExtensible>'
+    }
+  ]);
+}
+
+function xmlValueLocation(part: string, element: string, elementOrdinal: number, attribute: string): Extract<CanonicalRegion['location'], { readonly kind: 'DOCX_XML_VALUE' }> {
+  return { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part, element, elementOrdinal, carrier: 'ATTRIBUTE', attribute };
+}
+
+function commentCompanionSource(values: CommentCompanionValues, omitCompanionCarriers = false): {
+  readonly text: string;
+  readonly regions: readonly CanonicalRegion[];
+  readonly offsetOf: (value: string) => number;
+} {
+  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc } = values;
+  const paragraphBoundary = '\n\u0000\n';
+  const paragraphs = [
+    { part: 'word/document.xml', paragraph: 1, value: 'body-canary' },
+    { part: 'word/comments.xml', paragraph: 1, value: commentValue },
+    { part: 'word/comments.xml', paragraph: 2, value: 'reply-canary' }
+  ];
+  const carriers = [
+    { value: author, location: xmlValueLocation('word/comments.xml', 'w:comment', 1, 'w:author') },
+    { value: firstDate, location: xmlValueLocation('word/comments.xml', 'w:comment', 1, 'w:date') },
+    { value: 'DR', location: xmlValueLocation('word/comments.xml', 'w:comment', 1, 'w:initials') },
+    { value: 'Robin Author', location: xmlValueLocation('word/comments.xml', 'w:comment', 2, 'w:author') },
+    { value: secondDate, location: xmlValueLocation('word/comments.xml', 'w:comment', 2, 'w:date') },
+    { value: 'RA', location: xmlValueLocation('word/comments.xml', 'w:comment', 2, 'w:initials') },
+    { value: 'CommentReference', location: xmlValueLocation('word/comments.xml', 'w:rStyle', 1, 'w:val') },
+    { value: 'CommentReference', location: xmlValueLocation('word/comments.xml', 'w:rStyle', 2, 'w:val') },
+    ...(omitCompanionCarriers ? [] : [
+      { value: firstDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 1, 'w16cex:dateUtc') },
+      { value: secondDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 2, 'w16cex:dateUtc') }
+    ]),
+    { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 1, 'w:val') },
+    { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 2, 'w:val') }
+  ];
+  const pieces: string[] = [];
+  const regions: CanonicalRegion[] = [];
+  let cursor = 0;
+  for (const paragraph of paragraphs) {
+    if (pieces.length > 0) {
+      pieces.push(paragraphBoundary);
+      cursor += unicodeCodePointLength(paragraphBoundary);
+    }
+    pieces.push(paragraph.value);
+    regions.push({
+      schemaVersion: '2.0.0', start: cursor, end: cursor + unicodeCodePointLength(paragraph.value),
+      offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE',
+      location: { schemaVersion: '1.0.0', kind: 'DOCX_PART', part: paragraph.part, paragraph: paragraph.paragraph }
+    });
+    cursor += unicodeCodePointLength(paragraph.value);
+  }
+  for (const carrier of carriers) {
+    pieces.push(carrierBoundary, carrier.value);
+    cursor += unicodeCodePointLength(carrierBoundary);
+    regions.push({
+      schemaVersion: '2.0.0', start: cursor, end: cursor + unicodeCodePointLength(carrier.value),
+      offsetUnit: 'UNICODE_CODE_POINT', role: 'VALUE', location: carrier.location
+    });
+    cursor += unicodeCodePointLength(carrier.value);
+  }
+  const text = pieces.join('');
+  return {
+    text,
+    regions,
+    offsetOf: (value: string): number => {
+      const offset = text.indexOf(value);
+      if (offset < 0) throw new Error('Synthetic companion value is absent.');
+      return unicodeCodePointLength(text.slice(0, offset));
+    }
+  };
+}
+
 describe('independent DOCX verification foundation', () => {
   it('reconciles one exact native paragraph delta without importing the DOCX adapter', () => {
     const source = 'alpha@example.test';
@@ -817,6 +999,75 @@ describe('independent DOCX verification foundation', () => {
     const input = commentedPackage('safe', 'canary-4d81', 'Dana');
 
     expect(verifyIndependentDocxFoundation(requestFor(input, input, 'safe', [paragraphRegionV2('safe')], []))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
+    });
+  });
+
+  /**
+   * `packages/adapter-docx/test/adapter.test.ts` pins this digest for the same
+   * Word-authored package shape. The verifier recomputes it from the bytes and
+   * reports EXTRACTION_REVISION_MISMATCH when the two companion surfaces drift,
+   * so a part only one implementation enumerates fails loudly.
+   */
+  it('agrees with the adapter on the comment companion extraction revision', () => {
+    const classified = commentCompanionSource(companionValues());
+
+    expect(extractionRevision(classified.text, classified.regions))
+      .toBe('sha256:fde8b4a4cd12294d0409ddc61e630793b6c5afeeae02ad1d6b7c6b869536369f');
+  });
+
+  it('reconciles planned deltas across the comment and companion date carriers', () => {
+    const values = companionValues({ commentValue: 'safe' });
+    const input = commentCompanionPackage(values);
+    const output = commentCompanionPackage({
+      commentValue: 'safe', author: '[PERSON_1]', firstDate: '[PHONE_1]', secondDate: '[PHONE_2]',
+      firstDateUtc: '[PHONE_3]', secondDateUtc: '[PHONE_4]'
+    });
+    const classified = commentCompanionSource(values);
+    const span = (value: string, id: string, entityType: 'PERSON' | 'PHONE', replacement: string) => ({
+      id, entityType, start: classified.offsetOf(value),
+      end: classified.offsetOf(value) + unicodeCodePointLength(value), replacement
+    });
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, output, classified.text, classified.regions, [
+      span(values.author, actionId, 'PERSON', '[PERSON_1]'),
+      span(values.firstDate, 'act_00000000000000000000000002', 'PHONE', '[PHONE_1]'),
+      span(values.secondDate, 'act_00000000000000000000000003', 'PHONE', '[PHONE_2]'),
+      span(values.firstDateUtc, 'act_00000000000000000000000004', 'PHONE', '[PHONE_3]'),
+      span(values.secondDateUtc, 'act_00000000000000000000000005', 'PHONE', '[PHONE_4]')
+    ]))).toMatchObject({
+      outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [], retainedRegionCount: 15, classifiedRegionCount: 15
+    });
+  });
+
+  it('refuses to reconcile a companion date canary the writer claimed to remove but retained', () => {
+    const values = companionValues({ commentValue: 'safe', firstDateUtc: 'canary-3b7e' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [{
+      id: actionId, entityType: 'CUSTOM', start: classified.offsetOf('canary-3b7e'),
+      end: classified.offsetOf('canary-3b7e') + unicodeCodePointLength('canary-3b7e'), replacement: '[CUSTOM_1]'
+    }]))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'PLANNED_NATIVE_DELTA_MISMATCH', count: 1 }]
+    });
+  });
+
+  it('fails an unredacted entity planted in a comment companion date carrier', () => {
+    const values = companionValues({ commentValue: 'safe', firstDateUtc: 'alpha@example.test' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [])))
+      .toMatchObject({ outcome: 'FAIL', findings: expect.arrayContaining([{ code: 'RESIDUAL_ENTITY', count: 1, entityType: 'EMAIL' }]) as unknown[] });
+  });
+
+  it('refuses a source map that omits the comment companion carriers the package actually carries', () => {
+    const values = companionValues({ commentValue: 'safe' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values, true);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
       outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
     });
   });
