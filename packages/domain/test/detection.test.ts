@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isNativeLocationV1, isNativeLocationV2, isNativeLocationV3, isNativeLocationV4, nativeLocationIdentity } from '../src/index.js';
+import { componentIdentityDigest, isNativeLocationV1, isNativeLocationV2, isNativeLocationV3, isNativeLocationV4, nativeLocationIdentity } from '../src/index.js';
 
 describe('typed native locations', () => {
   it('accepts bounded JSON Pointer, CSV cell, and DOCX paragraph locations', () => {
@@ -95,5 +95,19 @@ describe('typed native locations', () => {
     { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/settings.xml', element: 'w:setting', elementOrdinal: 0, carrier: 'ATTRIBUTE', attribute: 'w:val' }
   ])('rejects an invalid or value-bearing v2 native location', (location) => {
     expect(isNativeLocationV2(location)).toBe(false);
+  });
+});
+
+describe('component identity digests', () => {
+  it('derives a stable digest per id and version and rejects malformed identities', () => {
+    const first = componentIdentityDigest('docx-adapter', '0.7.0');
+    expect(first).toBe(componentIdentityDigest('docx-adapter', '0.7.0'));
+    expect(first).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    // A version bump must move the digest, which is the whole point of deriving it.
+    expect(componentIdentityDigest('docx-adapter', '0.8.0')).not.toBe(first);
+    expect(componentIdentityDigest('csv-adapter', '0.7.0')).not.toBe(first);
+    for (const [id, version] of [['Docx-Adapter', '0.7.0'], ['ab', '0.7.0'], ['docx-adapter', '0.7'], ['docx-adapter', 'v0.7.0']] as const) {
+      expect(() => componentIdentityDigest(id, version)).toThrow(TypeError);
+    }
   });
 });

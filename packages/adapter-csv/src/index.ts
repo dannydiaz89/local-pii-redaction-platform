@@ -17,7 +17,7 @@ import {
   type TextArtifactPublication
 } from '@local-pii/adapter-text';
 import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from '@local-pii/contracts';
-import { SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
+import { componentIdentityDigest, SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
 export const csvAdapterVersion = '0.1.0';
@@ -25,7 +25,7 @@ export const defaultMaximumCsvInputBytes = 100 * 1024 * 1024;
 export const csvWriterDescriptor = Object.freeze({
   id: 'csv-adapter',
   version: csvAdapterVersion,
-  digest: parseSha256Digest('sha256:2fdba7b1085bf828e174c912e69766c3af12855607c9de2086ac3dd41c2e9011')
+  digest: componentIdentityDigest('csv-adapter', csvAdapterVersion)
 });
 export const csvAdapterCapabilityDescriptor = {
   id: 'csv',

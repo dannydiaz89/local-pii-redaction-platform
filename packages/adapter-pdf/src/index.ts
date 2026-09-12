@@ -9,6 +9,7 @@ import {
   type TextArtifactPublication
 } from '@local-pii/adapter-text';
 import {
+  componentIdentityDigest,
   parseSha256Digest,
   SafeError,
   type CanonicalRegion,
@@ -33,7 +34,7 @@ const metadataBoundary = '\n\u0000PDF-METADATA\u0000\n';
 export const pdfWriterDescriptor = Object.freeze({
   id: 'pdf-extract-adapter',
   version: pdfAdapterVersion,
-  digest: parseSha256Digest('sha256:642f288e39639c2f2d4fabe58d956b8ac65275f3f3648d02973cf0886e0c41ae')
+  digest: componentIdentityDigest('pdf-adapter', pdfAdapterVersion)
 });
 
 export const pdfAdapterCapabilityDescriptor = {

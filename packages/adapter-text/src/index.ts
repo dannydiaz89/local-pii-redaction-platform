@@ -3,7 +3,7 @@ import { constants, type Dir, type Stats } from 'node:fs';
 import { link, lstat, open, opendir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 
-import { SafeError, parseSha256Digest, unicodeCodePointLength, type Sha256Digest } from '@local-pii/domain';
+import { componentIdentityDigest, SafeError, parseSha256Digest, unicodeCodePointLength, type Sha256Digest } from '@local-pii/domain';
 import {
   computeWriterReceiptDigest,
   type RedactionWriterReceiptContract
@@ -15,7 +15,7 @@ export const textAdapterVersion = '0.1.0';
 export const textWriterDescriptor = Object.freeze({
   id: 'text-adapter',
   version: textAdapterVersion,
-  digest: parseSha256Digest('sha256:319fc7160f3540f36258b3853abcb4130516bdf4e1ea4242f7f89ef69ac7a70f')
+  digest: componentIdentityDigest('text-adapter', textAdapterVersion)
 });
 export const defaultMaximumInputBytes = 100 * 1024 * 1024;
 export const textAdapterCapabilityDescriptor = {

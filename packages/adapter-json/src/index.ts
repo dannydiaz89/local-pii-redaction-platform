@@ -17,7 +17,7 @@ import {
   type TextArtifactPublication
 } from '@local-pii/adapter-text';
 import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from '@local-pii/contracts';
-import { SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
+import { componentIdentityDigest, SafeError, parseSha256Digest, unicodeCodePointLength, type CanonicalRegionV1, type Sha256Digest } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
 export const jsonAdapterVersion = '0.1.0';
@@ -25,7 +25,7 @@ export const defaultMaximumJsonInputBytes = 100 * 1024 * 1024;
 export const jsonWriterDescriptor = Object.freeze({
   id: 'json-adapter',
   version: jsonAdapterVersion,
-  digest: parseSha256Digest('sha256:469df80596fd58c8a5deeddb708efa67b988445a400e984b98e0a8b61c6a38c8')
+  digest: componentIdentityDigest('json-adapter', jsonAdapterVersion)
 });
 export const jsonAdapterCapabilityDescriptor = {
   id: 'json',

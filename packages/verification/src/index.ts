@@ -13,7 +13,7 @@ import {
   deterministicDetectorBundleVersion
 } from '@local-pii/detectors';
 import type { DetectionEvidence, EntityType, Sha256Digest } from '@local-pii/domain';
-import { entityTypes, parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
+import { componentIdentityDigest, entityTypes, parseSha256Digest, unicodeCodePointLength } from '@local-pii/domain';
 import { resolveEvidence } from '@local-pii/span-resolution';
 
 export * from './docx.js';
@@ -29,20 +29,20 @@ export const textVerificationCapabilityDescriptor = {
 export const textVerificationProfile = Object.freeze({
   id: 'text-rescan-v1',
   version: '0.1.0',
-  digest: parseSha256Digest('sha256:01cc3ad157021e3b9ebd1d0fde63bbbc58327bc18ca87ce83ce3584491bf38f7')
+  digest: componentIdentityDigest('text-rescan-v1', '0.1.0')
 });
 
 /** The verifier implementation identity bound into every v2 attestation. */
 export const textVerificationVerifier = Object.freeze({
   id: 'text-verifier',
   version: '0.1.0',
-  digest: parseSha256Digest('sha256:f02b299c5ca5599bf36ae91c48afd6fcedabc0152f0967171397b9036f56992a')
+  digest: componentIdentityDigest('text-verifier', '0.1.0')
 });
 
 export const textVerificationDetectorBundle = Object.freeze({
   id: 'deterministic-text',
   version: deterministicDetectorBundleVersion,
-  digest: parseSha256Digest('sha256:afc4a7a4e0e81af7244cb023b9b16575127998858f35270aab36a934419b0480')
+  digest: componentIdentityDigest('deterministic-text', deterministicDetectorBundleVersion)
 });
 
 /**
@@ -61,7 +61,7 @@ export const textHybridVerificationCapabilityDescriptor = {
 export const textHybridVerificationProfile = Object.freeze({
   id: 'text-rescan-v1',
   version: '0.2.0',
-  digest: parseSha256Digest('sha256:feebc689f0a7531ce0e2c509a7fda892b2e090e6a532a4bff359bdfaace7263f')
+  digest: componentIdentityDigest('text-rescan-v1', '0.2.0')
 });
 
 /**

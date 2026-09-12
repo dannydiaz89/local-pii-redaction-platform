@@ -14,6 +14,7 @@ import {
 } from '@local-pii/adapter-text';
 import { computeWriterReceiptDigest, type RedactionWriterReceiptContract } from '@local-pii/contracts';
 import {
+  componentIdentityDigest,
   SafeError,
   parseSha256Digest,
   unicodeCodePointLength,
@@ -29,7 +30,7 @@ export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
   version: docxAdapterVersion,
-  digest: parseSha256Digest('sha256:7ebffde610b9b892bb80104b5ce918ab342c0e3908cfae27b177ae05242b111b')
+  digest: componentIdentityDigest('docx-adapter', docxAdapterVersion)
 });
 export const docxAdapterCapabilityDescriptor = {
   id: 'docx',

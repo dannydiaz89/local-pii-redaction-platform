@@ -1,3 +1,4 @@
+export * from './component.js';
 export * from './detection.js';
 export * from './errors.js';
 export * from './identifiers.js';
