@@ -220,6 +220,9 @@ function yearLike(group: string): boolean {
  * bought at the price of matching every identifier in the document.
  */
 function telephoneShaped(value: string, digits: string): boolean {
+  // An opening bracket only counts as area-code punctuation when it is actually closed;
+  // otherwise the match swallowed a bracket belonging to the surrounding prose.
+  if (value.startsWith('(') && !value.includes(')')) return false;
   if (value.startsWith('+') || value.includes('(')) return true;
   const groups = value.split(/\D+/u).filter((group) => group.length > 0);
   if (groups.length === 1) return digits.length >= 10;
@@ -255,7 +258,7 @@ function collectCandidates(text: string, maximumCandidates: number, maximumCandi
     entityType: 'IP_ADDRESS', confidence: 1, source: 'CHECKSUM', detectorId: detectorIds.ip, ruleId: 'ipv6-v1'
   }) : undefined);
 
-  addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, maximumCandidates, maximumCandidateLength, (match) => {
+  addMatches(candidates, text, /(?<!\w)(?:\+?\(?\d[\d ().-]{5,}\d)(?!\w)/gu, maximumCandidates, maximumCandidateLength, (match) => {
     if (/^\d{4}-\d{2}-\d{2}$/u.test(match[0])) return undefined;
     const digits = match[0].replaceAll(/\D/gu, '');
     return digits.length >= 7 && digits.length <= 15 && telephoneShaped(match[0], digits)

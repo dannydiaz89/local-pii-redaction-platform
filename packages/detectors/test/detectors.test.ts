@@ -155,7 +155,15 @@ describe('deterministic detectors', () => {
     expect(evidence.filter(({ entityType }) => entityType === 'PHONE')).toHaveLength(1);
   });
 
+  it('replaces a parenthesised area code whole rather than stranding its bracket', () => {
+    const text = 'Desk: (415) 555-0136 here.';
+    const [evidence] = detectDeterministic(text, revision).filter(({ entityType }) => entityType === 'PHONE');
+    expect(evidence).toBeDefined();
+    expect(text.slice(evidence?.span.start, evidence?.span.end)).toBe('(415) 555-0136');
+  });
+
   it.each([
+    ['an unclosed bracket from surrounding prose', '(555-0136'],
     ['a revision identifier', '00123456'],
     ['a paragraph identifier', '12345678'],
     ['an EMU extent', '9525000'],
