@@ -338,12 +338,14 @@ function commentedSource(bodyValue: string, commentValue: string, author: string
 const commentCompanionContentTypes = {
   commentsExtended: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml',
   commentsIds: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml',
-  commentsExtensible: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml'
+  commentsExtensible: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml',
+  people: 'application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml'
 } as const;
 const commentCompanionRelationshipTypes = {
   commentsExtended: 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended',
   commentsIds: 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds',
-  commentsExtensible: 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible'
+  commentsExtensible: 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible',
+  people: 'http://schemas.microsoft.com/office/2011/relationships/people'
 } as const;
 const markupCompatibilityNamespace = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
 const w14Namespace = 'http://schemas.microsoft.com/office/word/2010/wordml';
@@ -366,6 +368,9 @@ interface CommentCompanionValues {
   readonly secondDate: string;
   readonly firstDateUtc: string;
   readonly secondDateUtc: string;
+  readonly personAuthor: string;
+  readonly providerId: string;
+  readonly userId: string;
 }
 
 const wordAuthoredCompanionValues: CommentCompanionValues = {
@@ -374,7 +379,10 @@ const wordAuthoredCompanionValues: CommentCompanionValues = {
   firstDate: '2026-01-02T03:04:05Z',
   secondDate: '2026-01-02T04:05:06Z',
   firstDateUtc: '2026-01-02T03:04:05.74Z',
-  secondDateUtc: '2026-01-02T04:05:06.161Z'
+  secondDateUtc: '2026-01-02T04:05:06.161Z',
+  personAuthor: 'Dana Reviewer',
+  providerId: 'AD',
+  userId: 'S-1-5-21-1004336348-1177238915-682003330-1417'
 };
 
 function companionValues(overrides: Partial<CommentCompanionValues> = {}): CommentCompanionValues {
@@ -382,7 +390,7 @@ function companionValues(overrides: Partial<CommentCompanionValues> = {}): Comme
 }
 
 function commentCompanionPackage(values: CommentCompanionValues): Buffer {
-  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc } = values;
+  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc, personAuthor, providerId, userId } = values;
   const overrides = [
     `<Override PartName="/word/comments.xml" ContentType="${commentsContentType}"/>`,
     ...Object.entries(commentCompanionContentTypes).map(([part, type]) => `<Override PartName="/word/${part}.xml" ContentType="${type}"/>`)
@@ -444,6 +452,13 @@ function commentCompanionPackage(values: CommentCompanionValues): Buffer {
         + `<w16cex:commentExtensible w16cex:durableId="552C72BB" w16cex:dateUtc="${firstDateUtc}"/>`
         + `<w16cex:commentExtensible w16cex:durableId="22DFF939" w16cex:dateUtc="${secondDateUtc}"/>`
         + '</w16cex:commentsExtensible>'
+    },
+    {
+      name: 'word/people.xml',
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w15:people xmlns:mc="${markupCompatibilityNamespace}" xmlns:w15="${w15Namespace}" mc:Ignorable="w15">`
+        + `<w15:person w15:author="${personAuthor}"><w15:presenceInfo w15:providerId="${providerId}" w15:userId="${userId}"/></w15:person>`
+        + '<w15:person w15:author="Robin Author"><w15:presenceInfo w15:providerId="None" w15:userId="Robin Author"/></w15:person>'
+        + '</w15:people>'
     }
   ]);
 }
@@ -452,12 +467,12 @@ function xmlValueLocation(part: string, element: string, elementOrdinal: number,
   return { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part, element, elementOrdinal, carrier: 'ATTRIBUTE', attribute };
 }
 
-function commentCompanionSource(values: CommentCompanionValues, omitCompanionCarriers = false): {
+function commentCompanionSource(values: CommentCompanionValues, omit: 'companion' | 'people' | 'none' = 'none'): {
   readonly text: string;
   readonly regions: readonly CanonicalRegion[];
   readonly offsetOf: (value: string) => number;
 } {
-  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc } = values;
+  const { commentValue, author, firstDate, secondDate, firstDateUtc, secondDateUtc, personAuthor, providerId, userId } = values;
   const paragraphBoundary = '\n\u0000\n';
   const paragraphs = [
     { part: 'word/document.xml', paragraph: 1, value: 'body-canary' },
@@ -473,12 +488,22 @@ function commentCompanionSource(values: CommentCompanionValues, omitCompanionCar
     { value: 'RA', location: xmlValueLocation('word/comments.xml', 'w:comment', 2, 'w:initials') },
     { value: 'CommentReference', location: xmlValueLocation('word/comments.xml', 'w:rStyle', 1, 'w:val') },
     { value: 'CommentReference', location: xmlValueLocation('word/comments.xml', 'w:rStyle', 2, 'w:val') },
-    ...(omitCompanionCarriers ? [] : [
+    ...(omit === 'companion' ? [] : [
       { value: firstDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 1, 'w16cex:dateUtc') },
       { value: secondDateUtc, location: xmlValueLocation('word/commentsExtensible.xml', 'w16cex:commentExtensible', 2, 'w16cex:dateUtc') }
     ]),
     { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 1, 'w:val') },
-    { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 2, 'w:val') }
+    { value: 'CommentReference', location: xmlValueLocation('word/document.xml', 'w:rStyle', 2, 'w:val') },
+    // Every attribute `word/people.xml` carries is identity, so the independent
+    // classification expects all six of them in the source map.
+    ...(omit === 'people' ? [] : [
+      { value: personAuthor, location: xmlValueLocation('word/people.xml', 'w15:person', 1, 'w15:author') },
+      { value: 'Robin Author', location: xmlValueLocation('word/people.xml', 'w15:person', 2, 'w15:author') },
+      { value: providerId, location: xmlValueLocation('word/people.xml', 'w15:presenceInfo', 1, 'w15:providerId') },
+      { value: userId, location: xmlValueLocation('word/people.xml', 'w15:presenceInfo', 1, 'w15:userId') },
+      { value: 'None', location: xmlValueLocation('word/people.xml', 'w15:presenceInfo', 2, 'w15:providerId') },
+      { value: 'Robin Author', location: xmlValueLocation('word/people.xml', 'w15:presenceInfo', 2, 'w15:userId') }
+    ])
   ];
   const pieces: string[] = [];
   const regions: CanonicalRegion[] = [];
@@ -1009,18 +1034,20 @@ describe('independent DOCX verification foundation', () => {
    * reports EXTRACTION_REVISION_MISMATCH when the two companion surfaces drift,
    * so a part only one implementation enumerates fails loudly.
    */
-  it('agrees with the adapter on the comment companion extraction revision', () => {
+  it('agrees with the adapter on the comment companion and author identity extraction revision', () => {
     const classified = commentCompanionSource(companionValues());
 
     expect(extractionRevision(classified.text, classified.regions))
-      .toBe('sha256:fde8b4a4cd12294d0409ddc61e630793b6c5afeeae02ad1d6b7c6b869536369f');
+      .toBe('sha256:e39d87ba9a4804609f619cef08ba20a4939c0105501fb3b528000ed02688852d');
   });
 
   it('reconciles planned deltas across the comment and companion date carriers', () => {
-    const values = companionValues({ commentValue: 'safe' });
+    // The person list keeps its own author name so that the planned comment
+    // author delta is a unique source value rather than one copy of two.
+    const values = companionValues({ commentValue: 'safe', personAuthor: 'Ash Listed' });
     const input = commentCompanionPackage(values);
     const output = commentCompanionPackage({
-      commentValue: 'safe', author: '[PERSON_1]', firstDate: '[PHONE_1]', secondDate: '[PHONE_2]',
+      ...values, author: '[PERSON_1]', firstDate: '[PHONE_1]', secondDate: '[PHONE_2]',
       firstDateUtc: '[PHONE_3]', secondDateUtc: '[PHONE_4]'
     });
     const classified = commentCompanionSource(values);
@@ -1036,7 +1063,65 @@ describe('independent DOCX verification foundation', () => {
       span(values.firstDateUtc, 'act_00000000000000000000000004', 'PHONE', '[PHONE_3]'),
       span(values.secondDateUtc, 'act_00000000000000000000000005', 'PHONE', '[PHONE_4]')
     ]))).toMatchObject({
-      outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [], retainedRegionCount: 15, classifiedRegionCount: 15
+      outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [], retainedRegionCount: 21, classifiedRegionCount: 21
+    });
+  });
+
+  /**
+   * The author display name and the presence user id are the reason this part
+   * is extracted at all, so a plan that redacts them has to reconcile against
+   * the reopened package exactly like any other carrier.
+   */
+  it('reconciles planned deltas across the author name and presence identity carriers', () => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', userId: 'dana.reviewer@example.test' });
+    const input = commentCompanionPackage(values);
+    const output = commentCompanionPackage({ ...values, personAuthor: '[PERSON_1]', userId: '[EMAIL_1]' });
+    const classified = commentCompanionSource(values);
+    const span = (value: string, id: string, entityType: 'PERSON' | 'EMAIL', replacement: string) => ({
+      id, entityType, start: classified.offsetOf(value),
+      end: classified.offsetOf(value) + unicodeCodePointLength(value), replacement
+    });
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, output, classified.text, classified.regions, [
+      span(values.personAuthor, actionId, 'PERSON', '[PERSON_1]'),
+      span(values.userId, 'act_00000000000000000000000002', 'EMAIL', '[EMAIL_1]')
+    ]))).toMatchObject({
+      outcome: 'RECONCILED_SUPPLIED_REGIONS', findings: [], retainedRegionCount: 21, classifiedRegionCount: 21
+    });
+  });
+
+  it('refuses to reconcile an author identity canary the writer claimed to remove but retained', () => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', personAuthor: 'canary-9f4c' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [{
+      id: actionId, entityType: 'CUSTOM', start: classified.offsetOf('canary-9f4c'),
+      end: classified.offsetOf('canary-9f4c') + unicodeCodePointLength('canary-9f4c'), replacement: '[CUSTOM_1]'
+    }]))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'PLANNED_NATIVE_DELTA_MISMATCH', count: 1 }]
+    });
+  });
+
+  it.each([
+    ['author display name', { personAuthor: 'alpha@example.test' }],
+    ['presence user identifier', { userId: 'alpha@example.test' }]
+  ])('fails an unredacted entity planted in the %s carrier', (_name, overrides) => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author', ...overrides });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values);
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, [])))
+      .toMatchObject({ outcome: 'FAIL', findings: expect.arrayContaining([{ code: 'RESIDUAL_ENTITY', count: 1, entityType: 'EMAIL' }]) as unknown[] });
+  });
+
+  it('refuses a source map that omits the author identity carriers the package actually carries', () => {
+    const values = companionValues({ commentValue: 'safe', author: 'safe-author' });
+    const input = commentCompanionPackage(values);
+    const classified = commentCompanionSource(values, 'people');
+
+    expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
+      outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
     });
   });
 
@@ -1065,7 +1150,7 @@ describe('independent DOCX verification foundation', () => {
   it('refuses a source map that omits the comment companion carriers the package actually carries', () => {
     const values = companionValues({ commentValue: 'safe' });
     const input = commentCompanionPackage(values);
-    const classified = commentCompanionSource(values, true);
+    const classified = commentCompanionSource(values, 'companion');
 
     expect(verifyIndependentDocxFoundation(requestFor(input, input, classified.text, classified.regions, []))).toMatchObject({
       outcome: 'INCOMPLETE', findings: [{ code: 'CARRIER_CLASSIFICATION_MISMATCH', count: 1 }]
