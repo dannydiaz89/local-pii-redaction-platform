@@ -146,6 +146,32 @@ describe('deterministic detectors', () => {
     expect(evidence[0]?.span.start).toBe(8);
   });
 
+
+  it.each([
+    '+1 (202) 555-0147', '202-555-0147', '(415) 555-0136', '+44 7700 900123',
+    '2025550147', '555-0147', '202.555.0147', '202 555 0147', '+1-202-555-0147'
+  ])('detects %s as a telephone number', (value) => {
+    const evidence = detectDeterministic(`Reach us at ${value} any time.`, revision);
+    expect(evidence.filter(({ entityType }) => entityType === 'PHONE')).toHaveLength(1);
+  });
+
+  it.each([
+    ['a revision identifier', '00123456'],
+    ['a paragraph identifier', '12345678'],
+    ['an EMU extent', '9525000'],
+    ['a short measurement', '165100'],
+    ['a year range', '2019-2023'],
+    ['an older year range', '1999-2005'],
+    ['an invoice number', '1234567'],
+    ['a ZIP+4 code', '12345-6789']
+  ])('does not read %s as a telephone number', (_name, value) => {
+    // Office packages carry identifiers and measurements in the same digit range as a phone
+    // number, and prose carries year ranges and postal codes, so a bare run of digits is not
+    // evidence on its own. See telephoneShaped.
+    const evidence = detectDeterministic(`Value ${value} end.`, revision);
+    expect(evidence.filter(({ entityType }) => entityType === 'PHONE')).toEqual([]);
+  });
+
   it('rejects structurally impossible SSNs and invalid Luhn candidates', () => {
     const text = 'SSN 000-12-3456 and card 4242 4242 4242 4241';
     const evidence = detectDeterministic(text, revision);

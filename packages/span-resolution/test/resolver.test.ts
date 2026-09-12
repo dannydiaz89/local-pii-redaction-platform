@@ -13,9 +13,43 @@ import { resolveEvidence } from '../src/index.js';
 const revision = parseSha256Digest(`sha256:${'b'.repeat(64)}`);
 
 describe('span resolution', () => {
-  it('uses declared containment precedence for parsed IPs over phone-shaped evidence', () => {
+  it('yields one unambiguous span for a parsed IP, with nothing left to suppress', () => {
+    // The phone detector once also matched dotted quads, so this resolved by precedence. It now
+    // requires telephone-shaped evidence, so an address produces a single candidate and the
+    // resolver has no competing evidence to discard. Precedence itself is exercised below,
+    // against constructed evidence, so the rule stays covered even though no detector pair
+    // currently produces this overlap.
     const text = '192.0.2.10';
     const result = resolveEvidence(detectDeterministic(text, revision), revision, unicodeCodePointLength(text));
+    expect(result.spans).toHaveLength(1);
+    expect(result.spans[0]?.entityType).toBe('IP_ADDRESS');
+    expect(result.conflicts).toHaveLength(0);
+    expect(result.suppressedEvidenceIds).toHaveLength(0);
+  });
+
+  it('applies declared containment precedence when an IP contains phone-shaped evidence', () => {
+    const base = {
+      span: { offsetUnit: 'UNICODE_CODE_POINT' as const, extractionRevision: revision },
+      source: 'REGEX' as const,
+      detector: { id: 'synthetic', version: '0.1.0' }
+    };
+    const contained: DetectionEvidence[] = [
+      {
+        ...base,
+        id: parseDetectionId('33333333-3333-4333-8333-333333333333'),
+        entityType: 'IP_ADDRESS',
+        confidence: 1,
+        span: { ...base.span, start: 0, end: 10 }
+      },
+      {
+        ...base,
+        id: parseDetectionId('44444444-4444-4444-8444-444444444444'),
+        entityType: 'PHONE',
+        confidence: 0.86,
+        span: { ...base.span, start: 0, end: 10 }
+      }
+    ];
+    const result = resolveEvidence(contained, revision, 10);
     expect(result.spans).toHaveLength(1);
     expect(result.spans[0]?.entityType).toBe('IP_ADDRESS');
     expect(result.conflicts).toHaveLength(0);

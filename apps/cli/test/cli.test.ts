@@ -944,7 +944,7 @@ describe('CLI TXT vertical slice', () => {
     expect(report.plan.id).toMatch(/^plan_[0-9A-HJKMNP-TV-Z]{26}$/u);
     expect(report.plan.resolutionDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(report.plan.capabilityDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
-    expect(report.plan.detectorBundleVersion).toBe('0.2.0');
+    expect(report.plan.detectorBundleVersion).toBe('0.3.0');
     expect(report.plan.writer).toEqual({ id: 'text-adapter', version: '0.1.0' });
     expect(report.plan.strategyVersion).toBe('0.1.0');
     expect(report.writerReceipt).toMatchObject({
@@ -965,7 +965,7 @@ describe('CLI TXT vertical slice', () => {
       writerReceiptDigest: report.writerReceipt.receiptDigest,
       profile: { id: 'text-rescan-v1', version: '0.1.0' },
       verifier: { id: 'text-verifier', version: '0.1.0' },
-      detectorBundle: { id: 'deterministic-text', version: '0.2.0' },
+      detectorBundle: { id: 'deterministic-text', version: '0.3.0' },
       writer: { id: 'text-adapter', version: '0.1.0' },
       application: { id: 'local-pii-cli', version: '0.1.0' },
       outcome: 'PASS',

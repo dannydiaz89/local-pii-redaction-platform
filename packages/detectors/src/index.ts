@@ -16,7 +16,7 @@ import {
   type UnicodeSpan
 } from '@local-pii/domain';
 
-export const deterministicDetectorBundleVersion = '0.2.0';
+export const deterministicDetectorBundleVersion = '0.3.0';
 
 const detectorIds = {
   email: 'email-pattern',
@@ -203,6 +203,34 @@ function validLuhn(value: string): boolean {
   return sum % 10 === 0;
 }
 
+function yearLike(group: string): boolean {
+  return group.length === 4 && Number(group) >= 1900 && Number(group) <= 2099;
+}
+
+/**
+ * A run of digits is not by itself evidence of a telephone number. Office packages are full of
+ * revision ids, paragraph ids, and EMU measurements in the same seven-to-nine digit range, and
+ * ordinary prose carries year ranges, ZIP+4 codes, and invoice numbers. A candidate therefore
+ * needs evidence of how telephone numbers are actually written: an explicit international
+ * prefix, a parenthesised group, or grouping that ends in a four-digit subscriber number. A run
+ * with no separator at all has to be long enough to be a complete number on its own.
+ *
+ * The cost is recall on international numbers written without their `+`, where the grouping is
+ * indistinguishable from an identifier; those are left to the contextual detectors rather than
+ * bought at the price of matching every identifier in the document.
+ */
+function telephoneShaped(value: string, digits: string): boolean {
+  if (value.startsWith('+') || value.includes('(')) return true;
+  const groups = value.split(/\D+/u).filter((group) => group.length > 0);
+  if (groups.length === 1) return digits.length >= 10;
+  const [first, second] = groups;
+  if (groups.length === 2 && first !== undefined && second !== undefined) {
+    if (yearLike(first) && yearLike(second)) return false;
+    if (first.length === 5 && second.length === 4) return false;
+  }
+  return groups[groups.length - 1]?.length === 4;
+}
+
 function collectCandidates(text: string, maximumCandidates: number, maximumCandidateLength: number): Candidate[] {
   const candidates: Candidate[] = [];
 
@@ -230,7 +258,7 @@ function collectCandidates(text: string, maximumCandidates: number, maximumCandi
   addMatches(candidates, text, /(?<!\w)(?:\+?\d[\d ().-]{5,}\d)(?!\w)/gu, maximumCandidates, maximumCandidateLength, (match) => {
     if (/^\d{4}-\d{2}-\d{2}$/u.test(match[0])) return undefined;
     const digits = match[0].replaceAll(/\D/gu, '');
-    return digits.length >= 7 && digits.length <= 15
+    return digits.length >= 7 && digits.length <= 15 && telephoneShaped(match[0], digits)
       ? { entityType: 'PHONE', confidence: 0.86, source: 'REGEX', detectorId: detectorIds.phone, ruleId: 'phone-general-v1' }
       : undefined;
   });
