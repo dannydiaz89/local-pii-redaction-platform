@@ -1,0 +1,4 @@
+Synthetic dense mixed-family challenge.
+Columns: name; employer; town; email; telephone; host; taxpayer id; card; account.
+1. Ingrid Sollozzo-Hale; Peridot Ferry Works; Calder Mills; ingrid.hale@example.test; +1 (503) 555-0121; 203.0.113.201; 402-11-8834; 4012 8888 8888 1881; PFW-6612
+2. Osric Delacroix-Mbeki; Alder Kiln Registry; Thorne Basin; o.delacroix@sample.invalid; (617) 555-0198; 2001:db8::2:41; 517-60-2291; 6011 1111 1111 1117; AKR-7734

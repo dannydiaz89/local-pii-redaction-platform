@@ -1,0 +1,5 @@
+Synthetic mixed-family contact record for evaluator development.
+Odile Fentress works at Bramblewick Signal Company in Tarn Hollow.
+Reach her at odile.fentress@example.test or on +1 (206) 555-0139.
+The office router is recorded as 192.0.2.55 on the asset sheet.
+Her recorded birth date is 1984-07-22 and the account reference is BSC-4417.

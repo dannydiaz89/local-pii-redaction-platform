@@ -12,6 +12,29 @@ import {
 /** This provider is intentionally opt-in until it has passed qualification. */
 export const ollamaLocalDetectorBundleVersion = '0.1.0-ollama-experimental.3';
 export const ollamaLocalDetectorId = 'ollama-local-model';
+/**
+ * The declared surface of the contextual detector, and the single source for the four places that
+ * surface is enforced: the system prompt's type list, the response schema's `entityType` enum, the
+ * anchoring allow-list, and the capability descriptor. It stays disjoint from the deterministic
+ * rules' types on purpose.
+ *
+ * Widening it to the rules-covered `EMAIL`, `PHONE`, `SSN`, `CREDIT_CARD` and `IP_ADDRESS` was
+ * built and measured against the widened harness corpus, and was not shipped. Under the six-type
+ * set `gemma3:4b` does shoehorn: 54 of 492 returned spans land exactly on a rules-covered value
+ * with a contextual label (email as PERSON, payment card and SSN as ACCOUNT_ID, address-like hosts
+ * as LOCATION). Allowing the true labels removed most of that, but cost recall on the types only
+ * the model can supply — ORGANIZATION 0.92 to 0.79 and ADDRESS 0.94 to 0.83 on `gemma3:4b`,
+ * DATE_OF_BIRTH 0.81 to 0.67 on `phi4-mini:3.8b` — while recalling only 54 of 75 rules-covered
+ * spans that `detectDeterministic` recalls exactly, at 0.25 recall on SSN in both models.
+ *
+ * The deciding cost is downstream, not in the scores. Every contextual type resolves at span
+ * priority 10, below every rules type, so a contextual mislabel on a rules span is silently
+ * dropped and the rules finding survives. A rules-covered label is not: `EMAIL` (70) returned over
+ * a span the rules called `PHONE` (50), or `CREDIT_CARD` (90) over a rules `EMAIL`, replaces the
+ * deterministic finding with an uncalibrated 0.5 model guess and raises no conflict. Widening
+ * therefore converts a harmless invisible mislabel into a harmful invisible displacement, which is
+ * why the surface stays disjoint until the resolver can express corroboration and disagreement.
+ */
 export const ollamaContextualEntityTypes = [
   'PERSON',
   'ADDRESS',
