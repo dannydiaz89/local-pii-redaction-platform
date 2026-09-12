@@ -229,6 +229,29 @@ interface CommentCompanionBodies {
   readonly commentParagraphIds?: readonly [string, string];
   readonly omitComments?: true;
   readonly omitCompanions?: true;
+  readonly revisions?: string;
+}
+
+const deletedCanary = 'deleted-canary bravo@example.test';
+
+/**
+ * The shape Word leaves behind when someone edits with tracking on: the text
+ * of the deletion and of the source side of the move is still in the package
+ * although no reader sees it, the paragraph mark itself carries an insertion
+ * revision, and every one of these elements names the reviewer who made it.
+ */
+function revisionParagraph(deletedValue: string): string {
+  return '<w:p w14:paraId="2B3C4D5E" w14:textId="6F7A8B9C" w:rsidR="00AA00BB" w:rsidRDefault="00AA00BB">'
+    + '<w:pPr><w:rPr><w:ins w:id="16" w:author="Robin Author" w:date="2026-01-02T06:07:08Z"/></w:rPr></w:pPr>'
+    + '<w:r><w:t xml:space="preserve">holder </w:t></w:r>'
+    + `<w:del w:id="10" w:author="Dana Reviewer" w:date="2026-01-02T05:06:07Z"><w:r><w:delText xml:space="preserve">${deletedValue}</w:delText></w:r></w:del>`
+    + '<w:ins w:id="11" w:author="Robin Author" w:date="2026-01-02T06:07:08Z"><w:r><w:t>inserted-canary</w:t></w:r></w:ins>'
+    + '<w:moveFromRangeStart w:id="12" w:name="move-canary" w:author="Dana Reviewer" w:date="2026-01-02T07:08:09Z"/>'
+    + '<w:moveFrom w:id="13" w:author="Dana Reviewer" w:date="2026-01-02T07:08:09Z"><w:r><w:delText>moved-from-canary</w:delText></w:r></w:moveFrom>'
+    + '<w:moveFromRangeEnd w:id="12"/>'
+    + '<w:moveToRangeStart w:id="14" w:name="move-canary" w:author="Dana Reviewer" w:date="2026-01-02T07:08:09Z"/>'
+    + '<w:moveTo w:id="15" w:author="Dana Reviewer" w:date="2026-01-02T07:08:09Z"><w:r><w:t>moved-to-canary</w:t></w:r></w:moveTo>'
+    + '<w:moveToRangeEnd w:id="14"/></w:p>';
 }
 
 /**
@@ -275,7 +298,7 @@ function wordAuthoredCommentParts(bodies: CommentCompanionBodies = {}): Syntheti
     },
     {
       name: 'word/document.xml',
-      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${markupNamespaces} xmlns:r="${officeRelationshipNamespace}" xmlns:w15="${compatibilityNamespaces.w15}" mc:Ignorable="w14 w15"><w:body>${anchoredParagraph}${sectionProperties}</w:body></w:document>`
+      contents: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${markupNamespaces} xmlns:r="${officeRelationshipNamespace}" xmlns:w15="${compatibilityNamespaces.w15}" mc:Ignorable="w14 w15"><w:body>${anchoredParagraph}${bodies.revisions ?? ''}${sectionProperties}</w:body></w:document>`
     },
     {
       name: 'word/_rels/document.xml.rels',
@@ -553,7 +576,7 @@ describe('DOCX adapter', () => {
       { schemaVersion: '2.0.0', kind: 'DOCX_XML_VALUE', part: 'word/people.xml', element: 'w15:presenceInfo', elementOrdinal: 2, carrier: 'ATTRIBUTE', attribute: 'w15:userId' }
     ]);
     expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'comment-author-identity-and-presence-part', status: 'SUPPORTED' });
-    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'revision-move-and-reaction-author-identity', status: 'BLOCKED' });
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'comment-reaction-author-identity', status: 'BLOCKED' });
     expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'glossary-and-subdocument-parts', status: 'BLOCKED' });
   });
 
@@ -641,6 +664,106 @@ describe('DOCX adapter', () => {
     const path = await writeSyntheticDocx(wordAuthoredCommentParts({ omitComments: true, omitCompanions: true }));
 
     await expect(readDocxArtifact(path)).rejects.toMatchObject({ code: 'FORMAT_CORRUPT' });
+  });
+
+  /**
+   * The decisive case for tracked revisions. `deleted-canary` was removed in
+   * Word and is still in the package, so it has to reach the canonical text and
+   * be scanned like any visible run. Deleted text keeps its document position
+   * rather than being appended, so a deleted value stays next to the cue words
+   * that make it detectable, but it never shares a segment with shown text:
+   * concatenating the two would build tokens that exist in neither reading of
+   * the document.
+   */
+  it('extracts deleted and moved-from text as scanned canonical segments in document order', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts({ revisions: revisionParagraph(deletedCanary) }));
+
+    const artifact = await readDocxArtifact(path);
+
+    const paragraphBoundary = '\n\u0000\n';
+    expect(artifact.text.split('\n\u0000DOCX-CARRIER\u0000\n')[0]).toBe([
+      'body-canary', 'holder ', deletedCanary, 'inserted-canary', 'moved-from-canary', 'moved-to-canary',
+      'comment-canary alpha@example.test', 'reply-canary'
+    ].join(paragraphBoundary));
+    expect(artifact.regions.filter(({ location }) => location.kind === 'DOCX_PART').map(({ location }) => location.kind === 'DOCX_PART' ? location.paragraph : 0))
+      .toEqual([1, 2, 2, 2, 2, 2, 1, 2]);
+  });
+
+  /**
+   * Reviewer identity on a revision is the same class of value as the comment
+   * author already mapped, so every `w:author`, `w:date` and move-range name is
+   * an ordinary v2 XML value carrier and only the revision ids stay structural.
+   */
+  it('maps revision reviewer identity and move-range names as scanned carriers', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts({ revisions: revisionParagraph(deletedCanary) }));
+
+    const artifact = await readDocxArtifact(path);
+
+    const revisionCarriers = artifact.regions
+      .filter(({ location }) => location.kind === 'DOCX_XML_VALUE' && location.part === 'word/document.xml' && !location.element.startsWith('w:move') && location.element !== 'w:rStyle')
+      .map(({ location }) => location.kind === 'DOCX_XML_VALUE' ? `${location.element}#${String(location.elementOrdinal)}/${location.attribute ?? ''}` : '');
+    expect(revisionCarriers).toEqual([
+      'w:del#1/w:author', 'w:del#1/w:date',
+      'w:ins#1/w:author', 'w:ins#1/w:date', 'w:ins#2/w:author', 'w:ins#2/w:date'
+    ]);
+    expect(artifact.regions
+      .filter(({ location }) => location.kind === 'DOCX_XML_VALUE' && location.element.startsWith('w:move'))
+      .map(({ location }) => location.kind === 'DOCX_XML_VALUE' ? `${location.element}/${location.attribute ?? ''}` : ''))
+      .toEqual([
+        'w:moveFrom/w:author', 'w:moveFrom/w:date',
+        'w:moveFromRangeStart/w:author', 'w:moveFromRangeStart/w:date', 'w:moveFromRangeStart/w:name',
+        'w:moveTo/w:author', 'w:moveTo/w:date',
+        'w:moveToRangeStart/w:author', 'w:moveToRangeStart/w:date', 'w:moveToRangeStart/w:name'
+      ]);
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'tracked-revision-text-moves-and-reviewer-identity', status: 'SUPPORTED' });
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'revision-formatting-change-elements', status: 'BLOCKED' });
+    expect(docxAdapterCapabilityDescriptor.features).toContainEqual({ id: 'comment-reaction-author-identity', status: 'BLOCKED' });
+  });
+
+  /**
+   * The independent verifier reconstructs the same canonical sequence for the
+   * same package shape in `packages/verification/test/docx.test.ts`. Pinning the
+   * digest on both sides makes a deleted-text surface only one implementation
+   * can see fail a test instead of passing silently.
+   */
+  it('pins the tracked revision extraction revision shared with the independent verifier', async () => {
+    const path = await writeSyntheticDocx(wordAuthoredCommentParts({ revisions: revisionParagraph(deletedCanary) }));
+
+    const artifact = await readDocxArtifact(path);
+
+    expect(artifact.extractionRevision).toBe('sha256:32b6a23df910c0d2517b37213e55e21983f8a246ee36930e056efd4d1503c777');
+  });
+
+  it.each([
+    ['shown text inside a deletion', '<w:p><w:del w:id="1" w:author="Dana Reviewer"><w:r><w:t>deleted-canary</w:t></w:r></w:del></w:p>'],
+    ['deleted text outside any deletion', '<w:p><w:r><w:delText>deleted-canary</w:delText></w:r></w:p>'],
+    ['deleted text inside an insertion', '<w:p><w:ins w:id="1" w:author="Dana Reviewer"><w:r><w:delText>deleted-canary</w:delText></w:r></w:ins></w:p>'],
+    ['a revision that names no reviewer', '<w:p><w:del w:id="1"><w:r><w:delText>deleted-canary</w:delText></w:r></w:del></w:p>'],
+    ['a revision with an empty reviewer name', '<w:p><w:del w:id="1" w:author=""><w:r><w:delText>deleted-canary</w:delText></w:r></w:del></w:p>'],
+    ['a revision with no identifier', '<w:p><w:del w:author="Dana Reviewer"><w:r><w:delText>deleted-canary</w:delText></w:r></w:del></w:p>'],
+    ['a move range that is never closed', '<w:p><w:moveFromRangeStart w:id="1" w:name="m" w:author="Dana Reviewer"/><w:moveFrom w:id="2" w:author="Dana Reviewer"><w:r><w:delText>deleted-canary</w:delText></w:r></w:moveFrom></w:p>'],
+    ['a move range end with no start', '<w:p><w:r><w:t>safe</w:t></w:r><w:moveToRangeEnd w:id="1"/></w:p>'],
+    ['a move range closed by the opposite direction', '<w:p><w:moveFromRangeStart w:id="1" w:name="m" w:author="Dana Reviewer"/><w:moveToRangeEnd w:id="1"/></w:p>'],
+    ['a move range start with no name', '<w:p><w:moveFromRangeStart w:id="1" w:author="Dana Reviewer"/><w:moveFromRangeEnd w:id="1"/></w:p>'],
+    ['a paragraph mark revision carrying runs', '<w:p><w:pPr><w:rPr><w:ins w:id="1" w:author="Dana Reviewer"><w:r><w:t>deleted-canary</w:t></w:r></w:ins></w:rPr></w:pPr></w:p>'],
+    ['a run property formatting revision', '<w:p><w:r><w:rPr><w:rPrChange w:id="1" w:author="Dana Reviewer"/></w:rPr><w:t>safe</w:t></w:r></w:p>'],
+    ['a paragraph property formatting revision', '<w:p><w:pPr><w:pPrChange w:id="1" w:author="Dana Reviewer"/></w:pPr></w:p>'],
+    ['a formatting revision retaining the properties it replaced', '<w:p><w:r><w:rPr><w:rPrChange w:id="1" w:author="Dana Reviewer"><w:rPr><w:b/></w:rPr></w:rPrChange></w:rPr><w:t>safe</w:t></w:r></w:p>'],
+    ['a table property formatting revision', '<w:tbl><w:tblPr><w:tblPrChange w:id="1" w:author="Dana Reviewer"><w:tblPr/></w:tblPrChange></w:tblPr><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>'],
+    ['a section property formatting revision', '<w:p><w:pPr><w:sectPr><w:sectPrChange w:id="1" w:author="Dana Reviewer"><w:sectPr/></w:sectPrChange></w:sectPr></w:pPr></w:p>']
+  ])('refuses %s without exposing planted revision content', async (_name, body) => {
+    const path = await docxFile(documentXml(body));
+
+    try {
+      await readDocxArtifact(path);
+      throw new Error('Expected the synthetic revision to be rejected.');
+    } catch (error: unknown) {
+      const code = (error as { code?: unknown }).code;
+      expect(['FORMAT_CORRUPT', 'FORMAT_UNSUPPORTED']).toContain(code);
+      const envelope = JSON.stringify({ code, message: (error as Error).message, details: (error as { details?: unknown }).details });
+      expect(envelope).not.toContain('deleted-canary');
+      expect(envelope).not.toContain('Dana Reviewer');
+    }
   });
 
   it('orders comment paragraphs after every other declared text part', async () => {

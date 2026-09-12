@@ -25,7 +25,7 @@ import {
 } from '@local-pii/domain';
 import { assertTypedLabelPlanIntegrity, type TypedLabelAction, type TypedLabelPlan } from '@local-pii/redaction';
 
-export const docxAdapterVersion = '0.8.0';
+export const docxAdapterVersion = '0.9.0';
 export const defaultMaximumDocxInputBytes = 25 * 1024 * 1024;
 export const docxWriterDescriptor = Object.freeze({
   id: 'docx-adapter',
@@ -46,6 +46,7 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'comment-text-anchors-and-annotation-identity', status: 'SUPPORTED' },
     { id: 'comment-threading-durable-id-and-date-companion-parts', status: 'SUPPORTED' },
     { id: 'comment-author-identity-and-presence-part', status: 'SUPPORTED' },
+    { id: 'tracked-revision-text-moves-and-reviewer-identity', status: 'SUPPORTED' },
     { id: 'structural-tabs-and-note-references', status: 'SUPPORTED' },
     { id: 'strict-passive-word-support-parts', status: 'SUPPORTED' },
     { id: 'scanned-external-hyperlink-targets', status: 'SUPPORTED' },
@@ -60,8 +61,9 @@ export const docxAdapterCapabilityDescriptor = {
     { id: 'glossary-and-subdocument-parts', status: 'BLOCKED' },
     { id: 'text-boxes-and-inline-alternate-text-flows', status: 'BLOCKED' },
     { id: 'images-drawings-and-embedded-objects', status: 'BLOCKED' },
-    { id: 'revisions-fields-hidden-text-and-controls', status: 'BLOCKED' },
-    { id: 'revision-move-and-reaction-author-identity', status: 'BLOCKED' },
+    { id: 'fields-hidden-text-and-controls', status: 'BLOCKED' },
+    { id: 'revision-formatting-change-elements', status: 'BLOCKED' },
+    { id: 'comment-reaction-author-identity', status: 'BLOCKED' },
     { id: 'zip64-and-encrypted-entries', status: 'BLOCKED' },
     { id: 'symbolic-links', status: 'BLOCKED' },
     { id: 'sandboxed-worker-isolation', status: 'BLOCKED' }
@@ -624,18 +626,52 @@ function carrierIdentity(carrier: XmlCarrierValue): string {
     : `X\u0000${location.part}\u0000${location.element}\u0000${String(location.elementOrdinal).padStart(7, '0')}\u0000${location.carrier}\u0000${location.attribute ?? ''}`;
 }
 
-const blockedDocumentTags = new Set([
-  'w:altChunk', 'w:bookmarkStart', 'w:bookmarkEnd', 'w:br', 'w:cr', 'w:customXml', 'w:del', 'w:delText',
-  'w:fldChar', 'w:fldSimple', 'w:ins', 'w:instrText', 'w:moveFrom', 'w:moveFromRangeStart', 'w:moveFromRangeEnd',
-  'w:moveTo', 'w:moveToRangeStart', 'w:moveToRangeEnd', 'w:noBreakHyphen', 'w:object', 'w:oleObject',
-  'w:ptab', 'w:sdt', 'w:softHyphen', 'w:sym', 'w:txbxContent', 'w:vanish', 'w:webHidden', 'w:specVanish'
+const formattingRevisionElements = Object.freeze([
+  'w:pPrChange', 'w:rPrChange', 'w:sectPrChange', 'w:tblPrChange', 'w:tblPrExChange',
+  'w:tblGridChange', 'w:trPrChange', 'w:tcPrChange'
 ]);
+
+const blockedDocumentTags = new Set([
+  'w:altChunk', 'w:bookmarkStart', 'w:bookmarkEnd', 'w:br', 'w:cr', 'w:customXml',
+  'w:fldChar', 'w:fldSimple', 'w:instrText', 'w:delInstrText', 'w:noBreakHyphen', 'w:object', 'w:oleObject',
+  'w:ptab', 'w:sdt', 'w:softHyphen', 'w:sym', 'w:txbxContent', 'w:vanish', 'w:webHidden', 'w:specVanish',
+  // The revision *content* elements are extracted; the revision *formatting*
+  // elements are not. Each of these wraps a copy of the properties a revision
+  // replaced, which is an open property subtree rather than the closed run and
+  // paragraph shape the text parts already validate, so accepting them would
+  // declare a surface whose classification this adapter cannot close. They are
+  // also named in `resumeTextElements`, so this list rather than that one is
+  // what refuses them and a future attempt to support them has to delete a
+  // deliberate entry instead of quietly widening an allow-list.
+  ...formattingRevisionElements,
+  'w:numberingChange', 'w:cellIns', 'w:cellDel', 'w:cellMerge',
+  'w:customXmlInsRangeStart', 'w:customXmlInsRangeEnd', 'w:customXmlDelRangeStart', 'w:customXmlDelRangeEnd',
+  'w:customXmlMoveFromRangeStart', 'w:customXmlMoveFromRangeEnd', 'w:customXmlMoveToRangeStart', 'w:customXmlMoveToRangeEnd'
+]);
+
+/**
+ * `w:delText` holds text the author deleted in Word and which the saved package
+ * still carries, so it is a first-class text surface rather than a formatting
+ * artefact: a name or an account number "removed" with tracking on is sitting
+ * in these nodes. `w:t` is the text a reader sees with revisions shown, and
+ * `w:delText` is the text that reading hides, so the two are different streams
+ * of the same paragraph and are never concatenated into one canonical segment.
+ */
+const revisionTextElement = 'w:delText';
+const textNodeElements = new Set(['w:t', revisionTextElement]);
+const revisionContentElements = new Set(['w:ins', 'w:del', 'w:moveFrom', 'w:moveTo']);
+const deletedContentElements = new Set(['w:del', 'w:moveFrom']);
+const revisionRangeMarks = new Set(['w:moveFromRangeStart', 'w:moveFromRangeEnd', 'w:moveToRangeStart', 'w:moveToRangeEnd']);
+const runParents = new Set(['w:p', 'w:hyperlink', ...revisionContentElements]);
 
 const resumeTextElements = new Set([
   'w:document', 'w:hdr', 'w:ftr', 'w:footnotes', 'w:endnotes', 'w:comments', 'w:body', 'w:p', 'w:pPr', 'w:r', 'w:rPr',
   'w:t', 'w:tab', 'w:sectPr', 'w:headerReference', 'w:footerReference', 'w:footnoteReference',
   'w:endnoteReference', 'w:separator', 'w:continuationSeparator', 'w:footnote', 'w:endnote',
-  'w:comment', 'w:commentRangeStart', 'w:commentRangeEnd', 'w:commentReference', 'w:annotationRef', 'w:tbl', 'w:tblPr',
+  'w:comment', 'w:commentRangeStart', 'w:commentRangeEnd', 'w:commentReference', 'w:annotationRef',
+  'w:ins', 'w:del', 'w:delText', 'w:moveFrom', 'w:moveTo',
+  'w:moveFromRangeStart', 'w:moveFromRangeEnd', 'w:moveToRangeStart', 'w:moveToRangeEnd',
+  ...formattingRevisionElements, 'w:tbl', 'w:tblPr',
   'w:tblGrid', 'w:gridCol', 'w:tr', 'w:trPr', 'w:tc', 'w:tcPr', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:noProof',
   'w:pStyle', 'w:rStyle', 'w:rFonts', 'w:color', 'w:sz', 'w:szCs', 'w:u', 'w:spacing', 'w:ind', 'w:jc',
   'w:tabs', 'w:numPr', 'w:ilvl', 'w:numId', 'w:proofErr', 'w:pgSz', 'w:pgMar', 'w:cols', 'w:docGrid',
@@ -651,9 +687,22 @@ const resumeTextElements = new Set([
 
 const commonTextParents: Readonly<Record<string, readonly string[]>> = {
   'w:pPr': ['w:p'],
-  'w:r': ['w:p', 'w:hyperlink'],
+  'w:r': [...runParents],
   'w:rPr': ['w:r', 'w:pPr'],
   'w:t': ['w:r'],
+  'w:delText': ['w:r'],
+  // A revision wraps runs inside a paragraph or a hyperlink; `w:del` also
+  // nests inside `w:ins` for text that was inserted and then deleted again.
+  // Inside `w:rPr` the same two elements mark the paragraph mark itself as
+  // inserted or deleted and carry author identity without any text.
+  'w:ins': ['w:p', 'w:hyperlink', 'w:rPr'],
+  'w:del': ['w:p', 'w:hyperlink', 'w:ins', 'w:rPr'],
+  'w:moveFrom': ['w:p', 'w:hyperlink'],
+  'w:moveTo': ['w:p', 'w:hyperlink'],
+  'w:moveFromRangeStart': ['w:p'],
+  'w:moveFromRangeEnd': ['w:p'],
+  'w:moveToRangeStart': ['w:p'],
+  'w:moveToRangeEnd': ['w:p'],
   'w:tab': ['w:r', 'w:tabs'],
   'w:footnoteReference': ['w:r'],
   'w:endnoteReference': ['w:r'],
@@ -760,7 +809,7 @@ function allowedParentsFor(descriptor: TextPartDescriptor): Readonly<Record<stri
 
 function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTextPartRaw {
   const xml = decodeUtf8Xml(bytes);
-  const structuralTextElements = new Set(['w:t', 'wp:posOffset', 'wp:align']);
+  const structuralTextElements = new Set([...textNodeElements, 'wp:posOffset', 'wp:align']);
   const elements = scanXml(xml, structuralTextElements);
   validateDecorativeAlternateContent(elements);
   const root = elements.find((element) => !element.closing);
@@ -781,16 +830,25 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
   const closedCommentRanges = new Set<number>();
   const referencedHyperlinkIds = new Set<string>();
   const specialNoteIds = new Set<number>();
+  const openMoveRanges = new Map<string, Set<number>>();
   let activeSpecialNote: { readonly type: 'separator' | 'continuationSeparator'; markerSeen: boolean } | undefined;
+  const ancestors: string[] = [];
+  // `w:delText` is only deleted text when it sits inside a deletion, and `w:t`
+  // is only shown text when it does not, so the canonical segmentation rule
+  // below can key on the text element name alone once this holds.
+  const withinDeletion = (): boolean => ancestors.some((name) => deletedContentElements.has(name));
   for (const element of elements) {
     if (blockedDocumentTags.has(element.name)) featureUnsupported('unknown_feature');
     const parents = allowedParents[element.name];
-    if (!element.closing && element.name === 'w:t' && element.parent !== 'w:r') featureUnsupported('drawing_or_alternate_content');
+    if (!element.closing && element.name === 'w:t' && (element.parent !== 'w:r' || withinDeletion())) featureUnsupported('drawing_or_alternate_content');
+    if (!element.closing && element.name === revisionTextElement && (element.parent !== 'w:r' || !withinDeletion())) featureUnsupported('unknown_feature');
     if (!resumeTextElements.has(element.name)) featureUnsupported('unknown_feature');
     if (parents !== undefined && !element.closing && !parents.includes(element.parent)) {
       featureUnsupported('unknown_feature');
     }
-    if (!element.closing && element.name === 'w:r' && element.parent !== 'w:p' && element.parent !== 'w:hyperlink') featureUnsupported('unknown_feature');
+    if (!element.closing && element.name === 'w:r' && !runParents.has(element.parent ?? '')) featureUnsupported('unknown_feature');
+    if (!element.closing && !element.selfClosing) ancestors.push(element.name);
+    if (element.closing) ancestors.pop();
     if (!element.closing && (element.name === 'w:drawing' || element.name === 'w:pict') && element.selfClosing) featureUnsupported('drawing_or_alternate_content');
     if (!element.closing && element.name === 'mc:Choice' && element.parent !== 'mc:AlternateContent') featureUnsupported('drawing_or_alternate_content');
     if (!element.closing && element.name === 'mc:Fallback' && element.parent !== 'mc:AlternateContent') featureUnsupported('drawing_or_alternate_content');
@@ -818,9 +876,40 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
         if (declaredCommentParagraphIds.has(paragraphId)) formatCorrupt();
         declaredCommentParagraphIds.add(paragraphId);
       }
-    } else if (element.name === 'w:t') {
+    } else if (textNodeElements.has(element.name)) {
       if (activeSpecialNote !== undefined) featureUnsupported('unknown_feature');
       if (attributeEntries.length > 1 || (attributeEntries.length === 1 && (firstAttribute?.[0] !== 'xml:space' || firstAttribute[1] !== 'preserve'))) featureUnsupported('unknown_feature');
+    } else if (revisionContentElements.has(element.name)) {
+      // Reviewer identity on a revision is the same class of value as the
+      // comment author already mapped, so w:author and w:date stay off the
+      // structural table and become scanned carriers; only the revision id is
+      // structure. A revision with no author names no reviewer at all.
+      const allowed = new Set(['w:id', 'w:author', 'w:date']);
+      if (
+        attributeEntries.some(([name]) => !allowed.has(name))
+        || !/^(?:0|[1-9][0-9]{0,8})$/u.test(element.attributes['w:id'] ?? '')
+        || (element.attributes['w:author'] ?? '').length === 0
+        // A paragraph-mark revision marks the mark itself and carries no runs.
+        || (element.parent === 'w:rPr' && (!element.selfClosing || ancestors.at(-2) !== 'w:pPr'))
+      ) featureUnsupported('unknown_feature');
+    } else if (revisionRangeMarks.has(element.name)) {
+      const start = element.name.endsWith('RangeStart');
+      const allowed = new Set(start ? ['w:id', 'w:name', 'w:author', 'w:date'] : ['w:id']);
+      if (
+        !element.selfClosing || attributeEntries.some(([name]) => !allowed.has(name))
+        || !/^(?:0|[1-9][0-9]{0,8})$/u.test(element.attributes['w:id'] ?? '')
+        || (start && ((element.attributes['w:name'] ?? '').length === 0 || (element.attributes['w:author'] ?? '').length === 0))
+      ) featureUnsupported('unknown_feature');
+      // A move range whose end never arrives leaves moved text this adapter
+      // cannot attribute to a direction, so the pairs must balance the way the
+      // comment ranges do.
+      const kind = element.name.slice(0, element.name.indexOf('Range'));
+      const open = openMoveRanges.get(kind) ?? new Set<number>();
+      openMoveRanges.set(kind, open);
+      const id = Number(element.attributes['w:id']);
+      if (start === open.has(id)) featureUnsupported('unknown_feature');
+      if (start) open.add(id);
+      else open.delete(id);
     } else if (element.name === 'w:tab') {
       if (!element.selfClosing || (element.parent === 'w:r' && attributeEntries.length > 0)) featureUnsupported('unknown_feature');
     } else if (element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference') {
@@ -906,11 +995,13 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
 
   if (openCommentRanges.size !== 0) formatCorrupt();
   for (const id of closedCommentRanges) if (!referencedCommentIds.has(id)) formatCorrupt();
+  for (const open of openMoveRanges.values()) if (open.size !== 0) formatCorrupt();
 
   const provisional: RawSegment[] = [];
   let paragraphNumber = 0;
   let currentSegments: RawTextNode[][] | undefined;
   let textOpening: XmlElement | undefined;
+  let lastTextElement: string | undefined;
   let textNodeCount = 0;
   for (const element of elements) {
     if (!element.closing && element.name === 'w:p') {
@@ -918,6 +1009,7 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
       paragraphNumber += 1;
       if (paragraphNumber > maximumParagraphs) formatCorrupt();
       currentSegments = [[]];
+      lastTextElement = undefined;
     } else if (element.closing && element.name === 'w:p') {
       if (currentSegments === undefined || textOpening !== undefined) formatCorrupt();
       const nonempty = currentSegments.filter((nodes) => nodes.length > 0);
@@ -928,10 +1020,16 @@ function parseTextPart(bytes: Buffer, descriptor: TextPartDescriptor): ParsedTex
     } else if (!element.closing && ((element.name === 'w:tab' && element.parent === 'w:r') || element.name === 'w:footnoteReference' || element.name === 'w:endnoteReference' || element.name === 'w:commentReference' || element.name === 'w:annotationRef')) {
       if (currentSegments === undefined) formatCorrupt();
       if ((currentSegments.at(-1)?.length ?? 0) > 0) currentSegments.push([]);
-    } else if (!element.closing && element.name === 'w:t') {
+    } else if (!element.closing && textNodeElements.has(element.name)) {
       if (currentSegments === undefined || textOpening !== undefined || element.selfClosing) formatCorrupt();
+      // Deleted text and shown text are two readings of the same paragraph, so
+      // a change of stream ends the segment exactly as a reference mark does.
+      // Concatenating them would manufacture tokens neither reading contains
+      // and would hand the detectors a value that spans the two.
+      if (lastTextElement !== undefined && lastTextElement !== element.name && (currentSegments.at(-1)?.length ?? 0) > 0) currentSegments.push([]);
+      lastTextElement = element.name;
       textOpening = element;
-    } else if (element.closing && element.name === 'w:t') {
+    } else if (element.closing && textNodeElements.has(element.name)) {
       if (textOpening === undefined || currentSegments === undefined) formatCorrupt();
       if (textNodeCount >= maximumTextNodes) formatCorrupt();
       const rawStart = textOpening.openingEnd;
@@ -1352,6 +1450,13 @@ const closedStructuralAttributeValidators: Readonly<Record<string, StructuralAtt
   [structuralPair('w:endnote', 'w:id')]: boundedSignedDecimal(999_999_999),
   [structuralPair('w:endnote', 'w:type')]: noteType,
   [structuralPair('w:comment', 'w:id')]: unsignedInt31,
+  [structuralPair('w:delText', 'xml:space')]: exactStructuralValues('preserve'),
+  // Only the revision id is structure. w:author, w:date and the move-range
+  // w:name are reviewer identity and a user-chosen range label, so they are
+  // absent here and reach the canonical text as scanned carriers.
+  ...Object.fromEntries(
+    ['w:ins', 'w:del', 'w:moveFrom', 'w:moveTo', ...revisionRangeMarks].map((element) => [structuralPair(element, 'w:id'), unsignedInt31])
+  ),
   [structuralPair('w15:commentEx', 'w15:paraId')]: hex8,
   [structuralPair('w15:commentEx', 'w15:paraIdParent')]: hex8,
   [structuralPair('w15:commentEx', 'w15:done')]: onOff,
