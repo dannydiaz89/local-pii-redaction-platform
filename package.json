@@ -50,7 +50,7 @@
     "axe-core": "^4.13.0",
     "eslint": "^9.32.0",
     "fastify": "^5.12.1",
-    "hono": "^4.13.5",
+    "hono": "^4.13.11",
     "jsdom": "^30.0.1",
     "json-schema-to-typescript": "^15.0.4",
     "tsx": "^4.20.3",
