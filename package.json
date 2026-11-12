@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
-    "@hono/node-server": "^2.1.0",
+    "@hono/node-server": "^2.1.6",
     "@local-pii/policy": "workspace:*",
     "@local-pii/profile-local": "workspace:*",
     "@local-pii/provider-ollama": "workspace:*",
